@@ -17,7 +17,7 @@ echo "=== [Omni CI] Toolchain Qualification Gate ==="
 
 [[ -f "${TOOLCHAIN_FILE}" ]] || fail "Toolchain definition file missing at ${TOOLCHAIN_FILE}"
 
-EXPECTED_CHANNEL="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/ {print $2}' "${TOOLCHAIN_FILE}")"
+EXPECTED_CHANNEL="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/ {print $2}' "${TOOLCHAIN_FILE}" | tr -d '\r')"
 [[ -n "${EXPECTED_CHANNEL}" ]] || fail "Failed to parse 'channel' from ${TOOLCHAIN_FILE}"
 echo "[+] Pinned toolchain channel: ${EXPECTED_CHANNEL}"
 
@@ -25,23 +25,24 @@ for bin in rustup rustc cargo rustfmt cargo-clippy; do
     command -v "${bin}" >/dev/null 2>&1 || fail "Required binary '${bin}' not found in PATH."
 done
 
-ACTIVE_TOOLCHAIN="$(rustup show active-toolchain | awk '{print $1}')"
+ACTIVE_TOOLCHAIN="$(rustup show active-toolchain | tr -d '\r' | awk '{print $1}')"
 case "${ACTIVE_TOOLCHAIN}" in
     "${EXPECTED_CHANNEL}"|"${EXPECTED_CHANNEL}-"*) ;;
     *) fail "Active rustup toolchain (${ACTIVE_TOOLCHAIN}) does not match pinned channel (${EXPECTED_CHANNEL})." ;;
 esac
 
-ACTIVE_RUSTC_VERSION="$(rustc --version)"
+ACTIVE_RUSTC_VERSION="$(rustc --version | tr -d '\r')"
 echo "[+] Detected rustc version: ${ACTIVE_RUSTC_VERSION}"
 grep -F -q " ${EXPECTED_CHANNEL} " <<<" ${ACTIVE_RUSTC_VERSION} " || fail "Active rustc (${ACTIVE_RUSTC_VERSION}) does not match pinned channel (${EXPECTED_CHANNEL})."
 
-INSTALLED_COMPONENTS="$(rustup component list --installed --toolchain "${EXPECTED_CHANNEL}" 2>/dev/null || true)"
+INSTALLED_COMPONENTS="$(rustup component list --installed --toolchain "${EXPECTED_CHANNEL}" 2>/dev/null | tr -d '\r' || true)"
 for component in "${EXPECTED_COMPONENTS[@]}"; do
-    grep -F -q "${component} " <<<"${INSTALLED_COMPONENTS}" || fail "Required component '${component}' is not installed for ${EXPECTED_CHANNEL}."
+    base_component="${component%-preview}"
+    grep -E -q "^(${component}|${base_component})(-|$)" <<<"${INSTALLED_COMPONENTS}" || fail "Required component '${component}' is not installed for ${EXPECTED_CHANNEL}."
     echo "[+] Verified component: ${component}"
 done
 
-INSTALLED_TARGETS="$(rustup target list --installed --toolchain "${EXPECTED_CHANNEL}")"
+INSTALLED_TARGETS="$(rustup target list --installed --toolchain "${EXPECTED_CHANNEL}" | tr -d '\r')"
 for target in "${REQUIRED_TARGETS[@]}"; do
     grep -F -x -q "${target}" <<<"${INSTALLED_TARGETS}" || fail "Required target '${target}' is not installed for ${EXPECTED_CHANNEL}."
     echo "[+] Verified target: ${target}"
@@ -50,7 +51,7 @@ done
 rustfmt --version >/dev/null 2>&1 || fail "rustfmt execution failed."
 cargo clippy --version >/dev/null 2>&1 || fail "cargo-clippy execution failed."
 
-if [[ "$(rustup run "${EXPECTED_CHANNEL}" rustc --version)" != "${ACTIVE_RUSTC_VERSION}" ]]; then
+if [[ "$(rustup run "${EXPECTED_CHANNEL}" rustc --version | tr -d '\r')" != "${ACTIVE_RUSTC_VERSION}" ]]; then
     fail "Active rustc differs from rustup toolchain ${EXPECTED_CHANNEL} rustc."
 fi
 
