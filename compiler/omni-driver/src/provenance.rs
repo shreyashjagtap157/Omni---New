@@ -10,7 +10,11 @@ pub struct ArtifactProvenance {
 }
 
 impl ArtifactProvenance {
+    #[allow(dead_code)]
+    
+    #[allow(dead_code)]
     pub fn compute(spec_sha: &str, plan_sha: &str, target: &str, artifact_bytes: &[u8]) -> Self {
+        artifact_bytes: &[u8]) -> Self {
         let mut hasher = Sha256::new();
         hasher.update(artifact_bytes);
         let artifact_sha = hex::encode(hasher.finalize());
