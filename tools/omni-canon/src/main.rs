@@ -37,7 +37,10 @@ fn canonicalize_value(val: &mut Value, root: &Path) {
     }
 }
 
-pub fn canonical_hash_json(input_path: &Path, root: &Path) -> Result<String, Box<dyn std::error::Error>> {
+pub fn canonical_hash_json(
+    input_path: &Path,
+    root: &Path,
+) -> Result<String, Box<dyn std::error::Error>> {
     let raw = fs::read_to_string(input_path)?;
     let mut val: Value = serde_json::from_str(&raw)?;
     canonicalize_value(&mut val, root);
