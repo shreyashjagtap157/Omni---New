@@ -26,7 +26,7 @@ struct LinkageVisitor {
 impl<'ast> Visit<'ast> for LinkageVisitor {
     fn visit_attribute(&mut self, attr: &'ast syn::Attribute) {
         if attr.path().is_ident("implements") {
-            if let Ok(syn::Lit::Str(lit)) = attr.parse_args::<syn::LitStr>() {
+            if let Ok(lit) = attr.parse_args::<syn::LitStr>() {
                 self.implements.insert(lit.value());
             }
         }
