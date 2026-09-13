@@ -1,0 +1,12 @@
+[package]
+name = "omni-parse"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+omni-lex = { path = "../omni-lex" }
+omni-syntax = { path = "../omni-syntax" }

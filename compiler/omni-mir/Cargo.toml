@@ -1,0 +1,12 @@
+[package]
+name = "omni-mir"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+omni-hir = { path = "../omni-hir" }
+index_vec = "0.1"

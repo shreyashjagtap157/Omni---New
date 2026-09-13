@@ -1,0 +1,14 @@
+[package]
+name = "omni-audit"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+syn = { version = "2.0", features = ["full", "extra-traits", "visit"] }
+walkdir = "2.5"

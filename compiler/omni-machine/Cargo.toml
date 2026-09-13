@@ -1,0 +1,11 @@
+[package]
+name = "omni-machine"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+omni-mir = { path = "../omni-mir" }

@@ -1,6 +1,28 @@
 [workspace]
-resolver = "3"
-members = []
+resolver = "2"
+members = [
+    "compiler/omni-source",
+    "compiler/omni-lex",
+    "compiler/omni-syntax",
+    "compiler/omni-parse",
+    "compiler/omni-names",
+    "compiler/omni-types",
+    "compiler/omni-own",
+    "compiler/omni-effects",
+    "compiler/omni-hir",
+    "compiler/omni-mir",
+    "compiler/omni-verify",
+    "compiler/omni-machine",
+    "compiler/omni-codegen",
+    "compiler/omni-runtime",
+    "compiler/omni-driver",
+    "compiler/omni-stage0",
+    "tools/omni-canon",
+    "tools/omni-audit",
+    "tools/omni-registry",
+    "tools/omni-conform",
+    "tools/omni-bindgen",
+]
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

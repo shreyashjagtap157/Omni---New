@@ -1,0 +1,12 @@
+[package]
+name = "omni-hir"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+omni-types = { path = "../omni-types" }
+omni-own = { path = "../omni-own" }

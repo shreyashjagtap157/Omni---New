@@ -1,0 +1,14 @@
+[package]
+name = "omni-codegen"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+omni-mir = { path = "../omni-mir" }
+cranelift-codegen = "0.108"
+cranelift-frontend = "0.108"
+cranelift-object = "0.108"

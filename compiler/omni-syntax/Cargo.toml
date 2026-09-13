@@ -1,0 +1,12 @@
+[package]
+name = "omni-syntax"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+omni-source = { path = "../omni-source" }
+rowan = "0.15"
