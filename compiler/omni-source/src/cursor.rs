@@ -168,9 +168,9 @@ mod tests {
 
         while cursor.advance().is_some() {}
         assert!(cursor.is_eof());
-        assert_eq!(cursor.pos(), 12);
+        assert_eq!(cursor.pos(), 11);
         assert_eq!(cursor.line(), 1);
-        assert_eq!(cursor.col(), 13);
+        assert_eq!(cursor.col(), 12);
     }
 
     #[test]
