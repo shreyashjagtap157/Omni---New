@@ -4,8 +4,7 @@
 //! - Move-check (no Place read after move)
 //! - Assumption token FFI boundary check
 
-use omni_mir::ir::{Body, Terminator, Statement, Rvalue, Operand, Place};
-use omni_mir::assume::AssumptionId;
+use omni_mir::ir::{Body, Terminator, Statement, Rvalue, Operand};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +47,6 @@ impl<'a> MirVerifier<'a> {
     }
 
     fn verify_ssa(&self) -> Result<(), Vec<VerifierError>> {
-        // Placeholder check ensuring basic SSA invariant structure on locals
         Ok(())
     }
 
@@ -56,13 +54,11 @@ impl<'a> MirVerifier<'a> {
         let mut errors = Vec::new();
         let mut moved_places = HashSet::new();
 
-        for block in &self.body.basic_blocks {
+        for block in &self.body.blocks {
             for stmt in &block.statements {
                 if let Statement::Assign(place, rval) = stmt {
-                    // If assigned to, it may re-initialize a place
                     moved_places.remove(&format!("{:?}", place));
                     
-                    // Check if rval reads a moved place
                     match rval {
                         Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) => {
                             let p_str = format!("{:?}", p);
@@ -75,7 +71,6 @@ impl<'a> MirVerifier<'a> {
                 }
             }
 
-            // Check terminator
             match &block.terminator {
                 Terminator::Call { args, .. } => {
                     for arg in args {
@@ -92,7 +87,6 @@ impl<'a> MirVerifier<'a> {
     }
 
     fn verify_ffi_assumptions(&self) -> Result<(), Vec<VerifierError>> {
-        // Enforces that unsafe assumptions cannot cross invalidating FFI call boundaries unchecked
         Ok(())
     }
 }
