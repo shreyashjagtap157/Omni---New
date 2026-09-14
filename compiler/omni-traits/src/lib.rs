@@ -8,16 +8,12 @@ use std::collections::{HashMap, HashSet};
 pub struct TraitPredicate {
     pub trait_name: String,
     pub self_ty: String,
-    pub assoc_bindings: HashMap<String, String>,
+    pub assoc_bindings: Vec<(String, String)>,
 }
 
 impl TraitPredicate {
     pub fn new(trait_name: impl Into<String>, self_ty: impl Into<String>) -> Self {
-        Self {
-            trait_name: trait_name.into(),
-            self_ty: self_ty.into(),
-            assoc_bindings: HashMap::new(),
-        }
+        Self { trait_name: trait_name.into(), self_ty: self_ty.into(), assoc_bindings: Vec::new() }
     }
 }
 
