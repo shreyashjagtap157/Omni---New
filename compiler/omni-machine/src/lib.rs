@@ -1,1 +1,1 @@
-//! Foundation scaffold for `omni-machine`.
+pub mod eval;
