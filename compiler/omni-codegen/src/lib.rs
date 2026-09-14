@@ -68,3 +68,7 @@ pub fn compile_to_object(source_code: &str) -> Result<Vec<u8>, String> {
 }
 
 pub mod llvm_emit;
+
+pub mod model;
+
+pub mod backend;
