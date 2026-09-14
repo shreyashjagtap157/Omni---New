@@ -8,5 +8,5 @@ publish = false
 workspace = true
 
 [dependencies]
-rowan = "0.15"
+rowan = "0.17"
 omni-lex = { path = "../omni-lex" }
