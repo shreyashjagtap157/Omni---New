@@ -69,3 +69,5 @@ mod polonius_tests {
         assert!(facts.borrow_region.is_empty());
     }
 }
+
+pub mod llvm_val;

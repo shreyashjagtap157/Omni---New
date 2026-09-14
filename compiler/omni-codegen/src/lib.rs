@@ -66,3 +66,5 @@ pub fn compile_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     product.object.emit(&mut buffer).map_err(|e| format!("Object emission error: {}", e))?;
     Ok(buffer)
 }
+
+pub mod llvm_emit;
