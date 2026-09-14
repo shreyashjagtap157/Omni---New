@@ -1,7 +1,7 @@
 //! Integration bridge connecting the parser AST/HIR to the abstract machine interpreter.
 
-use omni_parse::Parser;
 use crate::interpreter::Interpreter;
+use omni_parse::Parser;
 
 pub fn execute_source(source_code: &str) -> Result<i64, String> {
     let mut parser = Parser::new(vec![]);

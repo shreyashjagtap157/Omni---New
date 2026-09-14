@@ -1,5 +1,5 @@
-use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
 use crate::intern::Ty;
+use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
 
 /// A Type Variable, used during inference before the concrete type is known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -7,15 +7,15 @@ pub struct TyVar(pub u32);
 
 impl UnifyKey for TyVar {
     type Value = TyVarValue;
-    
+
     fn index(&self) -> u32 {
         self.0
     }
-    
+
     fn from_index(u: u32) -> Self {
         TyVar(u)
     }
-    
+
     fn tag() -> &'static str {
         "TyVar"
     }
@@ -27,14 +27,14 @@ pub enum TypeError {
     Conflict,
 }
 
-/// The value bound to a Type Variable. 
+/// The value bound to a Type Variable.
 /// It can be known (a specific interned Ty) or unknown (None).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TyVarValue(pub Option<Ty>);
 
 impl UnifyValue for TyVarValue {
     type Error = TypeError;
-    
+
     fn unify_values(val1: &Self, val2: &Self) -> Result<Self, Self::Error> {
         match (val1.0, val2.0) {
             (Some(t1), Some(t2)) if t1 == t2 => Ok(TyVarValue(Some(t1))),
@@ -58,9 +58,7 @@ impl Default for Solver {
 
 impl Solver {
     pub fn new() -> Self {
-        Self {
-            table: InPlaceUnificationTable::new(),
-        }
+        Self { table: InPlaceUnificationTable::new() }
     }
 
     /// Creates a fresh, unknown type variable (e.g., ?0).

@@ -47,12 +47,7 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
         }
     }
 
-    Ok(Args {
-        input_file,
-        output_file,
-        opt_level,
-        emit_native,
-    })
+    Ok(Args { input_file, output_file, opt_level, emit_native })
 }
 
 fn main() {
@@ -71,7 +66,8 @@ fn main() {
                 if parsed.emit_native {
                     match omni_codegen::compile_to_object(&source_code) {
                         Ok(bytes) => {
-                            let out_path = parsed.output_file.unwrap_or_else(|| PathBuf::from("output.o"));
+                            let out_path =
+                                parsed.output_file.unwrap_or_else(|| PathBuf::from("output.o"));
                             if let Err(e) = fs::write(&out_path, bytes) {
                                 eprintln!("Failed to write object file: {}", e);
                                 std::process::exit(1);

@@ -41,12 +41,7 @@ pub enum Terminator {
     /// Jump unconditionally to another block.
     Goto(BasicBlock),
     /// Invoke a function and branch based on success/unwind.
-    Call {
-        func: Operand,
-        args: Vec<Operand>,
-        target: BasicBlock,
-        cleanup: Option<BasicBlock>,
-    },
+    Call { func: Operand, args: Vec<Operand>, target: BasicBlock, cleanup: Option<BasicBlock> },
     /// Return to the caller.
     Return,
 }
@@ -76,7 +71,3 @@ pub enum Operand {
 /// A formal assumption for the mechanical verifier.
 #[derive(Debug, Clone)]
 pub struct Assumption {}
-
-
-
-

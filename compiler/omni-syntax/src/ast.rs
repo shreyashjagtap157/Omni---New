@@ -2,7 +2,9 @@ use crate::cst::SyntaxNode;
 
 /// Base trait for all strongly-typed AST nodes wrapping raw Rowan syntax nodes.
 pub trait AstNode {
-    fn cast(node: SyntaxNode) -> Option<Self> where Self: Sized;
+    fn cast(node: SyntaxNode) -> Option<Self>
+    where
+        Self: Sized;
     fn syntax(&self) -> &SyntaxNode;
 }
 
@@ -15,7 +17,7 @@ impl AstNode for Name {
         // In the fully expanded grammar, this would check for SyntaxKind::Name
         Some(Self(node))
     }
-    
+
     fn syntax(&self) -> &SyntaxNode {
         &self.0
     }
@@ -29,7 +31,7 @@ impl AstNode for FnDef {
     fn cast(node: SyntaxNode) -> Option<Self> {
         Some(Self(node))
     }
-    
+
     fn syntax(&self) -> &SyntaxNode {
         &self.0
     }

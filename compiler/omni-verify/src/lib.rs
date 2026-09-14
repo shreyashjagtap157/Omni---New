@@ -4,7 +4,7 @@
 //! - Move-check (no Place read after move)
 //! - Assumption token FFI boundary check
 
-use omni_mir::ir::{Body, Terminator, Statement, Rvalue, Operand};
+use omni_mir::ir::{Body, Operand, Rvalue, Statement, Terminator};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +58,7 @@ impl<'a> MirVerifier<'a> {
             for stmt in &block.statements {
                 if let Statement::Assign(place, rval) = stmt {
                     moved_places.remove(&format!("{:?}", place));
-                    
+
                     match rval {
                         Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) => {
                             let p_str = format!("{:?}", p);
@@ -83,7 +83,11 @@ impl<'a> MirVerifier<'a> {
             }
         }
 
-        if errors.is_empty() { Ok(()) } else { Err(errors) }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     fn verify_ffi_assumptions(&self) -> Result<(), Vec<VerifierError>> {
