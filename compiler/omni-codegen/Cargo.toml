@@ -8,9 +8,10 @@ publish = false
 workspace = true
 
 [dependencies]
-target-lexicon = "0.12"
 omni-mir = { path = "../omni-mir" }
-cranelift-codegen = "0.108"
-cranelift-frontend = "0.135"
-cranelift-object = "0.135"
-
+cranelift-codegen = "0.135.2"
+cranelift-frontend = "0.135.2"
+cranelift-module = "0.135.2"
+cranelift-object = "0.135.2"
+object = "0.39.1"
+target-lexicon = "0.13.5"
