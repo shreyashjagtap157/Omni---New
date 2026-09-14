@@ -25,3 +25,9 @@ impl LoweringContext {
         }
     }
 }
+
+impl Default for LoweringContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}

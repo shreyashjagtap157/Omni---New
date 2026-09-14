@@ -59,27 +59,21 @@ impl<'a> MirVerifier<'a> {
                 if let Statement::Assign(place, rval) = stmt {
                     moved_places.remove(&format!("{:?}", place));
 
-                    match rval {
-                        Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) => {
-                            let p_str = format!("{:?}", p);
-                            if moved_places.contains(&p_str) {
-                                errors.push(VerifierError::ReadAfterMove { place_debug: p_str });
-                            }
+                    if let Rvalue::Use(Operand::Copy(p) | Operand::Move(p)) = rval {
+                        let p_str = format!("{:?}", p);
+                        if moved_places.contains(&p_str) {
+                            errors.push(VerifierError::ReadAfterMove { place_debug: p_str });
                         }
-                        _ => {}
                     }
                 }
             }
 
-            match &block.terminator {
-                Some(Terminator::Call { args, .. }) => {
-                    for arg in args {
-                        if let Operand::Move(p) = arg {
-                            moved_places.insert(format!("{:?}", p));
-                        }
+            if let Some(Terminator::Call { args, .. }) = &block.terminator {
+                for arg in args {
+                    if let Operand::Move(p) = arg {
+                        moved_places.insert(format!("{:?}", p));
                     }
                 }
-                _ => {}
             }
         }
 
