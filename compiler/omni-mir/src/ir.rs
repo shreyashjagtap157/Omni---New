@@ -55,7 +55,7 @@ pub enum Terminator {
 
 /// A location in memory (e.g., x, x.y, *x).
 #[derive(Debug, Clone)]
-pub struct Place {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]`npub struct Place {
     pub local: Local,
 }
 
@@ -76,3 +76,4 @@ pub enum Operand {
 /// A formal assumption for the mechanical verifier.
 #[derive(Debug, Clone)]
 pub struct Assumption {}
+
