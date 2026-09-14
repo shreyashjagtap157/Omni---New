@@ -8,5 +8,5 @@ publish = false
 workspace = true
 
 [dependencies]
-omni-source = { path = "../omni-source" }
 rowan = "0.15"
+omni-lex = { path = "../omni-lex" }

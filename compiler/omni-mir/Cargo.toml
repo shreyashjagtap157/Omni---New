@@ -8,5 +8,4 @@ publish = false
 workspace = true
 
 [dependencies]
-omni-hir = { path = "../omni-hir" }
 index_vec = "0.1"

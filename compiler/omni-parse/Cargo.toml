@@ -8,5 +8,5 @@ publish = false
 workspace = true
 
 [dependencies]
-omni-lex = { path = "../omni-lex" }
 omni-syntax = { path = "../omni-syntax" }
+omni-lex = { path = "../omni-lex" }

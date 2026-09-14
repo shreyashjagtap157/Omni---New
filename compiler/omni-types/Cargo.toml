@@ -8,5 +8,4 @@ publish = false
 workspace = true
 
 [dependencies]
-omni-names = { path = "../omni-names" }
 ena = "0.14"

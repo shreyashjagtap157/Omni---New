@@ -1,1 +1,68 @@
-{"schema_version":"1.0.0","rules":[]}
+{
+  "schema_version": "1.0.0",
+  "rules": [
+    {
+      "rule_id": "LEX-0002",
+      "domain": "OMNI-LEX",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LEX-0003",
+      "domain": "OMNI-LEX",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LEX-0004",
+      "domain": "OMNI-LEX",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "domain": "OMNI-GRAMMAR",
+      "dependencies": [],
+      "rule_id": "GRAM-0005",
+      "status": "Candidate",
+      "witness_tests": [],
+      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normative": true
+    },
+    {
+      "domain": "OMNI-GRAMMAR",
+      "dependencies": [],
+      "rule_id": "GRAM-0001",
+      "status": "Candidate",
+      "witness_tests": [],
+      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normative": true
+    },
+    {
+      "domain": "OMNI-NAMES",
+      "dependencies": [],
+      "rule_id": "NAME-0001",
+      "status": "Candidate",
+      "witness_tests": [],
+      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normative": true
+    },
+    {
+      "domain": "OMNI-NAMES",
+      "dependencies": [],
+      "rule_id": "NAME-0006",
+      "status": "Candidate",
+      "witness_tests": [],
+      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "normative": true
+    }
+  ]
+}
