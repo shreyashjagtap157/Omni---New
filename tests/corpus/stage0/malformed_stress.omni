@@ -1,0 +1,6 @@
+// Malformed Stress Test Corpus
+fn main() -> i64 {
+    let unclosed_literal = 40
+    let bad_utf8_trap = 0xFF;
+    unclosed_literal + bad_utf8_trap
+}
