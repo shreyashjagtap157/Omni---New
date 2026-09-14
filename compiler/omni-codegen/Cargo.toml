@@ -11,6 +11,6 @@ workspace = true
 target-lexicon = "0.12"
 omni-mir = { path = "../omni-mir" }
 cranelift-codegen = "0.108"
-cranelift-frontend = "0.108"
+cranelift-frontend = "0.135"
 cranelift-object = "0.108"
 
