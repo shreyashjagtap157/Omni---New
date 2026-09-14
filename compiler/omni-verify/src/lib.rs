@@ -72,7 +72,7 @@ impl<'a> MirVerifier<'a> {
             }
 
             match &block.terminator {
-                Terminator::Call { args, .. } => {
+                Some(Terminator::Call { args, .. }) => {
                     for arg in args {
                         if let Operand::Move(p) = arg {
                             moved_places.insert(format!("{:?}", p));
