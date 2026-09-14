@@ -2,6 +2,7 @@
 //! Fully featured argument parser supporting input files, optimization levels, and output targets.
 
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 
 pub struct Args {
@@ -59,7 +60,23 @@ fn main() {
     match parse_args(&args) {
         Ok(parsed) => {
             if let Some(input) = parsed.input_file {
-                println!("Compiling source file: {:?} (Native: {}, Opt: {})", input, parsed.emit_native, parsed.opt_level);
+                let source_code = match fs::read_to_string(&input) {
+                    Ok(content) => content,
+                    Err(e) => {
+                        eprintln!("Error reading file {:?}: {}", input, e);
+                        std::process::exit(1);
+                    }
+                };
+
+                match omni_machine::bridge::execute_source(&source_code) {
+                    Ok(result) => {
+                        println!("Exit code: {}", result);
+                    }
+                    Err(e) => {
+                        eprintln!("Execution error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
             } else {
                 println!("Omni Systems Programming Language Compiler v1.0.0.0");
                 println!("Usage: omni-driver [OPTIONS] <INPUT_FILE>");
