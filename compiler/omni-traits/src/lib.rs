@@ -1,8 +1,6 @@
 //! Chalk-Style SLG Trait Solver for Omni.
 //! Implements Selective Linear Definite Clause resolution for trait coherence and overlap checking.
 
-use rustc_hash::FxHashMap;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TraitPredicate {
     pub trait_name: String,
