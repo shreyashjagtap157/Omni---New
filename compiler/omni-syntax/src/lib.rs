@@ -4,6 +4,6 @@ pub mod ast;
 pub mod cst;
 
 pub use cst::{
-    OmniLanguage, SyntaxElement, SyntaxElementChildren, SyntaxKind, SyntaxNode,
-    SyntaxNodeChildren, SyntaxToken,
+    OmniLanguage, SyntaxElement, SyntaxElementChildren, SyntaxKind, SyntaxNode, SyntaxNodeChildren,
+    SyntaxToken,
 };

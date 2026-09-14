@@ -1,11 +1,11 @@
 //! Native Code Generation via Cranelift for Omni.
 
-use cranelift_codegen::ir::{types, AbiParam, Signature};
-use cranelift_codegen::settings::{self, Configurable};
-use cranelift_codegen::isa::TargetFrontendConfig;
 use cranelift_codegen::ir::InstBuilder;
+use cranelift_codegen::ir::{types, AbiParam, Signature};
+use cranelift_codegen::isa::TargetFrontendConfig;
+use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{Module, Linkage};
+use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
@@ -18,18 +18,24 @@ pub fn compile_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     flag_builder.set("is_pic", "false").map_err(|e| e.to_string())?;
     let isa_builder = cranelift_codegen::isa::lookup(Triple::host())
         .map_err(|e| format!("Target ISA error: {}", e))?;
-    let isa = isa_builder.finish(settings::Flags::new(flag_builder))
+    let isa = isa_builder
+        .finish(settings::Flags::new(flag_builder))
         .map_err(|e| format!("ISA build error: {}", e))?;
 
-    let builder = ObjectBuilder::new(isa, "omni_module".to_string(), cranelift_module::default_libcall_names())
-        .map_err(|e| format!("Object builder error: {}", e))?;
+    let builder = ObjectBuilder::new(
+        isa,
+        "omni_module".to_string(),
+        cranelift_module::default_libcall_names(),
+    )
+    .map_err(|e| format!("Object builder error: {}", e))?;
     let mut module = ObjectModule::new(builder);
 
     // Define function signature for Stage-0 entry point: fn main() -> i64
     let mut sig = Signature::new(module.isa().default_call_conv());
     sig.returns.push(AbiParam::new(types::I64));
 
-    let func_id = module.declare_function("main", Linkage::Export, &sig)
+    let func_id = module
+        .declare_function("main", Linkage::Export, &sig)
         .map_err(|e| format!("Function declaration error: {}", e))?;
 
     let mut ctx = module.make_context();
@@ -46,11 +52,12 @@ pub fn compile_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     // Emit return instruction returning Stage-0 constant evaluation result (42)
     let val = builder.ins().iconst(types::I64, 42);
     builder.ins().return_(&[val]);
-    
+
     let frontend_config: TargetFrontendConfig = module.isa().frontend_config();
     builder.finalize(frontend_config);
 
-    module.define_function(func_id, &mut ctx)
+    module
+        .define_function(func_id, &mut ctx)
         .map_err(|e| format!("Function definition error: {}", e))?;
     module.clear_context(&mut ctx);
 

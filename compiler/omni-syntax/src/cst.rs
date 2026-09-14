@@ -12,18 +12,18 @@ pub enum SyntaxKind {
     Punct,
     Indent,
     Dedent,
-    
+
     // --- Trivia ---
     Whitespace,
     LineComment,
     BlockComment,
     DocComment,
-    
+
     ErrorToken, // Lexical error
 
     // --- Parser Nodes (to be expanded in grammar) ---
     SourceFile,
-    ErrorNode,  // Syntax error node
+    ErrorNode, // Syntax error node
 }
 
 impl From<SyntaxKind> for rowan::SyntaxKind {

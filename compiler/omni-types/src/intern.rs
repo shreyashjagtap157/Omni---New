@@ -37,10 +37,10 @@ impl TyCtxt {
         // Otherwise, mint a new index, store it, and return it.
         let index = self.arena.len() as u32;
         let ty = Ty(index);
-        
+
         self.dedup.insert(kind.clone(), ty);
         self.arena.push(kind);
-        
+
         ty
     }
 

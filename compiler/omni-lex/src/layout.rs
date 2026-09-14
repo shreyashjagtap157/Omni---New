@@ -43,12 +43,12 @@ impl LayoutEngine {
                 if spaces == top {
                     break; // Successfully aligned
                 }
-                
+
                 if spaces > top {
                     // We popped past the target without finding an exact match
                     return Err(LayoutError::MismatchedUnindent(spaces));
                 }
-                
+
                 self.stack.pop();
                 tokens.push(TokenKind::Dedent);
             }
@@ -81,10 +81,10 @@ mod tests {
         // Step in
         assert_eq!(layout.process_indent(4).unwrap(), vec![TokenKind::Indent]);
         assert_eq!(layout.process_indent(8).unwrap(), vec![TokenKind::Indent]);
-        
+
         // Step out to 4
         assert_eq!(layout.process_indent(4).unwrap(), vec![TokenKind::Dedent]);
-        
+
         // Step out to base (0)
         assert_eq!(layout.process_indent(0).unwrap(), vec![TokenKind::Dedent]);
     }
@@ -120,7 +120,7 @@ mod tests {
 
         // Reaching EOF should drain the remaining 2 levels
         assert_eq!(layout.finish(), vec![TokenKind::Dedent, TokenKind::Dedent]);
-        
+
         // Calling finish again should be empty
         assert_eq!(layout.finish(), vec![]);
     }

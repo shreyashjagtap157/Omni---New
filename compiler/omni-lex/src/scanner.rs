@@ -1,5 +1,5 @@
-use omni_source::Cursor;
 use crate::token::{Kw, Punct, Span, Token, TokenKind, Trivia, TriviaKind};
+use omni_source::Cursor;
 
 /// The Maximal Munch lexical scanner.
 pub struct Scanner<'a> {
@@ -10,22 +10,18 @@ pub struct Scanner<'a> {
 
 impl<'a> Scanner<'a> {
     pub fn new(source: &'a str, cursor: Cursor<'a>, file_id: u16) -> Self {
-        Self {
-            source,
-            cursor,
-            file_id,
-        }
+        Self { source, cursor, file_id }
     }
 
     /// Pulls the next token using maximal munch DFA logic, attaching leading and trailing trivia.
     pub fn next_token(&mut self) -> Option<Token> {
         // 1. Consume all leading trivia (crosses newlines)
         let leading_trivia = self.scan_trivia(false);
-        
+
         let start = self.pos();
         let Some(c) = self.peek() else {
             // EOF reached
-            return None; 
+            return None;
         };
 
         // 2. Scan the actual token
@@ -60,14 +56,16 @@ impl<'a> Scanner<'a> {
             if stop_at_newline && c == '\n' {
                 break;
             }
-            
+
             let start = self.pos();
 
             // 1. Whitespace
             if c.is_whitespace() {
                 self.advance();
                 while let Some(w) = self.peek() {
-                    if stop_at_newline && w == '\n' { break; }
+                    if stop_at_newline && w == '\n' {
+                        break;
+                    }
                     if w.is_whitespace() {
                         self.advance();
                     } else {
@@ -85,35 +83,44 @@ impl<'a> Scanner<'a> {
             let mut lookahead = self.cursor;
             if lookahead.advance() == Some('/') {
                 let next = lookahead.advance();
-                
+
                 // Line Comment
                 if next == Some('/') {
                     self.cursor = lookahead; // Commit lookahead
                     let mut kind = TriviaKind::LineComment;
-                    
+
                     // Check for Doc Comment `///` or `//!`
                     if let Some(c3) = self.peek() {
-                        if c3 == '/' || c3 == '!' { kind = TriviaKind::DocComment; }
+                        if c3 == '/' || c3 == '!' {
+                            kind = TriviaKind::DocComment;
+                        }
                     }
-                    
+
                     while let Some(ch) = self.peek() {
-                        if ch == '\n' { break; } // Do not consume the newline
+                        if ch == '\n' {
+                            break;
+                        } // Do not consume the newline
                         self.advance();
                     }
-                    
-                    trivias.push(Trivia { kind, span: Span { start, end: self.pos(), file_id: self.file_id } });
+
+                    trivias.push(Trivia {
+                        kind,
+                        span: Span { start, end: self.pos(), file_id: self.file_id },
+                    });
                     continue;
-                } 
+                }
                 // Block Comment
                 else if next == Some('*') {
                     self.cursor = lookahead; // Commit lookahead
                     let mut kind = TriviaKind::BlockComment;
-                    
+
                     // Check for Doc Comment `/**` or `/*!`
                     if let Some(c3) = self.peek() {
-                        if (c3 == '*' || c3 == '!') && c3 != '/' { kind = TriviaKind::DocComment; }
+                        if (c3 == '*' || c3 == '!') && c3 != '/' {
+                            kind = TriviaKind::DocComment;
+                        }
                     }
-                    
+
                     let mut depth = 1;
                     while depth > 0 {
                         match self.advance() {
@@ -129,8 +136,11 @@ impl<'a> Scanner<'a> {
                             None => break, // Lexical error: Unterminated block comment
                         }
                     }
-                    
-                    trivias.push(Trivia { kind, span: Span { start, end: self.pos(), file_id: self.file_id } });
+
+                    trivias.push(Trivia {
+                        kind,
+                        span: Span { start, end: self.pos(), file_id: self.file_id },
+                    });
                     continue;
                 }
             }
@@ -151,11 +161,15 @@ impl<'a> Scanner<'a> {
     fn scan_ident_or_keyword(&mut self) -> TokenKind {
         let start = self.pos();
         while let Some(c) = self.peek() {
-            if c.is_ascii_alphanumeric() || c == '_' { self.advance(); } else { break; }
+            if c.is_ascii_alphanumeric() || c == '_' {
+                self.advance();
+            } else {
+                break;
+            }
         }
         let end = self.pos();
         let text = &self.source[start as usize..end as usize];
-        
+
         match text {
             "fn" | "let" | "mut" | "if" | "else" | "return" | "match" | "struct" | "enum" => {
                 TokenKind::Keyword(Kw::Unknown)
@@ -166,12 +180,20 @@ impl<'a> Scanner<'a> {
 
     fn scan_number(&mut self) -> TokenKind {
         while let Some(c) = self.peek() {
-            if c.is_ascii_digit() { self.advance(); } else { break; }
+            if c.is_ascii_digit() {
+                self.advance();
+            } else {
+                break;
+            }
         }
         if let Some('.') = self.peek() {
             self.advance();
             while let Some(c) = self.peek() {
-                if c.is_ascii_digit() { self.advance(); } else { break; }
+                if c.is_ascii_digit() {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
             return TokenKind::Float;
         }
@@ -179,13 +201,19 @@ impl<'a> Scanner<'a> {
     }
 
     #[inline(always)]
-    fn peek(&self) -> Option<char> { self.cursor.peek() }
+    fn peek(&self) -> Option<char> {
+        self.cursor.peek()
+    }
 
     #[inline(always)]
-    fn advance(&mut self) -> Option<char> { self.cursor.advance() }
+    fn advance(&mut self) -> Option<char> {
+        self.cursor.advance()
+    }
 
     #[inline(always)]
-    fn pos(&self) -> u32 { self.cursor.pos() as u32 }
+    fn pos(&self) -> u32 {
+        self.cursor.pos() as u32
+    }
 }
 
 #[cfg(test)]
@@ -211,9 +239,9 @@ mod tests {
         let mut scanner = Scanner::new(source, Cursor::new(source.as_bytes()), 0);
 
         assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Keyword(Kw::Unknown)); // "let"
-        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Ident);                // "val"
+        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Ident); // "val"
         assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Punct(Punct::Unknown)); // "="
-        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Float);                // "42.5"
+        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Float); // "42.5"
         assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Punct(Punct::Unknown)); // ";"
         assert!(scanner.next_token().is_none());
     }
@@ -232,21 +260,11 @@ mod tests {
         // Verify leading trivia bridged the newlines correctly
         assert_trivia!(
             token.leading_trivia,
-            [
-                &TriviaKind::Whitespace,
-                &TriviaKind::LineComment,
-                &TriviaKind::Whitespace
-            ]
+            [&TriviaKind::Whitespace, &TriviaKind::LineComment, &TriviaKind::Whitespace]
         );
 
         // Verify trailing trivia stopped exactly at the end of the line
-        assert_trivia!(
-            token.trailing_trivia,
-            [
-                &TriviaKind::Whitespace,
-                &TriviaKind::LineComment
-            ]
-        );
+        assert_trivia!(token.trailing_trivia, [&TriviaKind::Whitespace, &TriviaKind::LineComment]);
     }
 
     #[test]
@@ -258,13 +276,7 @@ mod tests {
         let token = scanner.next_token().unwrap();
         assert_eq!(token.kind, TokenKind::Ident);
 
-        assert_trivia!(
-            token.leading_trivia,
-            [
-                &TriviaKind::BlockComment,
-                &TriviaKind::Whitespace
-            ]
-        );
+        assert_trivia!(token.leading_trivia, [&TriviaKind::BlockComment, &TriviaKind::Whitespace]);
     }
 
     #[test]

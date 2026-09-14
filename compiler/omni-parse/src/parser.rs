@@ -1,12 +1,12 @@
 //! Parser implementation for Omni.
 
 pub struct Parser {
-    tokens: Vec<String>,
+    _tokens: Vec<String>,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<String>) -> Self {
-        Self { tokens }
+        Self { _tokens: tokens }
     }
 
     pub fn parse(&mut self) -> Result<(), String> {

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::def_id::DefId;
+use std::collections::HashMap;
 
 /// A Rib represents a single lexical scope (e.g., a block, a function body).
 #[derive(Debug, Default, Clone)]
@@ -56,7 +56,7 @@ impl Resolver {
 
         let id = DefId::new(self.current_package, self.current_module, self.next_index);
         self.next_index += 1;
-        
+
         self.ribs.last_mut().unwrap().bindings.insert(name, id);
         Ok(id)
     }
@@ -68,7 +68,7 @@ impl Resolver {
                 return Ok(id);
             }
         }
-        
+
         Err(ResolveError::UnresolvedName { name: name.to_string() })
     }
 }

@@ -1,3 +1,4 @@
+//! Mid-Level Intermediate Representation for Omni.
+
 pub mod ir;
-pub mod drop;
-pub mod assume;
+pub mod lower;

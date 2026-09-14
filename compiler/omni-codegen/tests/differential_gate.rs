@@ -8,7 +8,7 @@ fn test_stage0_differential_math() {
     } else {
         "../../tests/corpus/stage0/math.omni"
     };
-    
+
     assert!(std::path::Path::new(source_path).exists(), "Corpus source file missing!");
 
     // Simulate differential validation passes between machine execution and codegen stubs
