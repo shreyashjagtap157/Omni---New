@@ -1,1 +1,1 @@
-//! Foundation scaffold for `omni-codegen`.
+pub mod cranelift;
