@@ -68,13 +68,30 @@ fn main() {
                     }
                 };
 
-                match omni_machine::bridge::execute_source(&source_code) {
-                    Ok(result) => {
-                        println!("Exit code: {}", result);
+                if parsed.emit_native {
+                    match omni_codegen::compile_to_object(&source_code) {
+                        Ok(bytes) => {
+                            let out_path = parsed.output_file.unwrap_or_else(|| PathBuf::from("output.o"));
+                            if let Err(e) = fs::write(&out_path, bytes) {
+                                eprintln!("Failed to write object file: {}", e);
+                                std::process::exit(1);
+                            }
+                            println!("Successfully compiled native object to {:?}", out_path);
+                        }
+                        Err(e) => {
+                            eprintln!("Codegen error: {}", e);
+                            std::process::exit(1);
+                        }
                     }
-                    Err(e) => {
-                        eprintln!("Execution error: {}", e);
-                        std::process::exit(1);
+                } else {
+                    match omni_machine::bridge::execute_source(&source_code) {
+                        Ok(result) => {
+                            println!("Exit code: {}", result);
+                        }
+                        Err(e) => {
+                            eprintln!("Execution error: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
             } else {
