@@ -88,3 +88,39 @@ impl<'a> MirVerifier<'a> {
         Ok(())
     }
 }
+
+/// Polonius-compatible fact structures for linear borrow checking (OWN-0005)
+#[derive(Debug, Clone, Default)]
+pub struct PoloniusFacts {
+    pub loan_issued: Vec<(String, String)>,    // (loan, point)
+    pub borrow_region: Vec<(String, String)>,  // (region, point)
+    pub region_live_at: Vec<(String, String)>, // (region, point)
+    pub killed: Vec<(String, String)>,         // (loan, point)
+    pub outlives: Vec<(String, String)>,       // (region1, region2)
+}
+
+impl PoloniusFacts {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn emit_fact(&mut self, category: &str, entity: &str, point: &str) {
+        match category {
+            "borrow_region" => self.borrow_region.push((entity.into(), point.into())),
+            "killed" => self.killed.push((entity.into(), point.into())),
+            _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod polonius_tests {
+    use super::*;
+
+    #[test]
+    fn test_polonius_fact_emission() {
+        let mut facts = PoloniusFacts::new();
+        facts.emit_fact("borrow_region", "'a", "bb0_0");
+        assert_eq!(facts.borrow_region.len(), 1);
+    }
+}
