@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "compiler/omni-traits",
     "compiler/omni-source",
     "compiler/omni-lex",
     "compiler/omni-syntax",
@@ -29,3 +30,4 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = "deny"
+

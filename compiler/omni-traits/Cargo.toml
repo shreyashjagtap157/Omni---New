@@ -1,0 +1,9 @@
+[package]
+name = "omni-traits"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+index_vec = "0.1.4"
+rustc-hash = "1.1.0"
+omni-types = { path = "../omni-types" }
