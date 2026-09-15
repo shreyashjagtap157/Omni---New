@@ -1,66 +1,21 @@
-use omni_lex::TokenKind;
+use omni_lex::{Punct, TokenKind};
 use omni_syntax::SyntaxKind;
 
-
-/// Minimal parser interface required to drive the Pratt expression parser.
-pub trait ExprParser {
-    fn peek(&self) -> Option<TokenKind>;
-    fn advance(&mut self);
-    fn start_node(&mut self, kind: SyntaxKind) -> usize;
-    fn finish_node(&mut self);
-    fn error(&mut self, msg: String);
-}
-
-/// Returns the (left, right) binding power for infix operators.
-pub fn binding_power(kind: TokenKind) -> (u8, u8) {
+pub trait ExprParser { fn peek(&self)->Option<TokenKind>; fn advance(&mut self); fn start_node(&mut self, kind:SyntaxKind)->usize; fn finish_node(&mut self); fn error(&mut self,msg:String); }
+pub fn binding_power(kind: TokenKind) -> (u8,u8) {
     match kind {
-        // TODO: Expand when omni-lex::Punct is fully populated (Plus, Star, etc.)
-        // For now, any punctuation gets a default binding power.
-        TokenKind::Punct(_) => (1, 2),
-        _ => (0, 0),
+        TokenKind::Punct(Punct::Eq) => (1,1),
+        TokenKind::Punct(Punct::Pipe) => (2,3),
+        TokenKind::Punct(Punct::EqEq|Punct::NotEq) => (3,4),
+        TokenKind::Punct(Punct::Lt|Punct::Le|Punct::Gt|Punct::Ge) => (4,5),
+        TokenKind::Punct(Punct::Plus|Punct::Minus) => (5,6),
+        TokenKind::Punct(Punct::Star|Punct::Slash) => (7,8),
+        _ => (0,0),
     }
 }
-
-/// Parses an expression using Top-Down Operator Precedence (Pratt Parsing).
-pub fn parse_expr_bp<P: ExprParser>(p: &mut P, min_bp: u8) {
-    let Some(kind) = p.peek() else {
-        p.error("Unexpected EOF while parsing expression".into());
-        return;
-    };
-
-    // 1. Parse prefix / atomic expression (LHS)
-    // In a full implementation, we'd emit SyntaxKind::LiteralExpr or similar.
-    let _lhs_mark = p.start_node(SyntaxKind::ErrorNode); 
-    match kind {
-        TokenKind::Ident | TokenKind::Int | TokenKind::Float => {
-            p.advance(); // Consume the atomic token
-        }
-        _ => {
-            p.error("Expected expression".into());
-            // The panic-mode error recovery (0.2.0.4) will handle un-borking this state later.
-        }
-    }
-    p.finish_node();
-
-    // 2. Parse infix operators (RHS)
-    loop {
-        let Some(op_kind) = p.peek() else { break };
-        
-        let (left_bp, right_bp) = binding_power(op_kind);
-        if left_bp < min_bp {
-            break; // The operator binds weaker than our current context, back out.
-        }
-
-        // Consume the operator
-        p.advance();
-
-        // Recursively parse the RHS of the infix expression.
-        // We'll use the event machine's orward_parent feature in the future 
-        // to retroactively wrap the LHS and RHS into an InfixExpr node.
-        parse_expr_bp(p, right_bp);
-    }
+pub fn parse_expr_bp<P: ExprParser>(p:&mut P,min_bp:u8) {
+    let Some(kind)=p.peek() else { p.error("Unexpected EOF while parsing expression".into()); return; };
+    let mark=p.start_node(match kind { TokenKind::Ident=>SyntaxKind::NameRef, TokenKind::Int|TokenKind::Float|TokenKind::Keyword(_)=>SyntaxKind::LiteralExpr, TokenKind::Punct(Punct::Minus|Punct::Bang|Punct::Amp)=>SyntaxKind::UnaryExpr, _=>SyntaxKind::ErrorNode });
+    let _=mark; p.advance(); p.finish_node();
+    loop { let Some(op)=p.peek() else {break}; let (l,r)=binding_power(op); if l<min_bp || l==0 {break}; p.advance(); parse_expr_bp(p,r); }
 }
-
-#[cfg(any())]
-#[implements("GRAM-0005")]
-fn _audit_pratt_parser() {}
