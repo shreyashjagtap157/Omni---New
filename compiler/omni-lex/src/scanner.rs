@@ -28,10 +28,7 @@ impl<'a> Scanner<'a> {
         let kind = match c {
             'a'..='z' | 'A'..='Z' | '_' => self.scan_ident_or_keyword(),
             '0'..='9' => self.scan_number(),
-            _ => {
-                self.advance();
-                TokenKind::Punct(Punct::Unknown)
-            }
+            _ => self.scan_punctuation(),
         };
 
         let end = self.pos();
@@ -170,12 +167,30 @@ impl<'a> Scanner<'a> {
         let end = self.pos();
         let text = &self.source[start as usize..end as usize];
 
-        match text {
-            "fn" | "let" | "mut" | "if" | "else" | "return" | "match" | "struct" | "enum" => {
-                TokenKind::Keyword(Kw::Unknown)
-            }
-            _ => TokenKind::Ident,
-        }
+        let keyword = match text {
+            "fn" => Some(Kw::Fn), "let" => Some(Kw::Let), "mut" => Some(Kw::Mut),
+            "if" => Some(Kw::If), "else" => Some(Kw::Else), "return" => Some(Kw::Return),
+            "match" => Some(Kw::Match), "struct" => Some(Kw::Struct), "enum" => Some(Kw::Enum),
+            "true" => Some(Kw::True), "false" => Some(Kw::False), _ => None,
+        };
+        keyword.map(TokenKind::Keyword).unwrap_or(TokenKind::Ident)
+    }
+
+
+    fn scan_punctuation(&mut self) -> TokenKind {
+        let first = self.advance().expect("punctuation requires a character");
+        let kind = match first {
+            '+' => Punct::Plus, '-' if self.peek() == Some('>') => { self.advance(); Punct::Arrow },
+            '-' => Punct::Minus, '*' => Punct::Star, '/' => Punct::Slash, '=' if self.peek() == Some('=') => { self.advance(); Punct::EqEq },
+            '=' => Punct::Eq, '!' if self.peek() == Some('=') => { self.advance(); Punct::NotEq }, '!' => Punct::Bang,
+            '<' if self.peek() == Some('=') => { self.advance(); Punct::Le }, '<' => Punct::Lt,
+            '>' if self.peek() == Some('=') => { self.advance(); Punct::Ge }, '>' => Punct::Gt,
+            '(' => Punct::LParen, ')' => Punct::RParen, '{' => Punct::LBrace, '}' => Punct::RBrace,
+            '[' => Punct::LBracket, ']' => Punct::RBracket, ',' => Punct::Comma, ':' => Punct::Colon,
+            ';' => Punct::Semicolon, '&' => Punct::Amp, '|' => Punct::Pipe, '.' => Punct::Dot,
+            _ => return TokenKind::Error,
+        };
+        TokenKind::Punct(kind)
     }
 
     fn scan_number(&mut self) -> TokenKind {
@@ -238,11 +253,11 @@ mod tests {
         let source = "let val = 42.5;";
         let mut scanner = Scanner::new(source, Cursor::new(source.as_bytes()), 0);
 
-        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Keyword(Kw::Unknown)); // "let"
+        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Keyword(Kw::Let)); // "let"
         assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Ident); // "val"
-        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Punct(Punct::Unknown)); // "="
+        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Punct(Punct::Eq)); // "="
         assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Float); // "42.5"
-        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Punct(Punct::Unknown)); // ";"
+        assert_eq!(scanner.next_token().unwrap().kind, TokenKind::Punct(Punct::Semicolon)); // ";"
         assert!(scanner.next_token().is_none());
     }
 
@@ -280,12 +295,23 @@ mod tests {
     }
 
     #[test]
+    fn test_keyword_and_punctuation_vocabulary() {
+        let source = "fn f(a: i32) -> i32 { let x = a + 1; x == 2 && true }";
+        let mut scanner = Scanner::new(source, Cursor::new(source.as_bytes()), 0);
+        let kinds: Vec<_> = std::iter::from_fn(|| scanner.next_token().map(|t| t.kind)).collect();
+        assert!(kinds.contains(&TokenKind::Keyword(Kw::Fn)));
+        assert!(kinds.contains(&TokenKind::Punct(Punct::Arrow)));
+        assert!(kinds.contains(&TokenKind::Punct(Punct::EqEq)));
+        assert!(kinds.contains(&TokenKind::Keyword(Kw::True)));
+    }
+
+    #[test]
     fn test_doc_comments() {
         let source = "/// Line doc\n/** Block doc */ fn";
         let mut scanner = Scanner::new(source, Cursor::new(source.as_bytes()), 0);
 
         let token = scanner.next_token().unwrap();
-        assert_eq!(token.kind, TokenKind::Keyword(Kw::Unknown));
+        assert_eq!(token.kind, TokenKind::Keyword(Kw::Fn));
 
         assert_trivia!(
             token.leading_trivia,

@@ -7,14 +7,14 @@ pub struct Span {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kw {
-    // Placeholder to be expanded in 0.1.0.4
-    Unknown,
+    Fn, Let, Mut, If, Else, Return, Match, Struct, Enum, True, False,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Punct {
-    // Placeholder to be expanded in 0.1.0.4
-    Unknown,
+    Plus, Minus, Star, Slash, Eq, EqEq, NotEq, Lt, Le, Gt, Ge,
+    LParen, RParen, LBrace, RBrace, LBracket, RBracket, Comma, Colon,
+    Semicolon, Arrow, Amp, Pipe, Bang, Dot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
