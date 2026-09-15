@@ -7,14 +7,46 @@ pub struct Span {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kw {
-    Fn, Let, Mut, If, Else, Return, Match, Struct, Enum, True, False,
+    Fn,
+    Let,
+    Mut,
+    If,
+    Else,
+    Return,
+    Match,
+    Struct,
+    Enum,
+    True,
+    False,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Punct {
-    Plus, Minus, Star, Slash, Eq, EqEq, NotEq, Lt, Le, Gt, Ge,
-    LParen, RParen, LBrace, RBrace, LBracket, RBracket, Comma, Colon,
-    Semicolon, Arrow, Amp, Pipe, Bang, Dot,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Eq,
+    EqEq,
+    NotEq,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Comma,
+    Colon,
+    Semicolon,
+    Arrow,
+    Amp,
+    Pipe,
+    Bang,
+    Dot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

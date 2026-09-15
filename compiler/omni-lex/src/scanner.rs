@@ -168,26 +168,65 @@ impl<'a> Scanner<'a> {
         let text = &self.source[start as usize..end as usize];
 
         let keyword = match text {
-            "fn" => Some(Kw::Fn), "let" => Some(Kw::Let), "mut" => Some(Kw::Mut),
-            "if" => Some(Kw::If), "else" => Some(Kw::Else), "return" => Some(Kw::Return),
-            "match" => Some(Kw::Match), "struct" => Some(Kw::Struct), "enum" => Some(Kw::Enum),
-            "true" => Some(Kw::True), "false" => Some(Kw::False), _ => None,
+            "fn" => Some(Kw::Fn),
+            "let" => Some(Kw::Let),
+            "mut" => Some(Kw::Mut),
+            "if" => Some(Kw::If),
+            "else" => Some(Kw::Else),
+            "return" => Some(Kw::Return),
+            "match" => Some(Kw::Match),
+            "struct" => Some(Kw::Struct),
+            "enum" => Some(Kw::Enum),
+            "true" => Some(Kw::True),
+            "false" => Some(Kw::False),
+            _ => None,
         };
         keyword.map(TokenKind::Keyword).unwrap_or(TokenKind::Ident)
     }
 
-
     fn scan_punctuation(&mut self) -> TokenKind {
         let first = self.advance().expect("punctuation requires a character");
         let kind = match first {
-            '+' => Punct::Plus, '-' if self.peek() == Some('>') => { self.advance(); Punct::Arrow },
-            '-' => Punct::Minus, '*' => Punct::Star, '/' => Punct::Slash, '=' if self.peek() == Some('=') => { self.advance(); Punct::EqEq },
-            '=' => Punct::Eq, '!' if self.peek() == Some('=') => { self.advance(); Punct::NotEq }, '!' => Punct::Bang,
-            '<' if self.peek() == Some('=') => { self.advance(); Punct::Le }, '<' => Punct::Lt,
-            '>' if self.peek() == Some('=') => { self.advance(); Punct::Ge }, '>' => Punct::Gt,
-            '(' => Punct::LParen, ')' => Punct::RParen, '{' => Punct::LBrace, '}' => Punct::RBrace,
-            '[' => Punct::LBracket, ']' => Punct::RBracket, ',' => Punct::Comma, ':' => Punct::Colon,
-            ';' => Punct::Semicolon, '&' => Punct::Amp, '|' => Punct::Pipe, '.' => Punct::Dot,
+            '+' => Punct::Plus,
+            '-' if self.peek() == Some('>') => {
+                self.advance();
+                Punct::Arrow
+            }
+            '-' => Punct::Minus,
+            '*' => Punct::Star,
+            '/' => Punct::Slash,
+            '=' if self.peek() == Some('=') => {
+                self.advance();
+                Punct::EqEq
+            }
+            '=' => Punct::Eq,
+            '!' if self.peek() == Some('=') => {
+                self.advance();
+                Punct::NotEq
+            }
+            '!' => Punct::Bang,
+            '<' if self.peek() == Some('=') => {
+                self.advance();
+                Punct::Le
+            }
+            '<' => Punct::Lt,
+            '>' if self.peek() == Some('=') => {
+                self.advance();
+                Punct::Ge
+            }
+            '>' => Punct::Gt,
+            '(' => Punct::LParen,
+            ')' => Punct::RParen,
+            '{' => Punct::LBrace,
+            '}' => Punct::RBrace,
+            '[' => Punct::LBracket,
+            ']' => Punct::RBracket,
+            ',' => Punct::Comma,
+            ':' => Punct::Colon,
+            ';' => Punct::Semicolon,
+            '&' => Punct::Amp,
+            '|' => Punct::Pipe,
+            '.' => Punct::Dot,
             _ => return TokenKind::Error,
         };
         TokenKind::Punct(kind)
