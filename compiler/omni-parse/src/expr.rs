@@ -1,4 +1,5 @@
-use omni_lex::{Punct, TokenKind};
+use omni_lex::token::Punct;
+use omni_lex::TokenKind;
 use omni_syntax::SyntaxKind;
 
 pub trait ExprParser {
@@ -33,8 +34,7 @@ pub fn parse_expr_bp<P: ExprParser>(p: &mut P, min_bp: u8) {
     let _ = mark;
     p.advance();
     p.finish_node();
-    loop {
-        let Some(op) = p.peek() else { break };
+    while let Some(op) = p.peek() {
         let (l, r) = binding_power(op);
         if l < min_bp || l == 0 {
             break;

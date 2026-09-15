@@ -11,3 +11,4 @@ workspace = true
 omni-syntax = { path = "../omni-syntax" }
 omni-lex = { path = "../omni-lex" }
 omni-source = { path = "../omni-source" }
+rowan = "0.17"

@@ -3,7 +3,7 @@
 use omni_lex::token::{Kw, Punct, Trivia};
 use omni_lex::{Scanner, Span, Token, TokenKind};
 use omni_source::Cursor;
-use omni_syntax::{OmniLanguage, SyntaxKind, SyntaxNode};
+use omni_syntax::{SyntaxKind, SyntaxNode};
 use rowan::GreenNodeBuilder;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,9 +25,6 @@ struct Node {
 impl Node {
     fn new(kind: SyntaxKind) -> Self {
         Self { kind, children: Vec::new() }
-    }
-    fn token(kind: SyntaxKind, index: usize) -> Self {
-        Self { kind, children: vec![Child::Token(index)] }
     }
 }
 

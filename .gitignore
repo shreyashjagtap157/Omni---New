@@ -1,7 +1,21 @@
+# GitIgnore for Omni Rust workspace
+# Compiled binary files
 /target/
-Cargo.lock
-**/*.rs.bk
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
+/CACHE.DIR.TAG
+*.db
+*.tfm
+*.lot
+# Cargo and Rust
+/target/**
+/Cargo.lock
+/.cargo/
+# IDE and tooling
+/.idea/
+/*.History/
+/*.settings/
+/*.classpath
+/.project
+/bin/
+# Windows-specific
+/TMPDIR
+
