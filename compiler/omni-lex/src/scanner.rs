@@ -225,6 +225,10 @@ impl<'a> Scanner<'a> {
             ':' => Punct::Colon,
             ';' => Punct::Semicolon,
             '&' => Punct::Amp,
+            '|' if self.peek() == Some('>') => {
+                self.advance();
+                Punct::PipeArrow
+            }
             '|' => Punct::Pipe,
             '.' => Punct::Dot,
             _ => return TokenKind::Error,

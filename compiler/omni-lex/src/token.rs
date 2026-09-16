@@ -45,6 +45,7 @@ pub enum Punct {
     Arrow,
     Amp,
     Pipe,
+    PipeArrow,
     Bang,
     Dot,
 }
