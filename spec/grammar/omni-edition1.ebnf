@@ -1,0 +1,383 @@
+(* Omni Edition 1 Grammar - EBNF *)
+(* This is the normative grammar for Omni Edition 1 *)
+
+(* ============================================================
+   Lexical Structure (from OMNI-LEX)
+   ============================================================ *)
+
+(* Keywords *)
+keyword = "Never" | "Self" | "Sized" | "addrspace" | "as" | "async" | "await" | "bare_metal"
+        | "bf16" | "bool" | "break" | "byte" | "cap" | "catch" | "char" | "const" | "continue"
+        | "dec128" | "dec32" | "dec64" | "defer" | "distributed" | "dyn" | "effect" | "else"
+        | "enum" | "ensure" | "extern" | "f128" | "f16" | "f32" | "f64" | "false" | "fn" | "for"
+        | "hosted" | "i128" | "i16" | "i32" | "i64" | "i8" | "if" | "impl" | "in" | "is" | "isolate"
+        | "isize" | "let" | "loop" | "macro" | "managed" | "match" | "module" | "move" | "mut"
+        | "not" | "opaque" | "override" | "package" | "panic" | "persistent" | "pub" | "pure"
+        | "ref" | "relation" | "require" | "return" | "script" | "self" | "static" | "str"
+        | "struct" | "super" | "thread_local" | "trait" | "true" | "try" | "type" | "typeof"
+        | "u128" | "u16" | "u32" | "u64" | "u8" | "unsafe" | "use" | "usize" | "verified"
+        | "where" | "while" | "yield";
+
+(* Identifiers *)
+identifier = (XID_Start | "_") (XID_Continue | "_")*;
+
+(* Raw identifiers *)
+raw_identifier = "r#" identifier;
+
+(* Integer literals *)
+integer_literal = (decimal_literal | binary_literal | octal_literal | hex_literal) integer_suffix?;
+decimal_literal = digit (digit | "_")*;
+binary_literal = "0b" (bin_digit | "_")*;
+octal_literal = "0o" (oct_digit | "_")*;
+hex_literal = "0x" (hex_digit | "_")*;
+integer_suffix = "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64" | "u128" | "usize";
+
+(* Floating point literals *)
+float_literal = (decimal_float_literal | hex_float_literal) float_suffix?;
+decimal_float_literal = (digit (digit | "_")* "." digit (digit | "_")* exponent?) | (digit (digit | "_")* exponent);
+hex_float_literal = "0x" (hex_digit | "_")* "." (hex_digit | "_")* "p" exponent;
+exponent = ("e" | "E") ("+" | "-")? digit (digit | "_")*;
+float_suffix = "f16" | "bf16" | "f32" | "f64" | "f128" | "dec32" | "dec64" | "dec128";
+
+(* Character literals *)
+char_literal = "'" (escape_sequence | non_quote_char) "'";
+byte_literal = "b'" (escape_sequence | non_quote_char) "'";
+
+(* String literals *)
+string_literal = ("b" | "r" | "br" | "rb")? "\"" string_content "\"";
+raw_string_literal = "r" "#"* "\"" raw_string_content "\"#" (with matching # count);
+
+(* Interpolated strings *)
+interpolated_string = "f\"" interpolated_content "\"";
+
+(* Escape sequences *)
+escape_sequence = "\\" ("0" | "t" | "n" | "r" | "\"" | "'" | "\\" | "x" hex_digit hex_digit | "u{" hex_digit+ "}");
+
+(* Comments *)
+line_comment = "//" [^\\n]*;
+block_comment = "/*" (block_comment_content | block_comment)* "*/";
+doc_line_comment = "///" [^\\n]* | "//!" [^\\n]*;
+doc_block_comment = "/**" block_comment_content "**/" | "/*!" block_comment_content "*/";
+
+(* ============================================================
+   Syntactic Grammar (from OMNI-GRAMMAR)
+   ============================================================ *)
+
+(* Source file *)
+source_file = { module_item };
+
+(* Module items *)
+module_item = function_def | struct_def | enum_def | trait_def | impl_def | const_def | static_def
+            | use_decl | module_decl | extern_crate_decl | attribute_item;
+
+(* Attributes *)
+attribute = "#" "[" attribute_content "]";
+attribute_content = attribute_path [ "(" attribute_args? ")" ];
+attribute_path = identifier { "::" identifier };
+attribute_args = attribute_arg { "," attribute_arg };
+attribute_arg = expression | identifier "=" expression;
+
+(* Function definition *)
+function_def = [attribute] [ "pub" ] [ "const" | "async" | "unsafe" ] "fn" identifier
+               [ generic_params ] "(" [ param_list ] ")" [ "->" type ] [ where_clause ] block_expr;
+
+(* Generic parameters *)
+generic_params = "<" generic_param { "," generic_param } ">";
+generic_param = lifetime_param | type_param | const_param | effect_param | capability_param;
+lifetime_param = "'" identifier;
+type_param = identifier [ ":" type_bound { "+" type_bound } ] [ "=" type ];
+const_param = "const" identifier ":" type [ "=" expression ];
+effect_param = "effect" identifier [ ":" effect_bound ];
+capability_param = "cap" identifier [ ":" capability_bound ];
+
+(* Parameter list *)
+param_list = param { "," param } [ "," ];
+param = [ "mut" ] identifier ":" type;
+
+(* Where clause *)
+where_clause = "where" where_predicate { "," where_predicate } [ "," ];
+where_predicate = type ":" type_bound { "+" type_bound };
+
+(* Type bounds *)
+type_bound = trait_ref | lifetime | "?Sized";
+
+(* Trait reference *)
+trait_ref = [ "dyn" ] path [ "<" type_args ">" ];
+
+(* Type arguments *)
+type_args = type_arg { "," type_arg } [ "," ];
+type_arg = type | const_arg | lifetime_arg;
+const_arg = "const" expression;
+lifetime_arg = "'" identifier;
+
+(* Types *)
+type = function_type | tuple_type | array_type | slice_type | reference_type | raw_pointer_type
+     | path_type | never_type | parenthesized_type;
+
+function_type = [ "unsafe" ] [ "extern" [ string_literal ] ] "fn" "(" [ type { "," type } ] ")" [ "->" type ];
+tuple_type = "(" [ type { "," type } [ "," ] ] ")";
+array_type = "[" type ";" expression "]";
+slice_type = "[" type "]";
+reference_type = "&" [ "mut" ] [ lifetime ] type;
+raw_pointer_type = "*" [ "const" | "mut" ] type;
+path_type = path [ "<" type_args ">" ];
+never_type = "!";
+parenthesized_type = "(" type ")";
+
+(* Paths *)
+path = [ "::" ] path_segment { "::" path_segment };
+path_segment = identifier [ "<" type_args ">" ];
+
+(* Struct definition *)
+struct_def = [attribute] [ "pub" ] "struct" identifier [ generic_params ] [ where_clause ]
+             ( struct_body | ";" );
+struct_body = "{" [ struct_field { "," struct_field } [ "," ] ] "}";
+struct_field = [attribute] [ "pub" ] identifier ":" type;
+
+(* Enum definition *)
+enum_def = [attribute] [ "pub" ] "enum" identifier [ generic_params ] [ where_clause ]
+           "{" [ enum_variant { "," enum_variant } [ "," ] ] "}";
+enum_variant = [attribute] identifier [ "(" [ type { "," type } [ "," ] ] ")" ];
+
+(* Trait definition *)
+trait_def = [attribute] [ "pub" ] [ "unsafe" ] "trait" identifier [ generic_params ] [ where_clause ]
+            "{" [ trait_item { "," trait_item } [ "," ] ] "}";
+trait_item = function_signature | type_alias | const_def;
+
+(* Impl block *)
+impl_def = [ "unsafe" ] "impl" [ generic_params ] [ trait_ref "for" ] type [ where_clause ]
+           "{" [ impl_item { "," impl_item } [ "," ] ] "}";
+impl_item = function_def | type_alias | const_def;
+
+(* Type alias *)
+type_alias = [ "pub" ] "type" identifier [ generic_params ] [ where_clause ] "=" type;
+
+(* Constant definition *)
+const_def = [attribute] [ "pub" ] "const" identifier ":" type "=" expression ";";
+
+(* Static definition *)
+static_def = [attribute] [ "pub" ] "static" [ "mut" ] identifier ":" type [ "=" expression ] ";";
+
+(* Use declaration *)
+use_decl = "use" [ "as" ] use_tree ";";
+use_tree = path [ "::" "{" use_tree { "," use_tree } [ "," ] "}" ] [ "as" identifier ];
+
+(* Module declaration *)
+module_decl = [ "pub" ] "mod" identifier [ "{" { module_item } "}" ];
+
+(* Extern crate declaration *)
+extern_crate_decl = "extern" "crate" identifier [ "as" identifier ] ";";
+
+(* Attribute item *)
+attribute_item = attribute ";";
+
+(* Expressions *)
+expression = block_expr | let_expr | if_expr | match_expr | loop_expr | while_expr | for_expr
+           | try_expr | return_expr | break_expr | continue_expr | yield_expr | await_expr
+           | assign_expr | binary_expr | unary_expr | call_expr | method_call_expr | field_expr
+           | index_expr | range_expr | cast_expr | literal_expr | path_expr | macro_invocation
+           | parenthesized_expr | struct_expr | array_expr | tuple_expr | closure_expr
+           | async_block | unsafe_block | try_block;
+
+(* Block expression *)
+block_expr = "{" [ statement { statement } [ final_expression ] ] "}";
+
+(* Statements *)
+statement = let_stmt | item_decl_stmt | expr_stmt | macro_stmt;
+let_stmt = "let" [ "mut" ] pattern [ ":" type ] "=" expression ";";
+item_decl_stmt = module_item;
+expr_stmt = expression ";";
+macro_stmt = macro_invocation ";";
+
+(* Final expression (no semicolon) *)
+final_expression = expression;
+
+(* Patterns *)
+pattern = literal_pattern | identifier_pattern | wildcard_pattern | tuple_pattern | slice_pattern
+        | struct_pattern | enum_pattern | reference_pattern | or_pattern | binding_pattern
+        | range_pattern | guard_pattern;
+
+(* Literal patterns *)
+literal_pattern = literal_expr;
+
+(* Identifier pattern *)
+identifier_pattern = identifier;
+
+(* Wildcard pattern *)
+wildcard_pattern = "_";
+
+(* Tuple pattern *)
+tuple_pattern = "(" [ pattern { "," pattern } [ "," ] ] ")";
+
+(* Slice pattern *)
+slice_pattern = "[" [ pattern { "," pattern } [ "," ] ] "]";
+
+(* Struct pattern *)
+struct_pattern = path "{" [ pattern_field { "," pattern_field } [ "," ] ] "}";
+pattern_field = identifier [ ":" pattern ];
+
+(* Enum pattern *)
+enum_pattern = path [ "(" [ pattern { "," pattern } [ "," ] ] ")" ];
+
+(* Reference pattern *)
+reference_pattern = "&" [ "mut" ] pattern;
+
+(* Or pattern *)
+or_pattern = pattern "|" pattern;
+
+(* Binding pattern *)
+binding_pattern = [ "mut" ] identifier [ "@" pattern ];
+
+(* Range pattern *)
+range_pattern = expression ".." [ expression ] | expression "..=" expression;
+
+(* Guard pattern *)
+guard_pattern = pattern "if" expression;
+
+(* If expression *)
+if_expr = "if" expression block_expr [ "else" ( if_expr | block_expr ) ];
+
+(* Match expression *)
+match_expr = "match" expression "{" [ match_arm { "," match_arm } [ "," ] ] "}";
+match_arm = pattern [ "if" expression ] "=>" expression;
+
+(* Loop expression *)
+loop_expr = [ label ":" ] "loop" block_expr;
+
+(* While expression *)
+while_expr = [ label ":" ] "while" expression block_expr;
+
+(* For expression *)
+for_expr = [ label ":" ] "for" pattern "in" expression block_expr;
+
+(* Try expression *)
+try_expr = "try" block_expr [ "catch" "(" pattern ")" block_expr ];
+
+(* Return expression *)
+return_expr = "return" [ expression ] ";";
+
+(* Break expression *)
+break_expr = "break" [ label ] [ expression ] ";";
+
+(* Continue expression *)
+continue_expr = "continue" [ label ] ";";
+
+(* Yield expression *)
+yield_expr = "yield" [ expression ] ";";
+
+(* Await expression *)
+await_expr = expression "." "await";
+
+(* Assignment expression *)
+assign_expr = place_expr "=" expression;
+
+(* Place expressions (lvalues) *)
+place_expr = path_expr | field_expr | index_expr | deref_expr | parenthesized_place;
+
+(* Binary expressions *)
+binary_expr = expression binary_op expression;
+binary_op = "+" | "-" | "*" | "/" | "%" | "&" | "|" | "^" | "<<" | ">>"
+          | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
+          | "==" | "!=" | "<" | "<=" | ">" | ">="
+          | "&&" | "||" | "??";
+
+(* Unary expressions *)
+unary_expr = unary_op expression;
+unary_op = "-" | "!" | "&" | "&mut" | "*" | "~";
+
+(* Call expression *)
+call_expr = expression "(" [ expression { "," expression } [ "," ] ] ")";
+
+(* Method call expression *)
+method_call_expr = expression "." identifier [ "<" type_args ">" ] "(" [ expression { "," expression } [ "," ] ] ")";
+
+(* Field expression *)
+field_expr = expression "." identifier;
+
+(* Index expression *)
+index_expr = expression "[" expression "]";
+
+(* Range expression *)
+range_expr = expression ".." expression | expression "..=" expression;
+
+(* Cast expression *)
+cast_expr = expression "as" type;
+
+(* Literal expression *)
+literal_expr = integer_literal | float_literal | char_literal | byte_literal
+             | string_literal | raw_string_literal | interpolated_string
+             | "true" | "false";
+
+(* Path expression *)
+path_expr = path [ "::" "<" type_args ">" ];
+
+(* Macro invocation *)
+macro_invocation = identifier "!" macro_args;
+macro_args = "(" [ token_tree ] ")" | "[" [ token_tree ] "]" | "{" [ token_tree ] "}";
+token_tree = token { token };
+token = identifier | literal_expr | punctuation | "(" token_tree ")" | "[" token_tree "]" | "{" token_tree "}";
+
+(* Parenthesized expression *)
+parenthesized_expr = "(" expression ")";
+parenthesized_place = "(" place_expr ")";
+
+(* Struct expression *)
+struct_expr = path "{" [ struct_expr_field { "," struct_expr_field } [ "," ] ] "}";
+struct_expr_field = identifier [ ":" expression ];
+
+(* Array expression *)
+array_expr = "[" [ expression { "," expression } [ "," ] ] "]";
+
+(* Tuple expression *)
+tuple_expr = "(" expression { "," expression } [ "," ] ")";
+
+(* Closure expression *)
+closure_expr = [ "move" ] "|" [ closure_param { "," closure_param } [ "," ] ] "|" [ "->" type ] expression;
+closure_param = [ "mut" ] identifier [ ":" type ];
+
+(* Async block *)
+async_block = "async" [ "move" ] block_expr;
+
+(* Unsafe block *)
+unsafe_block = "unsafe" block_expr;
+
+(* Try block *)
+try_block = "try" block_expr;
+
+(* Labels *)
+label = "'" identifier;
+
+(* ============================================================
+   Character classes
+   ============================================================ *)
+
+digit = "0" .. "9";
+bin_digit = "0" | "1";
+oct_digit = "0" .. "7";
+hex_digit = digit | "a" .. "f" | "A" .. "F";
+non_quote_char = ? any character except ' and \\ ?;
+
+(* Unicode identifier classes (from UAX #31) *)
+XID_Start = ? Unicode XID_Start property ?;
+XID_Continue = ? Unicode XID_Continue property ?;
+
+(* ============================================================
+   Precedence (from OMNI-GRAMMAR, lowest to highest)
+   ============================================================ *)
+
+(* 1. assignment: = += -= *= /= %= &= |= ^= <<= >>=
+   2. ranges: .. ..=
+   3. logical OR: ||
+   4. logical AND: &&
+   5. null coalescing: ??
+   6. comparison: == != < <= > >=
+   7. bitwise OR: |
+   8. bitwise XOR: ^
+   9. bitwise AND: &
+   10. shifts: << >>
+   11. additive: + -
+   12. multiplicative: * / %
+   13. casts: as
+   14. unary: - ! & &mut * ~
+   15. postfix: . () [] await
+   16. primary: literals, paths, parentheses, blocks *)

@@ -1,0 +1,13 @@
+// Candidate 2 Field Projection Tests
+// Tests the .field projection shorthand
+
+// Basic field projection
+fn main() -> i64 {
+    struct_x.field
+}
+
+// Field projection in expressions
+fn main2() -> i64 {
+    let x = struct_y.field
+    x + 1
+}

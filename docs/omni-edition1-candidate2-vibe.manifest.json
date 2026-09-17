@@ -1,0 +1,46 @@
+{
+  "manifest_version": "1.0.0",
+  "edition": 1,
+  "status": "1.0.0-candidate.2-vibe",
+  "baseline_candidate": "1.0.0-candidate.1",
+  "amendment": "Candidate 2 Vibe-First Surface Syntax",
+  "documents": [
+    "docs/specification/Omni_Complete_Specification_Edition1_1.0.0-candidate.2_vibe.md",
+    "docs/specification/Omni_Vibe_Surface_Syntax_Edition1_Candidate.1.md",
+    "docs/implementation/Omni_Implementation_Master_Plan_Edition1_Vibe_First_Revised.md",
+    "docs/implementation/Omni_Vibe_Syntax_Handoff_and_Acceptance.md",
+    "docs/agent/Omni_Kilo_Master_Goal_Vibe_First.md"
+  ],
+  "ratification_required": true,
+  "implementation_certification_required": true,
+  "core_semantics_unchanged_except_explicit_surface_amendments": true,
+  "surface_features": [
+    "newline_termination_with_continuation_rules",
+    "optional_semicolons_at_unambiguous_boundaries",
+    "pipeline_operator",
+    "projection_shorthand",
+    "deterministic_command_style_calls",
+    "optional_chaining",
+    "null_coalescing",
+    "resource_scopes",
+    "structured_concurrency_surface",
+    "explicit_capability_requirements"
+  ],
+  "required_qualification": [
+    "lexer",
+    "parser",
+    "lossless_cst",
+    "surface_ast",
+    "desugaring",
+    "formatter",
+    "names",
+    "types",
+    "ownership",
+    "effects",
+    "capabilities",
+    "concurrency",
+    "verification",
+    "conformance",
+    "reproducibility"
+  ]
+}
