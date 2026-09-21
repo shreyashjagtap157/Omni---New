@@ -49,3 +49,18 @@ Rule-text hashes re-derive the 0.0.0.4 registry vectors mechanically. Provenance
 NFC is a producer obligation (no normalization dependency in the workspace). The 0.0.0.5 tree
 procedure and publication set are unchanged; tree digest still
 `ecda85bb1f460266abf2b05f0a9f8058c9c6162f8c448ef1f46989ad3577698b`.
+
+## Linkage reaper (0.0.0.7, `omni-audit`)
+
+Single ownership model: `#[implements("ID")]` and `implements!("ID")` claims under `compiler/` and
+`tools/` (generated `target/` excluded, filename-sorted walk) must resolve to registry rules in
+`Candidate` or `Ratified` state; `Proposed`/`Deprecated`/`Superseded`/`Withdrawn` ownership, unknown
+IDs, and malformed claim syntax all fail closed, as do unparseable sources, symlinks, missing trees,
+duplicate registry IDs, unknown dependencies, dependency cycles, and unknown statuses. Witness
+entries must each resolve to a contained workspace file or a collected `#[test]` name; every
+`Ratified` rule must be both claimed and witnessed. Coverage is per-rule, not per-file: untagged
+infrastructure/derived/oracle code is permitted. Duplicate claims across files are allowed and
+attributed (collaborative implementation). Live state: 8 tags in 57 files (74 test fns), clean.
+Tracked gaps (not invented): RULE-0003 `erratum-corrected` has no enum spelling (needs spec ADR);
+rule-text to hash binding is procedural (deterministic extraction, tree-pinned registry bytes);
+`models/`/`data` emptiness belongs to later milestones.

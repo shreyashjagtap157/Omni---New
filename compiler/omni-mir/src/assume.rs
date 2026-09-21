@@ -1,6 +1,7 @@
 //! # Unsafe Assumption Tokens
 //! Implements assumption tokens for unsafe verification blocks.
-//! Linkage: #[implements("AUDIT-OPT-UNSAFE-0001")]
+//! No rule ownership is claimed here: the referenced identifier was never a
+//! registered rule, and prose must not mimic linkage syntax.
 
 use crate::ir::Place;
 
