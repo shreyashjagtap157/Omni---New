@@ -24,7 +24,7 @@ omni-codegen = { path = "../omni-codegen" }
 omni-runtime = { path = "../omni-runtime" }
 
 [dependencies.sha2]
-version = "0.11"
+version = "0.10"
 
 [dependencies.hex]
 version = "0.4"

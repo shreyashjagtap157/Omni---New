@@ -22,6 +22,8 @@ echo "CI mode=$MODE ceiling=${MAX_TIME}s fuzz_budget=${FUZZ_BUDGET}s/target"
 test "$(umask)" = "0022" || { echo "FATAL: umask must be 0022." >&2; exit 106; }
 
 # The timeout command is part of the CI execution environment, not a language semantic dependency.
-timeout "${MAX_TIME}s" cargo fmt --check
-timeout "${MAX_TIME}s" cargo clippy --workspace --all-targets -- -D warnings
-timeout "${MAX_TIME}s" cargo test --workspace
+timeout "${MAX_TIME}s" cargo fmt --all -- --check
+timeout "${MAX_TIME}s" cargo check --workspace --locked
+timeout "${MAX_TIME}s" cargo clippy --workspace --all-targets --locked -- -D warnings
+timeout "${MAX_TIME}s" cargo test --workspace --locked
+timeout "${MAX_TIME}s" cargo metadata --format-version 1 --locked > /dev/null

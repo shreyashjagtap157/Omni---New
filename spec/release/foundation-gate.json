@@ -5,7 +5,7 @@
     "rust_toolchain_unavailable",
     "authoritative_spec_tree_not_installed"
   ],
-  "declared_toolchain": "1.80.0",
+  "declared_toolchain": "1.95.0",
   "required_targets": [
     "riscv64-unknown-none-elf",
     "x86_64-unknown-linux-gnu"

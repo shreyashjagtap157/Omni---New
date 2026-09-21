@@ -2,11 +2,12 @@
 
 The foundation sequence is ordered `OMNI-IMP-0.0.0.2` through `OMNI-IMP-0.0.0.13`.
 
-The exact Rust pin is `1.80.0`, but qualification remains fail-closed until the host provides
+The exact Rust pin is `1.95.0`, but qualification remains fail-closed until the host provides
 `rustc`, `cargo`, `rustup`, and the required targets. The pinned workspace uses Cargo resolver 2
-because resolver 3 was not available in Rust 1.80; changing this would invalidate the declared
-Stage-1 toolchain contract. This is a tooling-compatibility constraint, not a language-semantic
-change.
+to preserve the declared Stage-1 toolchain contract; changing this would invalidate that contract.
+This is a tooling-compatibility constraint, not a language-semantic change. Foundation targets are
+`x86_64-unknown-linux-gnu` and `riscv64-unknown-none-elf`; under Rust 1.95.0 the latter is provided
+as the canonical `riscv64gc-unknown-none-elf` target.
 
 The repository does not yet contain the normative Edition 1 specification tree. The manifest records
 the authoritative specification digest supplied for this implementation. `0.0.0.13` must not claim

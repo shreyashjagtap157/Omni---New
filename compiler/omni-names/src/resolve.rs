@@ -125,29 +125,31 @@ impl Resolver {
                 self.pop_rib();
             }
             SyntaxKind::LetStmt => {
-                let mut children = node.children();
-                if let Some(name) = children.clone().find(|n| n.kind() == SyntaxKind::NameRef) {
+                let children_vec: Vec<_> = node.children().collect();
+                if let Some(name) =
+                    children_vec.iter().find(|n| n.kind() == SyntaxKind::NameRef).cloned()
+                {
                     // Initializer is resolved before introducing the binding: a declaration
                     // cannot recursively refer to itself by name.
                     let mut after_name = false;
-                    for c in children {
-                        if c == name {
+                    for c in &children_vec {
+                        if c.kind() == SyntaxKind::NameRef && c.text() == name.text() {
                             after_name = true;
                             continue;
                         }
                         if after_name {
-                            self.resolve_node(&c, out, errors);
+                            self.resolve_node(c, out, errors);
                         }
                     }
                     self.declare_and_record(&name, out, true, errors);
                 } else {
-                    for c in children {
-                        self.resolve_node(&c, out, errors);
+                    for c in &children_vec {
+                        self.resolve_node(c, out, errors);
                     }
                 }
             }
             SyntaxKind::NameRef => {
-                let text = node.text().to_string();
+                let text = node.text().to_string().trim().to_string();
                 if let Ok(id) = self.resolve(&text) {
                     out.references.insert(start_u32(node), id);
                 } else {
@@ -176,7 +178,7 @@ impl Resolver {
         _declaration: bool,
         errors: &mut Vec<ResolveError>,
     ) {
-        let name = node.text().to_string();
+        let name = node.text().to_string().trim().to_string();
         match self.declare(name.clone()) {
             Ok(id) => {
                 out.definitions.insert(start_u32(node), id);

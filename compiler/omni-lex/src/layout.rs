@@ -33,25 +33,24 @@ impl LayoutEngine {
         let mut tokens = Vec::new();
         let current = *self.stack.last().expect("Indent stack must never be empty");
 
-        if spaces > current {
-            // Deeper indentation: push onto stack, emit Indent
-            self.stack.push(spaces);
-            tokens.push(TokenKind::Indent);
-        } else if spaces < current {
-            // Shallower indentation: pop stack and emit Dedent until aligned
-            while let Some(&top) = self.stack.last() {
-                if spaces == top {
-                    break; // Successfully aligned
-                }
-
-                if spaces > top {
-                    // We popped past the target without finding an exact match
-                    return Err(LayoutError::MismatchedUnindent(spaces));
-                }
-
-                self.stack.pop();
-                tokens.push(TokenKind::Dedent);
+        match spaces.cmp(&current) {
+            std::cmp::Ordering::Greater => {
+                self.stack.push(spaces);
+                tokens.push(TokenKind::Indent);
             }
+            std::cmp::Ordering::Less => {
+                while let Some(&top) = self.stack.last() {
+                    if spaces == top {
+                        break;
+                    }
+                    if spaces > top {
+                        return Err(LayoutError::MismatchedUnindent(spaces));
+                    }
+                    self.stack.pop();
+                    tokens.push(TokenKind::Dedent);
+                }
+            }
+            std::cmp::Ordering::Equal => {}
         }
 
         Ok(tokens)

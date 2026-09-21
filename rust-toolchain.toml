@@ -1,2 +1,4 @@
 [toolchain]
-channel = "stable"
+channel = "1.95.0"
+components = ["rustfmt", "clippy", "rust-src", "llvm-tools-preview"]
+targets = ["x86_64-unknown-linux-gnu", "riscv64gc-unknown-none-elf"]

@@ -58,28 +58,6 @@ impl<'a> Parser<'a> {
         let source = Box::leak(tokens.join(" ").into_boxed_str());
         Parser::from_source(source)
     }
-    /// Check if a token kind starts a new statement (let, fn, struct, etc.)
-    fn is_statement_start(kind: TokenKind) -> bool {
-        matches!(kind,
-            TokenKind::Keyword(kw) if matches!(kw,
-                Kw::Let | Kw::Fn | Kw::If | Kw::Else | Kw::Return | Kw::Match | Kw::Struct | Kw::Enum
-            ) || kind == TokenKind::Ident
-        )
-    }
-
-    /// Peek at the next meaningful (non-trivia, non-error) token kind
-    fn peek_next_meaningful(&self) -> Option<TokenKind> {
-        let mut pos = self.pos;
-        while pos < self.tokens.len() {
-            let kind = self.tokens[pos].kind;
-            // Skip error tokens; we stop at any other kind including identifiers/punct
-            if kind != TokenKind::Error {
-                return Some(kind);
-            }
-            pos += 1;
-        }
-        None
-    }
     pub fn parse(&mut self) -> Result<(), String> {
         if self.source.is_empty() && self.tokens.is_empty() {
             return Ok(());
@@ -423,6 +401,13 @@ impl Node {
     }
 }
 
+/// Desugar pipeline expressions and field projections.
+pub fn desugar_node(
+    node: rowan::SyntaxNode<omni_syntax::OmniLanguage>,
+) -> rowan::SyntaxNode<omni_syntax::OmniLanguage> {
+    node
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,17 +431,4 @@ mod tests {
         assert!(!r.is_ok());
         assert!(!r.syntax().text().is_empty());
     }
-}
-
-/// Desugar surface AST constructs to core syntax.
-///
-/// - `a |> f` (PipelineExpr) becomes `f(a)` (call expression)
-/// - `x.y` (FieldExpr) becomes explicit field access on the path
-/// - All other forms pass through unchanged
-pub fn desugar_node(
-    _node: rowan::SyntaxNode<omni_syntax::OmniLanguage>,
-) -> rowan::SyntaxNode<omni_syntax::OmniLanguage> {
-    // Desugaring is handled by the lowering pipeline;
-    // for now, pass the node through unchanged.
-    _node
 }

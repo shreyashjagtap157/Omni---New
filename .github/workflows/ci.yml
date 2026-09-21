@@ -11,23 +11,34 @@ permissions:
 
 jobs:
   validate:
-    name: Build & Qualify (Stable Rust)
+    name: Build & Qualify (Pinned Rust 1.95.0)
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust Toolchain (pinned contract)
+        uses: dtolnay/rust-toolchain@master
         with:
-          components: rustfmt, clippy
+          toolchain: 1.95.0
+          targets: x86_64-unknown-linux-gnu, riscv64gc-unknown-none-elf
+          components: rustfmt, clippy, rust-src, llvm-tools-preview
+
+      - name: Assert pinned toolchain identity
+        run: ./ci/assert-toolchain.sh
 
       - name: Check Code Formatting
         run: cargo fmt --all -- --check
 
       - name: Run Strict Clippy Lints
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Check Workspace
+        run: cargo check --workspace --locked
 
       - name: Execute Workspace Test Suite
-        run: cargo test --workspace --all-targets --all-features
+        run: cargo test --workspace --locked
+
+      - name: Verify Locked Metadata
+        run: cargo metadata --format-version 1 --locked > /dev/null

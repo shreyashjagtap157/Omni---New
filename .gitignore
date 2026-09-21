@@ -7,7 +7,6 @@
 *.lot
 # Cargo and Rust
 /target/**
-/Cargo.lock
 /.cargo/
 # IDE and tooling
 /.idea/

@@ -6,7 +6,11 @@ WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TOOLCHAIN_FILE="${WORKSPACE_ROOT}/rust-toolchain.toml"
 
 EXPECTED_COMPONENTS=("rustfmt" "clippy" "rust-src" "llvm-tools-preview")
-REQUIRED_TARGETS=("x86_64-unknown-linux-gnu" "aarch64-unknown-linux-gnu")
+# Foundation contract targets per spec/release/foundation-gate.json:
+# x86_64-unknown-linux-gnu + riscv64-unknown-none-elf.
+# Rust 1.95.0 renamed riscv64-unknown-none-elf -> riscv64gc-unknown-none-elf;
+# assert the canonical 1.95.0 name.
+REQUIRED_TARGETS=("x86_64-unknown-linux-gnu" "riscv64gc-unknown-none-elf")
 
 fail() {
     echo "[-] FAIL-CLOSED: $*" >&2

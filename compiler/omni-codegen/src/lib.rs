@@ -2,23 +2,21 @@
 
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_codegen::ir::{types, AbiParam, Signature};
-use cranelift_codegen::isa::TargetFrontendConfig;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
-pub fn compile_to_object(source_code: &str) -> Result<Vec<u8>, String> {
-    let _ = source_code; // Stage-0 stub consumes snippet for AST lowering later
+pub fn compile_to_object(_source_code: &str) -> Result<Vec<u8>, String> {
+    let _ = _source_code; // Stage-0 stub consumes snippet for AST lowering later
 
     // Configure target architecture flags for host execution
     let mut flag_builder = settings::builder();
     flag_builder.set("opt_level", "speed").map_err(|e| e.to_string())?;
     flag_builder.set("is_pic", "false").map_err(|e| e.to_string())?;
-    let isa_builder = cranelift_codegen::isa::lookup(Triple::host())
-        .map_err(|e| format!("Target ISA error: {}", e))?;
-    let isa = isa_builder
+    let isa = cranelift_codegen::isa::lookup(Triple::host())
+        .map_err(|e| format!("Target ISA error: {}", e))?
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| format!("ISA build error: {}", e))?;
 
@@ -53,8 +51,7 @@ pub fn compile_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     let val = builder.ins().iconst(types::I64, 42);
     builder.ins().return_(&[val]);
 
-    let frontend_config: TargetFrontendConfig = module.isa().frontend_config();
-    builder.finalize(frontend_config);
+    builder.finalize();
 
     module
         .define_function(func_id, &mut ctx)
