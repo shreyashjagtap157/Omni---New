@@ -17,15 +17,18 @@ case "$MODE" in
 esac
 
 echo "CI mode=$MODE ceiling=${MAX_TIME}s fuzz_budget=${FUZZ_BUDGET}s/target"
+# Low-memory guard: cap any Rust operation under ~500MB via single-job builds.
+export CARGO_BUILD_JOBS=1
+export CARGO_BUILD_CODEGEN_UNITS=1
 ./ci/assert-toolchain.sh
 
 test "$(umask)" = "0022" || { echo "FATAL: umask must be 0022." >&2; exit 106; }
 
 # The timeout command is part of the CI execution environment, not a language semantic dependency.
 timeout "${MAX_TIME}s" cargo fmt --all -- --check
-timeout "${MAX_TIME}s" cargo check --workspace --locked
-timeout "${MAX_TIME}s" cargo clippy --workspace --all-targets --locked -- -D warnings
-timeout "${MAX_TIME}s" cargo test --workspace --locked
+timeout "${MAX_TIME}s" cargo check -j 1 --workspace --locked
+timeout "${MAX_TIME}s" cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
+timeout "${MAX_TIME}s" cargo test -j 1 --workspace --locked -- --test-threads=1
 timeout "${MAX_TIME}s" cargo metadata --format-version 1 --locked > /dev/null
 # Fuzz budget enforcement (0.0.0.3): per-target budget declared above.
 # Timeouts, hangs, crashes, sanitizer failures, and nondeterministic outputs are failures.

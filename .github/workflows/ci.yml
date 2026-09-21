@@ -13,6 +13,9 @@ jobs:
   validate:
     name: Build & Qualify (Pinned Rust 1.95.0)
     runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: 1
+      CARGO_BUILD_CODEGEN_UNITS: 1
 
     steps:
       - name: Checkout Repository
@@ -32,13 +35,13 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Strict Clippy Lints
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
 
       - name: Check Workspace
-        run: cargo check --workspace --locked
+        run: cargo check -j 1 --workspace --locked
 
       - name: Execute Workspace Test Suite
-        run: cargo test --workspace --locked
+        run: cargo test -j 1 --workspace --locked -- --test-threads=1
 
       - name: Verify Locked Metadata
         run: cargo metadata --format-version 1 --locked > /dev/null
