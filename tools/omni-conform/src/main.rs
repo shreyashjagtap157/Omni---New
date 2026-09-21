@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use omni_canon::spec_tree;
+use omni_canon::{reject_duplicate_keys, spec_tree};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -26,6 +26,7 @@ struct Gate {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RegistryRecord {
     rule_id: String,
     domain: String,
@@ -35,10 +36,13 @@ struct RegistryRecord {
     #[serde(default)]
     dependencies: Vec<String>,
     #[serde(default)]
+    diagnostics: Vec<String>,
+    #[serde(default)]
     witness_tests: Vec<String>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RuleRegistry {
     schema_version: String,
     rules: Vec<RegistryRecord>,
@@ -93,6 +97,8 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
     // pinned by tree membership: any registry byte change alters tree_digest.
     let registry_raw = fs::read_to_string(spec_root.join("registry/rules.json"))
         .map_err(|e| fail(format!("registry unreadable: {e}")))?;
+    reject_duplicate_keys(&registry_raw)
+        .map_err(|e| fail(format!("registry has ambiguous keys: {e}")))?;
     let registry: RuleRegistry =
         serde_json::from_str(&registry_raw).map_err(|e| fail(format!("registry invalid: {e}")))?;
     if registry.schema_version != "1.0.0" {
@@ -126,6 +132,14 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
         }
         if !rule.domain.starts_with("OMNI-") {
             return Err(fail(format!("{} bad domain {}", rule.rule_id, rule.domain)));
+        }
+        for diag in &rule.diagnostics {
+            let code_ok = diag.len() == 5
+                && diag.starts_with('E')
+                && diag[1..].chars().all(|c| c.is_ascii_digit());
+            if !code_ok {
+                return Err(fail(format!("{} bad diagnostic {diag}", rule.rule_id)));
+            }
         }
     }
     let ids: BTreeSet<&str> = registry.rules.iter().map(|r| r.rule_id.as_str()).collect();
