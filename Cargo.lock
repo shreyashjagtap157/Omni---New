@@ -422,6 +422,11 @@ dependencies = [
 [[package]]
 name = "omni-conform"
 version = "0.0.0"
+dependencies = [
+ "omni-canon",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "omni-driver"

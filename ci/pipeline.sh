@@ -30,6 +30,8 @@ timeout "${MAX_TIME}s" cargo check -j 1 --workspace --locked
 timeout "${MAX_TIME}s" cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
 timeout "${MAX_TIME}s" cargo test -j 1 --workspace --locked -- --test-threads=1
 timeout "${MAX_TIME}s" cargo metadata --format-version 1 --locked > /dev/null
+timeout "${MAX_TIME}s" cargo run -j 1 -p omni-conform --locked
+timeout "${MAX_TIME}s" cargo run -j 1 -p omni-audit --locked
 # Fuzz budget enforcement (0.0.0.3): per-target budget declared above.
 # Timeouts, hangs, crashes, sanitizer failures, and nondeterministic outputs are failures.
 if command -v cargo-fuzz >/dev/null 2>&1; then

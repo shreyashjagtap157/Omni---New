@@ -45,3 +45,9 @@ jobs:
 
       - name: Verify Locked Metadata
         run: cargo metadata --format-version 1 --locked > /dev/null
+
+      - name: Verify Specification Manifest Binding
+        run: cargo run -j 1 -p omni-conform --locked
+
+      - name: Run Semantic Linkage Reaper
+        run: cargo run -j 1 -p omni-audit --locked
