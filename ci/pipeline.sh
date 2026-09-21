@@ -27,3 +27,11 @@ timeout "${MAX_TIME}s" cargo check --workspace --locked
 timeout "${MAX_TIME}s" cargo clippy --workspace --all-targets --locked -- -D warnings
 timeout "${MAX_TIME}s" cargo test --workspace --locked
 timeout "${MAX_TIME}s" cargo metadata --format-version 1 --locked > /dev/null
+# Fuzz budget enforcement (0.0.0.3): per-target budget declared above.
+# Timeouts, hangs, crashes, sanitizer failures, and nondeterministic outputs are failures.
+if command -v cargo-fuzz >/dev/null 2>&1; then
+    echo "Fuzz: lexer_fuzz budget=${FUZZ_BUDGET}s"
+    timeout "${MAX_TIME}s" cargo fuzz run lexer_fuzz -- -max_total_time="${FUZZ_BUDGET}"
+else
+    echo "WARN: cargo-fuzz not installed; fuzz budget (${FUZZ_BUDGET}s/target) declared but not enforced on this host."
+fi
