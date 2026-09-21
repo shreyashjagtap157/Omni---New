@@ -2,11 +2,2153 @@
   "schema_version": "1.0.0",
   "rules": [
     {
-      "rule_id": "LEX-0002",
+      "rule_id": "ABI-0001",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0edcafa292dbec22e75db7dd19fafad301e6ad9451cafe94a6e9bdb580d61c3b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0002",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "78ac3a792de2b0f4b946cc9bb286c2f7a53b4c973542d448ea14faae38c53a79",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0003",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a4bd75d840eae90e8b9ef863240ca7b1291150614e2799d4b6a40de85627a2a7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0004",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c204d5fd9ad9b2932395a9887ab118a65c9c1b0f32a9683cd49b26262f2e2835",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0005",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "73267cd52ed2ba335d18b93e9249a9a14e3c28d84e4d8095b853fc581ce87007",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0006",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c683d5e5be064d078141a563aabd91fc1bec8a595c4b4dea37f3736776b1c514",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0007",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "35e435617bc283bea11812c5490443324b4f4491eca2dcea73ff9321befc07d4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0008",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0fda3d893cf45977e3145cdee1d6ab158f47ead7504e0381376fd8e4d52cfb34",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0009",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "960687cd600cc92ba1bcabdf36fab6f66b67fe91a93ea5a63c1a552048086e39",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0010",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a5ab068365e6199f42941bd61437e76264b0acba9aedc0b11646310b5bb18d6f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0011",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "866dfd5614a5500f81c7e2811a71a78354671b058996b7bfbf9ad0538db4004d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0012",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2c80f3710731045eae64b9098d8ce8cc4ede97d53b1b76878387571ce2bcbed9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0013",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e0563890dc929c0e0b83a6573594675228e918483e44e85c5030753fdadb6fc6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0014",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4ec0af2470013970d368b854c59e656c2a467a2ebc15a7a6e81913d6a90dd695",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0015",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "78604a681745d49728a4ebf4a39e98101435168066c602a303364a6cb61c5379",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0016",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d4e40a6e4ed6bdb2455c8f0d766e0b394246bd76409f4e4626dd564ffd1af110",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABI-0017",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6c9053a2158705e8b91b26801f9a681b4b8448227b10f5f90f1c96b222816a3d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABISUP-0001",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "950b84e7473225022dd44125f7bda5bb6f87b7171f0746a8ed49bc1bd2b7a541",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABISUP-0002",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1d04e836c1722b51e32e40b9dedbcd9d98da21b91aac946d5639ac7209beb436",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABISUP-0003",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a0312a39a956827a8a605502612375c918df5a2459098b9fb661d7bf719eddaa",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABISUP-0004",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "854c49b600ce83e13d2fa381e029f211200ff9bca7f82d36ea40d1eba29da92a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABISUP-0005",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e09487883fb53ce9a1d7ca57d943870c15a4ee47294297c00a1a86209d9f0687",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ABISUP-0006",
+      "domain": "OMNI-ABI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4b4af22d07040d82157b8ab67e06222678ca16ed7a4961035389fa0cc2701e30",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ATTR-0001",
+      "domain": "OMNI-ATTR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0ca778dcde10d3ff2657e9dd72881045a9f24750c6d6247ec0518f1b03927f16",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ATTR-0002",
+      "domain": "OMNI-ATTR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a1c911cc025e3f46a206e807a5475d390f813e0ab9e9cd2981f5543a7e3bf715",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ATTR-0003",
+      "domain": "OMNI-ATTR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d144310fe10f594cadb196d644a8aa1f342a2b387f3fb795b40b04bb302e1f6c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ATTR-0004",
+      "domain": "OMNI-ATTR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "60747b0d7ca19f7f096c212dd28278ac82fd2e33bdd831919eff80523ee73fa2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ATTR-0005",
+      "domain": "OMNI-ATTR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "94119f717ba319505a9c4e7b2de7ea655f78e5cbefb594631469de382479326c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ATTR-0006",
+      "domain": "OMNI-ATTR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "21cc73e0dcffd96e309d9b843e8ecf2ee98a5e29c25bcbf7c2ef80de47337f23",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ATTR-0007",
+      "domain": "OMNI-ATTR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "583264b22df456c6ace7ead92fb9c080e44b2c029a4fa7fb88539066588771a0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BENCH-0001",
+      "domain": "OMNI-BENCH",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9d69329903db8f2d355305c6bef68e6d81f1db65cb50c4d869c6f0f6f293d9a6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BENCH-0002",
+      "domain": "OMNI-BENCH",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9000dd577d6d9c7fc86d544fd9eb2d8fa0dd02cec10d5c353596f753fe620f86",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BENCH-0003",
+      "domain": "OMNI-BENCH",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7ba865edfafcf0d690efa9e45d47e09aa805514e3cf9da5cb6a85628f58977a6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BENCH-0004",
+      "domain": "OMNI-BENCH",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7b4c89186d7cab2335ca015c2f7c5f6a234dc1810ecca27e521df3ad48ee39dc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BENCH-0005",
+      "domain": "OMNI-BENCH",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e9126a1a462cb8586bb050b8e2586b1c8b184006992ec708bd5d165825a4025c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BENCH-0006",
+      "domain": "OMNI-BENCH",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e95fdd986e70c5fc770475052fc0556de4502598cff84ce54ebdd604c148855c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BENCH-0007",
+      "domain": "OMNI-BENCH",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8a04b31361405d1079b39aa49cf806d251608125f0fbb77295685093643767db",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BENCH-0008",
+      "domain": "OMNI-BENCH",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "29cb6cc5035e0e45fdc916fc6b4aab3d947f13514fe305bdd05923e7e66e553b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0001",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4173c24e27e44b676f473a571dc0686cf8e8f252860e00efd84ab1f76e58eabd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0002",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8bd134cdd14bed7255eb0cd1d253704526e444441fdc1203f60f9e3e724486b5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0003",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f0145fb619517329bd8396450eff2c26de2d9541569d4b183cc6739a974c4c80",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0004",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2bfe45c74260e776e2043e8f64e0cc10d9ee9729df9bb5825a6f7ee3e32ff262",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0005",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7298abebe223b732389bc78a5f92035765018283b85c14fe36f9af72c297ce00",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0006",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "20d13340f81b375a3c218028e8779043f684d7a35af6403b23c0a948c1511309",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0007",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bcd735410053f5efd9ddc70a70db76d49ae8b73c4afc0626f0e48a36d63351fd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0008",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9497fab8e4de6bd2bc5c476eb7480e7ba01d84f6e679975360f4e84e54528a1b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BOOT-0009",
+      "domain": "OMNI-BOOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "19cc0ecd2dceea4182a34f871ace7b04be015b1389530577931f00ed4f5083bc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0001",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0766140540fe9948b0658db971c9248ed7d4cc670cdaa4e7527690a7d4d00039",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0002",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6a0f0d54e047cdfc0de82275d9cda224ca937f1154501b2ddd9fe3030735b898",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0003",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "963670366b1ba0ad4cde3c8b0c4b1c98c2128fbd510f5c67febe05ceee9b3b8a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0004",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "15f434d20013f15ab91b55f3e832310cd2849ce677d12891ddc6cc9569d9f16f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0005",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1847be6b00c38047d496e0354ce5a99ad0a351b8a9d665e24badc1ce55f3c964",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0006",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d0ad6f71179cd801c04d311b6c55007090c6dbbb8fb2f4f587476ba6635dab0e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0007",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "804cfcf7f2276c91f8f79cf711737f1b08a30bc03150fdf189389a5cae167fc7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0008",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "011d306eccf44ac1359dde9125331a50c1629bb92705f71c0c1a5d51ed7705c0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0009",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "be378d2f78804ee18bc7a64279a363f183ee8f42b4a721d2b4a01d4fd21ed011",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0010",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d7e8e71072392a8fc8f44d1f4ef958ab6ba0269ca0fa172d1e97041538b32b56",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "BUILD-0011",
+      "domain": "OMNI-BUILD",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0f7ff34ccbacec7b3848e2f919c80c28031c7a25be0a3c4e7020b7b365140ae9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0001",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2b2434b0dfe15f53e32b7eaaca8e2c99d1d627af5888d7b90eefe579921f269a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0002",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "df059181721c782346b93ab9d52487453f8549160eabf5412d6421cbc9da66a4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0003",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7f02c3790237fe745f0497960dc4ff635efc424e7bccca6ff443685af9119d76",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0004",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8b908ac222545f0edc24123f6a7e23d73011df54b891a01e98e9575784dfb5a6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0005",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4c5492ea9d8bb2fbc283556fa13745062b52af34c55b3cecf888b25046ed140c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0006",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7eefe1783d2bbe2c1680a43ae769dca45e8c5507f6e08342126154d007bcd1f1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0007",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "962ca30876e33d685aa7a5a54e24a1108570b0c642cad906a9167cb0893aca7d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0008",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "81c38cfb8aa6220b49343e3fcec9de2baa2cf0fde03dd552f4553c646271bbcf",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0009",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c66853b3f215d0a7ed8a22ad743f0e03feed0549ac4bbae7d434185395841fab",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0010",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0ae38bf2d95f1fd174098072f138ebdf915e3c2ba513223add57f97ce1d3bdb0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0011",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4ee77b3e26b7374966dc404ff41f33bd253e5e81e384f5340eed697d8a49d8ba",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0012",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "39492e3b0c6eead2a6187c7d71301fda3b5fcd0d335758d83e80bb8cbc63e89d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0013",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0232d82bb94640c34c0ae08b034cfc72baca3e38a54957a33814721f2ca5a8ee",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0014",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e72d6fad95ab5191be6c77852e9cd750196cc504c12bac9073937f4d0ae4d3c0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0015",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ce20e9e1971f7a26e040d3562def97a3fae9b461af2867b47be012979f61e803",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0016",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "470032d31e032955ef6b2b46f68ea030c5721108c7b65f117bc4963ef215e9fc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0017",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6a2bd3d43d105067e5e2d5cb81e6037d2069c8f007152a9d5fbe1db64f08a17f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0018",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4a1d2bd20df25b171e72520e8d9cd600b23eabcd6d78e8903bb6f8e581da0e7e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0019",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "511df699b3cb8ee1006974597e0466b719b5971138d638b98ae467dce712483e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0020",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0adf0c5c7234def7fd5f386fd7c602dfce0bc360219939f2958bdacda0c37b21",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0021",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3fa866b843c140937e52e0413e1f4658f55760702c8fe114353776033c3d34d9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0022",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "971793434a5b097287594c131a213385354154f324839da809706cfa9116136d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONC-0023",
+      "domain": "OMNI-CONC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9f634206595c457284aeed6337692b8f512436859f8b4d4b5cc688759291a340",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0001",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "62ed66b200d94012a30dff5d135242f07b7645e4bf2ebbc612dc89788a0893cc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0002",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "20a4051b18a49deb33df05704bf20adc3a56b30a030bdf1c51e3731b7548dbb8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0003",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2f1cbe4f872891ca7c9510a7aea3c5b9ed867ee510af736cc2e082523b732eb2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0004",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "00e001419dbad7aa0b7d598c914987b5ffb5e7eab5b202a2a045edba5434ef54",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0005",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a1b2466e1806a15c4435c7701e6fade95de0c5d4e516ad1b9acf56237998e7e6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0006",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "887e188b2193d98e5a1e14787560aed0070ac2234036bbba80f9cc1475226266",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0007",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "335346233da9a659564bfb7a650dc5302f4b9b515eacf69178be8eefdb2c67c5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0008",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "19549f1336ab151cb1dbc55b716142cadaa5f4f3030e0040f795784d9ffd3387",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0009",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "83c49bf4ed581dddc01f7a801847d8496ad79faeedecb6305c75c7506f9cf793",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0010",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6cf179a9b191ad2af95ee4a2668d63035ce8def3c99e3c1e70076627ef18a9f5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONF-0011",
+      "domain": "OMNI-CONFORM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d95e99e08cd81214f4ddd1f350407c34d80d07b2993337f32d575b1e0b07163e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0001",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7bab3c4fc795faf69d89ae31e3bb609dc24b5b0615bec412a382073ac05d5d3f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0002",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5fba3febafd8e9684ffc1d516d7feb307364a6c179d043a7e73d523bd3457038",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0003",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7e509b19b1f23077e90bc5a42c952e581f26346e527bfc31178a4b5c767e5977",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0004",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7a233e9682b90a4fe6032ae1fe75a88a10eb5d9bfca3904048cee2e666522541",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0005",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9e76004cd6e2952544e47782d88f1e343332004f87dc07878c6152d8c14d408e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0006",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d386b63b69d5a77f3afe4ccade8c9a02d63ab22b63f05e566f6f5a9bd50b98a8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0007",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a14f88745aaa1c3843a1c53cba52d33f88b791ed4249a196f938f1bbbcee5003",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0008",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7e0040693ae892a224ec07b327dd50ab44b98cacbbcf6ad8857615f5fad07cae",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0009",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c30481d1bc9f952416e9df3c15a011a08cb304e2991beb823cdbe4763e52eb3f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0010",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "aa679d7463908118c44e595672f5c5b6a1d8ffe207241330de302ff4ebc25d46",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0011",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2b710fda8658039912a72fdb00c3b7c5ceeade900d83a90790f821702759cc3c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0012",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "64f749b52e1c937b2756ff33e94fa0b9c8f5a1c4e9b8fd92b9011a8d73621575",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0013",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "36bfc83b936ac2eac61b1daf2c19aae6ea03e94564ca3c52a4732a26ffe9447c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0014",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bac9dc8e315218db66691a63b42ce7ca775983b2813815a7ee22bfe2cfc12227",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "CONST-0015",
+      "domain": "OMNI-CONST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "57d3621b90ecc05ac64b9a8066eca79732d825e156fc7aba5cb95bf856b4b742",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DEBUG-0001",
+      "domain": "OMNI-DEBUG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a963b3099d77298d29cabfa3fb3db59992329c37e7833ed21c893c2829ab4e46",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DEBUG-0002",
+      "domain": "OMNI-DEBUG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "55e12cc4b9db158c57a764e52752c8180ef06c06906ecb01b794ca41565cd2f9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DEBUG-0003",
+      "domain": "OMNI-DEBUG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9c4acd03f0d4e00be8b773f68068a506a2246fd4bb9f11ac3c6bbc425e884c47",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DEBUG-0004",
+      "domain": "OMNI-DEBUG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "18de21a3d4bdfcabfe69c94667de9a0349f2367f15c521d2cf02ca875cd95f32",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DEBUG-0005",
+      "domain": "OMNI-DEBUG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "806d5349b2bcdbf9cf4ff3c102f070dcfa0f0133f6282e179ef31a0a9fac56ed",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DEBUG-0006",
+      "domain": "OMNI-DEBUG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ad1edadb034ffd0df768796ab8d48603fec4cc0fbde0ad68832f6e2ea4088d8d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DEBUG-0007",
+      "domain": "OMNI-DEBUG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7b8fe401a903ba1c58adf260ea6fc3e109ba4be99ada99fcd38424316a75de10",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DEBUG-0008",
+      "domain": "OMNI-DEBUG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "447caa0be6d06a3ceb4f1ae4612dece10c5aba7cea06c69ea733759d08ad2b7c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0001",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b4a6bed6734800f90039c7c7d986fc0ca172142016ad2a424ec5927b64bc5dae",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0002",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0b063097239a68caab2a572f59abbf7ccaaf1886e56374923af820ccdbcbeada",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0003",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "85997079cdb7fa5cdba7d167e56016490d246d6af3c2321d6dc5683b105258ac",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0004",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c26545e8c74415c1b1c0d5b11fb346f07f06a9c045f415d421006ac17855d4a0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0005",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d6ebb74012e1f770eb42c2fd8197328b454391421e2207236719edad586d3465",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0006",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9f7c68363c10e8c391bd28fd79f8352b08b6f3cdaa364a78c34b14ceb4659c40",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0007",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e1fcbd1f8a569e5276df09cac6948ee949ad32f18d62aeac217b85793eb729e9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0008",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6f23f5b1952d525be8224eba16f1cb1f35f84ee86ed26f025b55e93449ffdf0d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DIAG-0009",
+      "domain": "OMNI-DIAG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "46a286e6b838296d534f0e066e0976e23ab15d9932a73c14b075e07befe327fd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DOC-0001",
+      "domain": "OMNI-DOC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "85d2be6b4b78706d8898b0d3069fbadcbf10800839d2586bfa2b35d6649b9d86",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DOC-0002",
+      "domain": "OMNI-DOC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6e5df49ef6af6cf7c10322962036afa3efb02d72822a1afe41c64136ae8adfaf",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DOC-0003",
+      "domain": "OMNI-DOC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d89b5e4828eaf8b77ec536602e2466c987a2f4fa5b29716227a5edd4c78d568b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DOC-0004",
+      "domain": "OMNI-DOC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "00f8765264bfcf11637b8bd9858422d238c7b4bb976433a26fce8bd3c38019d2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DOC-0005",
+      "domain": "OMNI-DOC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2c8559b78b2d6909dd13c402a9efdd6fa482e0e95c484b151a1c2dd7357a487b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DOC-0006",
+      "domain": "OMNI-DOC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c71cd94ac0541add1f90e7f0872004aa38bfcb390dbcd6e02971d470b1b9a701",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DOC-0007",
+      "domain": "OMNI-DOC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b130ae941ef203a13e759c66ffb221a29f2a4794e500d868d53dda8cf50dc144",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "DOC-0008",
+      "domain": "OMNI-DOC",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8d83b8a71b63a838ac5f35979308753940195159b54b532b8dda6e89bff2ce5e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0001",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a711694890ad85f532026c19d7bd2a3268c4a6a849889db73d0ed0b76b1b89b9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0002",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "cf8a5dbdce90973a281399b3fa263dcde56b33b0e2ebb0ed0c1e9b33f3bca907",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0003",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d8665921ad0e4e9bb171e13047456499fe04c2fc712461d0fe0da6e60b210617",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0004",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f8d5504e23611d5fc8a0f59026f429774e27c86a37df6575f3200846a7ff4b28",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0005",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f0a5a1cc4e7b52e9a9fc900d28bb93ed39ed3a04328c735c276a4e3c40cd5db4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0006",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e71e031032d527731de3fec7ef722a22e36b493a8a805636cccb6fc1acb6040b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0007",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ab77b09be9625257d0bc647ff8daea73b7bce7e0c31ea6820595f418254e11fb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0008",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "48433f74869351c77fd7d6da633f84371a13abac060b746dc8a0abc8b324c381",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0009",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9fcd635d452a4cfce2c95090b944113e54bc8837be93d29dc06f0075f1c5d881",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0010",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "548a71efcfabef5d3fcd906ab4e09a78b8ebf0c3086ba313237b43b5d46e4eca",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0011",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "34de0f890bfb8ad0092a02a68c6075dc46bb7f7d57945cd8a0e550b1681f1dd4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0012",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6346bcb1aaa68f6b2b2a517db10cc6164d2bbfd85e28e0b2e664df79752a2143",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0013",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "637f4f98f6e982f94d1fc5974c93b30c3bafbac131e9b03356cf177fbcc03f82",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0014",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "eaaa068b32d3538d89358d7dab2b00c34cff48cf496266db4e83fd6ff9b5dac9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0015",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d1b7ed900622904f50324235b6a3021a7cf6735f98b3ea95f00dc210c397354d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0016",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5178d954a1c902e952b4a31155e0389a1c3d01743e49e5c389d545c9861930c5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0017",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "faa04c3969bea6fe15d5efa21dae779a9e15f7b74dd9f24d68c9bbf1001665ef",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EFF-0018",
+      "domain": "OMNI-EFFECTS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9c0bf9d652359aa3f9773311497f51e3355fdd3ef56df49c5b06f52379484e51",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0001",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5aea7af67bbe1dc8471936d56af566100f288ea5b1e5880b090108cdf617231c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0002",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2bded897d805483e2f50121af4ce283971f299834300dade35b0475f7e31d7c1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0003",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "af0056e644ef33e850a71a7c08ee9f21b97ab8beca04e9d4f63b3390f8288fa5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0004",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3c49a52f1913b0b48905d0c0515221fdecc6df8782b4a40e5c00655fd915358a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0005",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "fe48cc22447b491e9d180dceaee08c1319de86716a1f1680778cd5f93b44d6ad",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0006",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "eedb5c7645d0e949cb64a8befc71ba0f3f5d55d2cc4110f2ab2348fe134aeb99",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0007",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3201f4456e2dce7bfe3181bb0ae72633be7a0d7885cbae63b03a5eb63e0ec2de",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0008",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a62885909b2c2e40327082bfb1eab05aa5b6e1ee8d5991499fe0aa64f46e9741",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0009",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ba7bc87f7faed9ce51b0d2661622f83aa1dd0c0dd3914e640525d2d72dae93eb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0010",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6b0428e85d8f13346c625d99f5188ce5b0f02c429d14ade8d5fc838eca4626e6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0011",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4c1e3243ecd2a00b88ee1df7e5cc42d070e862e8dc96d4e4131bfa268e77618b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0012",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e63c760f716fb735a613e97a4c14d2fcbd87eedbaba1fba4d713ef56bdbddada",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0013",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d7644a9b68076f1f9b136804e8a91c986c9f09eec02948c9ab8197b3e6550679",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0014",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "77aaaef9b2da6580f54faa1411eaafd56d0ec84c222cd75238400e898d76b7c5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0015",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0630d3766ebe2526ef5858f9d12229136400d4658b6bdeee3cd0f47aeb4962aa",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0016",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0e15bd9a3265aa42e39929b95aeba5bf591fb25449a96437053a6fa6a9dd1609",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0017",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4b36844e372df8d4f62c03d2ccb6349c4721a0cc6c13bcfe3271317af019a593",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ERR-0018",
+      "domain": "OMNI-ERROR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0a5360772e234601ec943fbfcce976ae4646e54a897bd28d40ff0326884df264",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0001",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0a78a920e6bb379eb52c5e999a2adf1198f6e4e6595112ed653667aac9c5d8c4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0002",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e5455d078d644c29b95249cb836f0d64b5ccef8e70498e504fd7b481e11d0e8b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0003",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e99af071feee6cac7f49601f6aa637f3170f886530dd2cd9cd5d77576ac8f0ea",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0004",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4c7bd0ccef30a67a25f8447ecd941192fd9701ff5f4b2882ac05f91993d33e81",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0005",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e1898f4cc5442df46ffadc20f1433bb1b9956b30578509d500997aa68b64bfa3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0006",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1fb85e8a4a9fa62e3274783d0fc37a5a139ef48eb9e72ee0c8721459986f9302",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0007",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "388d8b57681fe9700278d999574f32aa99b6bbe34aebd97c4172d52908beaaa4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0008",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9791312c7bdb77f07bf3801c7a498dc799f4d26430e92689af671a68ffd94691",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0009",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "942536faec2ff5a8b48dfbd9c71ac24496004cefd0c790c2c80564e215b701e4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0010",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5eee275cd9fea3e2831858404ac4c352907e7ab0a2e0e105d02b1944e5b0d727",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0011",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bf4bb34678e73e88bf5c98c0ebd73f1b3e1d1b2b71916cdf721dfa55587f1596",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0012",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "283632e00d69424b9e257f6467218d983d7a5a2480a5fb85f2118ebef794c78a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0013",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "afcb26a9985999df7f234df448d571ac75030f23c6b08e309e32775339b7d6b9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0014",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d2ad1b7800f2def22fd50ad2a1750ab4e58467d5c9b7c16ce88272bc4e1f0508",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0015",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a206533217e26c89761178eff9cabd3f4716b482bee8231b2f53fe62931dc118",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0016",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "cac17fc346f6bdef826aa92b18d690262eb07b5921bd189b99aa1fa5d0b96cc2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0017",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "91ed45533dfbe0917d3c893a9bce31c6ffdb7e031f60e1f8e9332796f77db8ed",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0018",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "65b16d5b009a77bb103ebee9177b76b7d4ac79a4fcc9d49bf0c0dbbbfa867742",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0019",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0113a6c53e046c13a70185dfea635e48aaf22273157a7b11376a410ebb4f974e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0020",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "160fd839cc3891deea3a055bfff3bea8d855303bd1f69411e0144a907807d932",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0021",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f6a52e34b55d53b095c16bf738e248afa14f6b37ca42f446a9d31c0095fc8829",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "EVAL-0022",
+      "domain": "OMNI-EVAL",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bd5178d39d1ab2546cfc193ec74c3011c9547260b7c823068b02b7e780411e97",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0001",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "83de2dc84d5d6097768fd6306fda3c938425ebe04108dd7edfdae3cf5b599ed3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0002",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7f4b5d80c4da7ff178625a3b6a0afe435d2b2eeb696eea85bc98f9a97e4bf27e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0003",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b25ed30210f06e5670ded53c4108cbb2dd50bae2dc252a73e40e8c8f5cf61cb7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0004",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "40c92e4c0c3fdcebbdf4ba62a50c8635f7a03c5f3f8295acf3bb7c9c7407e0ed",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0005",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8a4528cad4c3836b495591042aa8cafe300330e43af400c4f4c6203881e1cb24",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0006",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bd2fbd4101668d35886504818888aaae0032d20c65f352781735a0c1f08f0177",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0007",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "030c95b7cde9a29d638ec0f6dc096e65f1327fdf9975d654208ea3a1836a9d5a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0008",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "79ed3156213a06fe1ca88febc05249773572ec34a68ff3e5fd8fe9c264087903",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0009",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6b561261700a3a357d2a67dd394676e49527c317ad7c119fb79f5cde92c98819",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0010",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a21444b7713a8430b839124478e49f8b534fad6da3221c5d766091b83357253f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0011",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0ca48a544ed4c49c8c36a9ca80e7b49ef3369f5786a2aeb2a2efa76f3578651a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0012",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3a77b20efc3c0e2557f88bf19384090029612028d7b7988fac3f1c74541c6d73",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0013",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c76d1459bd6d3a046dc781179a931294f10f9a74e3d16a200e181701d111c1eb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0014",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e6bcac90026f81dd5ccb0d345e7655a3a4e21f6434df6d971550a908bdce6cf4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0015",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a3c75fbca7f16fc1ccfd05e6355296428913a8896fae303ec7b4d4ac8d6fc3e3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FFI-0016",
+      "domain": "OMNI-FFI",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "19b2c0fb5a6cef9f9c444e9f7d6cfcf72a8ca9b8a993db3d79840a7c88c3ef53",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0001",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "96fc7182d00fe3b643d1a0dd2a9bea6015c20c528921b9e8a3fba78c52271d7d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0002",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "91b42c0be620fad000efef495adc545b61816900682ef8769ae3ac7f6197f9a5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0003",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "72e8227a312fd4112d2cdc07a561e67da78f0088ddf6d8eb98007c7d7d2d6765",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0004",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "70608ac0d900b534c436ceeca4f0db7f5f6e5ea3574932df18fbba182ad975ca",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0005",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "28c4b1a6e16a03d78217a93e2af55c6ca17777840b488e3904ca8ee074450301",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0006",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "76cab2cd5b81c21c419a273c5095d641737c054a86300216c8c1d4900ce55161",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0007",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "130df6995d46fc1b0a7fad65448e377011bb1c47dbf64d28bff3178efd1106cd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0008",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "06e4440e396fe18ba2a2883a58c779364698d4a4284a65523736867ca30df15f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "FMT-0009",
+      "domain": "OMNI-FMT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "78d7da83ca4c9c3e8805b2bccb6fce07c23c3a944e85870919289da8d498216f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "GRAM-0001",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "55bbe44784ce3baf2a3d98810fdc97e8b55b17be3214cb7415fd8fc6a392bb5a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "GRAM-0002",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Superseded",
+      "normative": true,
+      "text_hash": "409309da3a92cc138e7e2a2ba191b7e948b1804f4774bef711ab579b7af6197c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "GRAM-0003",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Superseded",
+      "normative": true,
+      "text_hash": "1237c5b6036228769b37e26a3fcf47d99d14d28c4ebb5d2ecfd86e77093f6c94",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "GRAM-0004",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d1558064c1b5d6f1ee2774149e812ae3b1cad78771e0dae7107ca829fa010b37",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "GRAM-0005",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "944f54dd4104436d3debbbba66eca7b044bf85af355381af6862f25e6ce8f1d0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "GRAM-0006",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d062f73ef0851fc12a42354c26e4d91d6edec1c01607c035bd017852e4b6a8b0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "GRAM-0007",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f8269ac56a32318f0821066e9b7d6856c0e517645afc99f042c102c50c798761",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "GRAM-0008",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ec08b1deb4414e81aa1f2d14272b24e72b1e7e9e1b8cb33e2f0fd907087701bb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0001",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "30c44f6dfd11e7620a7312fc8b21e21710e54631e36f7944ced123aec2199297",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0002",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d977243db031aac231b13fe5290cd802a0d4ea53055d0784dce4be34542bf7c2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0003",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e9229bc6648e95838caac3c8e5d755980a2f2cdfbaaa915502b3e2f4aaaf6893",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0004",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1efaba9e90ca637cb814e53fdaee5e718073024a554209c4b5b6ff3105bb551c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0005",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ae8dd2555abcfbac92b48803714c268e8cfabbf43317d227a0c0ea8ad7fcc21f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0006",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ceaf32f4209f6a8b444c6f37862dc9f0444fd3cdd51e67618cc74513059667eb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0007",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "74814191b6693f3d9d0694eaed8be411684163fa367e33886ea9fbe2ec00001f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0008",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6d88540c8c45ed4a436d2a0af251abb3650c4005a77c0550d786c70c64b6a006",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0009",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "30464f8f729177381a0aff1285de002247690d9ed7e2bb5b369b983020744114",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0010",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "749e46ae5f3f4de4045972bf694e744bbe3083b9917d34d94a4659f0b3c8afac",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0011",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5d06db7b08a2d059b8fe38e0d52ce5a4b327de9a120149a98c937d71ca3521b4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0012",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f7153c8a4e383bf72f0cf6afd7f888cba59b3ae5d272478f8e5c3d5af70d6158",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0013",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "cf46dd3107f2de461958aa94ce91cb65ad8d9f948daa379c75dbcbe7a4386aa2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "IR-0014",
+      "domain": "OMNI-IR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7238a57e830217337479016880f5f4b40a503c25967116c1a49481c4fe25c435",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LEX-0001",
       "domain": "OMNI-LEX",
       "status": "Candidate",
       "normative": true,
-      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "text_hash": "7711ea4a843f3b51106bba642a1cf4efebc427f7fb2e933911985663fd424a9d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LEX-0002",
+      "domain": "OMNI-LEX",
+      "status": "Superseded",
+      "normative": true,
+      "text_hash": "143add9642fe9d3d2d3ebf21f9cc539fcd683c18d2dc9fcb9a9f0c56ee7ca415",
       "dependencies": [],
       "witness_tests": []
     },
@@ -15,7 +2157,7 @@
       "domain": "OMNI-LEX",
       "status": "Candidate",
       "normative": true,
-      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "text_hash": "9b8219dea6dc2d8ebd8b0010aa81608e5bef02a931ae94379ca5c8d82d63c298",
       "dependencies": [],
       "witness_tests": []
     },
@@ -24,45 +2166,2880 @@
       "domain": "OMNI-LEX",
       "status": "Candidate",
       "normative": true,
-      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "text_hash": "137f2892f6f0f27be220a13b6a03ec21d4e2d1170b5c12cffa229f24c064abd8",
       "dependencies": [],
       "witness_tests": []
     },
     {
-      "domain": "OMNI-GRAMMAR",
-      "dependencies": [],
-      "rule_id": "GRAM-0005",
+      "rule_id": "LEX-0005",
+      "domain": "OMNI-LEX",
       "status": "Candidate",
-      "witness_tests": [],
-      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "normative": true
+      "normative": true,
+      "text_hash": "5bb1854c50622d51bda82ac883b94b95d76211f15b3338de6997ba1e4fefd4cb",
+      "dependencies": [],
+      "witness_tests": []
     },
     {
-      "domain": "OMNI-GRAMMAR",
-      "dependencies": [],
-      "rule_id": "GRAM-0001",
+      "rule_id": "LEX-0006",
+      "domain": "OMNI-LEX",
       "status": "Candidate",
-      "witness_tests": [],
-      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "normative": true
+      "normative": true,
+      "text_hash": "01c7cbb708f5d64c89b1f00105fa709bccc9baf67534d2fb4d825dabc5aa458a",
+      "dependencies": [],
+      "witness_tests": []
     },
     {
-      "domain": "OMNI-NAMES",
+      "rule_id": "LEX-0007",
+      "domain": "OMNI-LEX",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "159eed32c765d19f417887723562530baf002983de63409a26d594b20fb0a96c",
       "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LEX-0008",
+      "domain": "OMNI-LEX",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "31a92cd09a74b0d399112e80d8c4c1ee389d8ec054d27a906193dfef1bbb1044",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LEX-0009",
+      "domain": "OMNI-LEX",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9e40cf3ed3f11d924382706dc404a68db018d318fb1dacea3d2e2e31d3fc548c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LEX-0010",
+      "domain": "OMNI-LEX",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f628c4ef0e1731f4fcb92880b6274acb0c75e243452fc3c39ea4975dec1716a9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LEX-0011",
+      "domain": "OMNI-LEX",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "31ad0b546fe19b9a88c39c15e41ee8cb74b45552c0a98a74bda4b4e89d5eadb3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0001",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4bc521ff78879993c4a197b53a0f231014137e3e4559c08794fac1709c801736",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0002",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "768e1f9aaacaf434117238d78c04566d5d8dfc5dc4536fc48b98d8ea8998e9a3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0003",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1edf5805071f1e7c8dd0002f88673f8af43afddb33c49532ab3ddecf9f1caa43",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0004",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c1d40d343f3f62230becb54b670e71ee7796e62bf328f27328c77d8040b5ecd2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0005",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "becbdb3b4853e20b94933d01aa9b1e99564fec611bf22c74a1c32d0acf390017",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0006",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "15bdceee116ef8ef0cf6ef20e2a9fddef64a93a363e24eff56fed16b04ce9314",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0007",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "037dd90fbda22673020a9d1e7b5d90d64996eba946a4c9eb9a5174675d64d222",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0008",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c7cab20e82f5f848dad969d793bbfd9fc664271d9db048f212d619dadc617bec",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0009",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "565c291232670421e631808693786fec595c0b9e86b0c942ab142a4faa3db7d8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0010",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a10b6e6a2c7c8895e70a6250bbff4731c9561f7c7f226f152a11e467bb4e9a0f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBCORE-0011",
+      "domain": "OMNI-LIB-CORE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a07e7a899ac8c3bbe1c30d629b9bacc03b359048299918a4615cfe3246a64cc8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0001",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3d0f25d1e4f0ed3c5a924ae6c1fc98fbbe01d41fc6010636e790b0b4d16c5440",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0002",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "04060b285fee6e4638594a677902db386d2bf1601cd36f9dbe5376c40ae8505c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0003",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "64f9bb9aea400a272cf01775fb35e233bd582ac834126d850c869e0e9434c678",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0004",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "53077306d4bf865cd9a1f01f051e91c60645f920b20810032f42ff050c06a9e4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0005",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d2353c9a02994d48c87a122e28d97affdd4289895b99455f3693095c6158fbc1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0006",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2598698084717cf6f79b94ddd008f26b2db588407465ee94095febc9a55208c9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0007",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7f5bd9727fa09da3e7fc1779284bd60ba262cff7e2a5586d4d949849023628a5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0008",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a968d8e2957c76e87078c26fb007cf40957756fbea254594714d49bf2d0f5eb4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0009",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d61a3242501a231fcee25841f85f24c6321ffbac37cde729656e77e63a3a7e4d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0010",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b98e213953dc440ba4b936b5b11206cf756bbde00a5e505afdd956fce6f36b94",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "LIBP-0011",
+      "domain": "OMNI-LIB",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a183d0ed39815d7c10bf218e38251c1e11953c6324dd15bce7349b67101ba6ca",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0001",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f1fe0c720e9d94f85c0eb69378ea863e2e8e1c0653c2d89f8f00fc4f3f8bc5cf",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0002",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "317c9e9a4c5f911392c658cad5983f9067f341721e6062daab3c4ccd0fa98f32",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0003",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "12a9d4348d741530a7558a8d0e4e4248da1b9623feb4e062cf2df4fe43673833",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0004",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1a311cddbcb5286a95c5a1b611b735ae7c74727de7cdeb778395971b0c44866b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0005",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8019dfce68463d7da3ec7684dfa14bf87284b5d03b4adf9eac9a8d2ef8cda1ac",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0006",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3aba8e3b9dc171bfbd9e1cbb6c59b29b784900487503efdf5c5694880153c26b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0007",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d685e0f8fa4079c5a5afa10f72b776b3fd403ecd14b04c54091d72ffc56d5a22",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0008",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "504525a3f30afb6f851e3fa58955d248adca42c7e1b682fc53b60f2cddd1e661",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0009",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "77aa79a604fd9c62464f0c2c5b750d98f4e4b72739b465e62da890253436a66d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0010",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "78e33cdad0b9124cac1886369755ef6152dab11a8274088965985d70cc75f67a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MACH-0011",
+      "domain": "OMNI-MACHINE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "10f6a0b51d289799e2b80c613afdd0dd471e519eeaa29bafec04cdf0e425692d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MANIFEST-0001",
+      "domain": "OMNI-MANIFEST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "086e76d52b36036ee77711f33f62c709ebe15ab0fe6f044384621e04a9b61cf0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MANIFEST-0002",
+      "domain": "OMNI-MANIFEST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1a4cdae494724049346d58a328d7ee47863bc69dcc33616e319d32801f376c1f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MANIFEST-0003",
+      "domain": "OMNI-MANIFEST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9286882ea8267fe3c6e34feea62b3915e767b92a3c231bc65b2d23fe35103eea",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MANIFEST-0004",
+      "domain": "OMNI-MANIFEST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e46ef2286ab743708afdfbb25f42ce5ae4a969645968acc167721e8e2e9d6edb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MANIFEST-0005",
+      "domain": "OMNI-MANIFEST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ecc4b9ee43e49e28bc541d3a3f5c9a69feffb30085a372c966ef04b7b65cf7d0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MANIFEST-0006",
+      "domain": "OMNI-MANIFEST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7d03b9d03318bd64e7ebaf8df0dbe9ca6d917a179f3785468bc13a1216020d95",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MANIFEST-0007",
+      "domain": "OMNI-MANIFEST",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "75153619a8cb30daf6d7453a11d4612e89ff18403dc0364ba66d3674ab6eb0ce",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0001",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "62be286925d8bb963c13f90149a1b2d63dbb82cea26325f2577af4079f27a97d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0002",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e6a3ab2edaabe2fe4f9f1ff4f685916922d9556f42a64b6b76a6229ba9bdaf29",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0003",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "81f2ee20afe7164922464dd658e68789a6c28abd13ee3d3a8607a1d94525a4e4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0004",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3d0080ad7d222b64e88c39966698102dbde1721b30dc68e10ebd1d6a0a568b68",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0005",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7e1a5375cd572507cd55901018ab1f416739e6de788bdfb40573e54db0b3938c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0006",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9142a9bd99369fb5a7f1c131351f8f0448515761a07b2f57c5eb99fe33396858",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0007",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1fc62483df54f9d99c653e64d8ca50d3064fcb221280d8ae1b6bbe9d88441b42",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0008",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "fded6c7247674c2f552b044820875c0b7086711c6153c90930915340fd76c622",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0009",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d8453fbed2d04c8ac2124af38010de9efdeef23d885a9e4c71cff0170f7a08dc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0010",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ef830fd018f304b45e7b4cc60c6ea84509d43e9e67d602a90d5a202ffecd35c9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0011",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2cd8eeb298ccdcefa21b0ae9a4d02883da53b4cf9155e1faa96329fcc0ee70a3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0012",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1f94487e0478dbf8036c1f64c7757e80f4dde18fc447d9083b11562540182e70",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0013",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "26a4b42641e8416a1133df49795de44b40b15d8605a2e2c2b7af85d743100de3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0014",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "871909db04a45d5b3a096367e572b21ea350aac5b5804205574c2103d70ea716",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0015",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "be72ac9a94ae6e7b99e1a4fc7512f5fbeaefd2077a6c9808a7f01f51d0e959c5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0016",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "09e985c67387d18feb7a2e13b3ea100956c7ea5579b3a0ae53b18dc7160cfa09",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0017",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a22998f47898451fac99386fd9336be8f5cb5cf48c232b601cfea234b1f1ab1f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0018",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0466f9ae2626e2ef9056d6d5edec358698d9238c884378ccf120efb3369b19e0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0019",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "389a3a8856c5640737e8bca1d50db1f0f09d57115d251c916387eebaa4861260",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0020",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "082659d0b4cde929303e6a747b3f2c456082f240ad05a4200392bbd70e3bff20",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "MEM-0021",
+      "domain": "OMNI-MEM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7189a8cc42fe497f3a2baff1ec4deb7d056ef559ef9eb7d7c10622d3cf4c155c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
       "rule_id": "NAME-0001",
+      "domain": "OMNI-NAMES",
       "status": "Candidate",
-      "witness_tests": [],
-      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "normative": true
+      "normative": true,
+      "text_hash": "4a5ef59461fd1d6dee5ec26064fa8e972af2436a98c12b34741a4a83cdc189b3",
+      "dependencies": [],
+      "witness_tests": []
     },
     {
+      "rule_id": "NAME-0002",
       "domain": "OMNI-NAMES",
-      "dependencies": [],
-      "rule_id": "NAME-0006",
       "status": "Candidate",
-      "witness_tests": [],
-      "text_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "normative": true
+      "normative": true,
+      "text_hash": "30e394d40d359b66bf6323759d908d1f0a4c5ad2aaed3e1397081c457a2db5c6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0003",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f92e912c1cd52339fdfcf93cfd01a2fd6ceee377e4babb7f0c00f59ce6d4746b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0004",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f36c05e17f6bb2f6bb9cded500b64c23515273451a676bfd8c0f8dc02c7d2adb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0005",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6122b6b077c55ca2f81098988e526d4e4d7716c3e5a6cab8273305eb0137a2cd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0006",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "10115218a40df1421576ff6e16ceed5f6dbd09dabda0627101910b5411d35024",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0007",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "47447bd904cbec20a66930c887d1af2986b3b0b778cce854c60a3bd8c5901f26",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0008",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7a65b17aa1ed7412f0618bd86af361d30e0c1cb028f1341ad6f978738e82e54a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0009",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2ef631bc6dd6848cb1da6819234e6ce98d68ca2b9d342d491f7799bdfdccf94f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0010",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "dd16dedb56963ef31f2c5554ad2bd33046581fa7abd0f23a13ca538e0d75a710",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0011",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "68e30bbe633c4bb64a1e80282df722ca6f9d3c7863a54acb9c044fedef18f044",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0012",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bbb4e187fba2336abf4eb72cfb31937182e39c6c937b02091df3d092a6e5850b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0013",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d1bf5b642706af661f8de8f3f51021d7a08d238da536c54ca88ba81722565356",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NAME-0014",
+      "domain": "OMNI-NAMES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "54f8586865bb9800e25e59e82029a29de4f9872ea9a0fc3ec423e9248344ce84",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0001",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9815ef662076e1e52fa83032c1e813d04a0c58d4db09d4c180e1378d0e122a1d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0002",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c440da519f6719314ed95b5a1f2c25d54709811a52c5b73146df9c173060989f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0003",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b9a0d1f0cc2fd66c6448bfa76f0627e7b27b60db6b79dbbf0013e85b4cdf85c9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0004",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bf919edc01e3d71e493fa9c4ce0415555459a5abfeb66dfb49c8c243607e3d62",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0005",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "71a0c79eca5389a69f095eeccdea30c1ab4c3ccb4d1de6cd9e760c8e26e2126e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0006",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0552573e05d13fd243d16ca3adfa2671bb70270ef8a5663507310bc0ff88d29d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0007",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "763664e736939fc7b9b534adb69f81f05f7da0eee818c01f37c0b514c94c2b7e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0008",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ef1675ad7d56d7c793317eacf313eefc6ae682c5551a443fd9c8020203f13607",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0009",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a87b45adc44922020ab3b8ff8aa6c5e7e01466934b113cca3d09b2b6933c59d4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0010",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "baca8588e9a2c80124da7ce5dccdeb5894010c26599c8a1dd7d1e52ffbe99d6e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0011",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bd48a90baa8e3640e0e39b8ca223a4b64778558ea04d6e76c840f1405f70f22e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0012",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1d070f448b570a69d47c5acec430192d363b550e383e3eca2b2b51391fc4983c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0013",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b35eb7be92880342ccc18987b0b0059d19f8acf23406baeaae3c66ca57e2584a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0014",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "73fc3aeab75ce16b4de8437ea1f3e38c1c3b18ee32148635ee93f1886791100c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0015",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b5c5d3d275550d3881f5628d6619eb23322bd803c7990fb9b01f968aae385816",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0016",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3d6c452a6c9630e889e58bc5e83b2ed9460b1c7abedd586acc4b26c53477686b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0017",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4c9f65a2c85d108937b8c1031bb60fc0028cd750759ff7b6fe7efee3891bcfa7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "NUM-0018",
+      "domain": "OMNI-NUM",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5236d868311bce8ab4ad5d73cdbd1678b276463f1da13feecb33ec4e4f76f988",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0001",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "861d7536c52da9f74303c8ce46ae9e88c38e8c6214ed7309b94c69ef946c85d0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0002",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "fcac2cc6906b8c27e70cb86de55e51e313c4894445072a2531685bd5467f7c62",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0003",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7095386ba9bcaab8d1b581045eb2a0a89f1eef8574f2022bca21c1b7a613b103",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0004",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ae095a43ad3bb676830603d2e696402780fdaa67a2c3fa818950542ab63e6801",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0005",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2c1d07c185f37d5a5b074a993e8688d8ec928fc31f3dd2f3ce634df05aaa96cf",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0006",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "348faacd689f0539c6d09b9bf2643b7de5c16a9eb5341022acf6c22a5de5a02a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0007",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6164f3345afe84483cbee5b25d93debbc8adf3c4c1977ac4f72081e02696fe90",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0008",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8a158b2b940faa97180790784a00cbaeb010874f14c157f1610c5ecb7b178504",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0009",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1e508a06bcffe3daeaadb648f382a7aa31b8aa703c5888e3cbff9f0530028e76",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0010",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b2f68eaa94f8e9edc82b3c4b5c3f3b04cb445f0ebeb67540889f83940bb911b2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0011",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b20bccc935c973f8ff76320d9acb80af7c9b8471a464e37a4616a908a675014d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0012",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "53d19b63d9423d1880e9be1af7fb5f177c1818e843a2df19e42001d1962571bb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OPT-0013",
+      "domain": "OMNI-OPT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e81dd75d7b450d002bb1692f1b09caefa87a3ca8c71387eb45f6a16aceed3044",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0001",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e83ef90815d8b3e20016fac4ad0e0deb1105145e51e934ea4a2323906db4f35a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0002",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6fa2d891262da472f3ce7d18325baf2a931f4749a3ea7c67db2c2e989ddcc6ff",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0003",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "14409deb050572fa424efdb62ad8c98d17203af9c196e33ab52f914fac92c5e8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0004",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "fef67be28fabe096f016af9c8d8fad123d9a9b8d50b45a95655193f81790a0b4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0005",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "95dd610807a5a25de14a6f68ffb2f87f1070f94ca439918ccd2e800983dc4530",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0006",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9f08bc8081ada6727251387296ac1bcbaa11e7de125385b05a02c10415cccc3a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0007",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ab415d45e17a1d880d1db4860f735757a1604877af2a4b819568b0d7841709f9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0008",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8d7b55c6868f45c77d54d24cab6e143332efe1f37774b93d947d8acdec23ada5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0009",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "aec1dd27d59e82c9ebc9339caadb74c57e72f7f4e4a092b96a9a1fb23adac9c2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0010",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6f22e0a3cb7926b0595ca37504724925bd0f625c40bc8f40ef6e327fee6364d3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0011",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c9587c657a8eec6edc6e5f22fa14d4e681966686d3b97a28a5a03a57c2c13761",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0012",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e943b09845952b06119e272b437480c195c9acc08558959873b253219d329e1b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0013",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2e6d8ef883f805bca04dfa6fb751c4558e451c150a31254fb4e27c2185eb05b6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0014",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8479fff2576216e7857cb6d4df15d97623cc42bb6c3a2af3873da09da8877a94",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0015",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0fd19569ed0ca05839d7b52ac30834fb5d1e78751f8393243eee45b8676efe01",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0016",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "cddc0e56b3799fb226190bd35182019cad9d98e7efcdcad4b9a4afbbafa8144f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0017",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3bb083d681321ade7896705767d53ae9692d329a58d6a3b16d7a36d3ba09da5f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0018",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8c20d884301a7f980709d5f9ca6e3a2c75ecca77e0cd10b28d93327faf204ed7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0019",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "085bcf93839bed3f4689be49fcf593fb49e1e466c875ab2655315f55aadd85a7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0020",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d8c7409442b59f8c558c3211018506fc86e7d57b96bd8c82222900aa0bd5952c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0021",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7684447f6b883a05cf627676658af3c6880ef53e023f34a6ef3bad0072296050",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "OWN-0022",
+      "domain": "OMNI-OWN",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8b1052cea99e2f2063e13c551fa54305f7c5fa3dd3901b7c8fa967b667003147",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0001",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1fe1686f9e25746da0b375facc0246c3fef0f91cc985e98620795c178f1a7744",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0002",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f330409febdc1b1ca8cc885e55c77c36c31917208ba6b2453fe83a659592ef3e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0003",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b0f920ac94d41b05a24d59c7a323e813b16f5dca00a7c7390d8065eda45444e9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0004",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b024a71bf68142dedbb8de7b0384bb9ebc952b736732039742effc1a844164c3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0005",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "47894605d32297adcbc556cca89c8aba66ab33849a6f46db70b4d46c40a29cbc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0006",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "95d6ba041390f7752be09bbd7fdc1f60a5623c474fe6a188e1a629a37b19eece",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0007",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f2558229a3346ed8c58263c477a3452474d45c1e83c03e445451eaaa22035255",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0008",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "806103f139008736622dbd481ca41c7423d5b8a0665ea6c68167d2db6b085f8c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0009",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "fe8aaf5aad4865436a77aa43286c945682d6771e28806ca2dc32568fe5cb7998",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PKG-0010",
+      "domain": "OMNI-PKG",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "24b7007235b0bcd13ec6a13b4d18680b41590ca95c46e64fbf6532a23c083b76",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PROF-0001",
+      "domain": "OMNI-PROFILES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9e0210f3c429d424d31eb3e3b45904fd91484c6255c7e9ab4490416ec8701d55",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PROF-0002",
+      "domain": "OMNI-PROFILES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "71591b6333cdfc7c15434e1650570f435edbb3ae2f0555c1ff5596fe9b8deda1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PROF-0003",
+      "domain": "OMNI-PROFILES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a7aaa680ca39e36a92f603f07ed268c5ed184d21ff5282b3646254a3d9d812e9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PROF-0004",
+      "domain": "OMNI-PROFILES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "291e7450b257f10bf0b4258bacca1e4d704f9c4b5dccb8d848dacf8d8c57dcd4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PROF-0005",
+      "domain": "OMNI-PROFILES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e8ec946880d27c67f0558249782ddeee51a00cf8f7f6a9856c68e221ac969c5b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PROF-0006",
+      "domain": "OMNI-PROFILES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "dc3335bcfd09d88d95ce806f4182fcb5db5b54c67cb6a3b80f8062a4a632c2d4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "PROF-0007",
+      "domain": "OMNI-PROFILES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b71e3360d938cf503dfd950da10ec71e1c89358a93eb8148eb48bc81ecb950a8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REG-0001",
+      "domain": "OMNI-REGISTRY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f8116bf9b7e5ab5eeca6d0b51b3dd7ad0da7f82217e7d734bbca38ddbfd30d04",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REG-0002",
+      "domain": "OMNI-REGISTRY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b2153d837f4dc0a0237ad5d8e46149aa028687449620a3a7bd4e7774f028161d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REG-0003",
+      "domain": "OMNI-REGISTRY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "575e07d321db133ab3ba41c0bb0d3d85f334de4a904f3b27926e13ab91fcb535",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REG-0004",
+      "domain": "OMNI-REGISTRY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d0f740244d9571cf681589bb7ee18bb3fe42195aa61f62d01c1f7eb479b8a37f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REG-0005",
+      "domain": "OMNI-REGISTRY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "269fb77efeffee34ed0cab074d7e8fc0110cfe388399ac7877049d111a34ec3f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REG-0006",
+      "domain": "OMNI-REGISTRY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ca1d21e095edee1bbf1547cf1ce236cfb076c506855f4d39fd0b1908a50e8fbd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REG-0007",
+      "domain": "OMNI-REGISTRY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a7e52d1649aff37a994feb7f6c84072d2868db385c9a1f240f5d326937b972df",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0001",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "81d2de37a532da7f933fb7ead68e65290debbb7bcbd6e38493501a163b658bd5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0002",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7b6f800e7cf5371a7f479105e08baf8001ba7294b5c6b4383a99a53a1c12d9b7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0003",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d2596f8538f3522b566c4d30c5cb8755c080ba177851d62ba91048096d317c06",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0004",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d80b4a5d57781935346418edf299c75469cbd4a508ca98ea8cc387e4c78e035f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0005",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "91104cc64eff237c3b1eccfb26581d1ae0a1ab33d2c222ff761bcbdde7498e53",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0006",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "47691cf213c54cfbe8a31b148af2a3aa8c444c8bbe9e1e927c0f006929dfd32e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0007",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2e6ee5cee6095ddaddcdb90ff5a0d98df9f765951223307f495f35d1395d3c06",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0008",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bda2ff506a4ac2534aa4d5e67294e3bdb6b4a494ff5c478bc6e660b020a28e81",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0009",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f5b5aed2b9de9a0ec32023d68917a9eed71cf0e2814b3f620b5c5f445e34d6ec",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0010",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "55f6fb4057362f694103ea01ccbf70f325ab81bfb217a0faecd2e814de2b4ccf",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REL-0011",
+      "domain": "OMNI-RELEASE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bdafb44fe37beec05930f4a8110146d24224e0da13489c2d8292987bf868401c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0001",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4ddfe237ebf47b62e0be6e9334c513a36414e7c9f5c4a5a42dde593dc44d03fb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0002",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "003b76ae7319f02f3dc6203867eedb24ecd49fdc53449c0baa19585ffd6bfbba",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0003",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1770c6716ab2a687a168fbd9a20ad8cb47a5fc6eec767afa8be209a8681532fa",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0004",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "058b9bdfda3f0f49b917010f9d0612001f3934dbd4e5fc503cb1bd64ac77b423",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0005",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f86bc20cd3c1d8adf201fe0b5142e1cd145122add71da314e51597e4ce2dde0e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0006",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2d6011854141e747db5ce70368b17bd1a5cbf58f6b8d14bc02e9325452d91b99",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0007",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "972bfe0f20c16c43ad3ebc2edadfa3e54da1c2451613eef98df947f1c6b353bd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0008",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f0d478d75d758872f8aefddb4bc55662d531959d4f7d75760f47d8a94bc01039",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "REPRO-0009",
+      "domain": "OMNI-REPRO",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "82c2bf4a82ca22af7da0b9cec329e1ae8865403510660c38bcdc3993f471d1cc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0001",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "591ccd3213fd13c30ddc2e12c049b5e211280f8142f93f87f22ef4da7dc405eb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0002",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bd83a14cf0b609f36f17df639ca46e479eb5bb5545a798b4901c7ab9e7f8cf76",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0003",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0459a99db2939c32f9197c67cf1cbf9124d34546ca37782a9f30ca8d77bb4005",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0004",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8c2e899f155551503ae708039d74e07fe43e2a142b9927cf7e443530a5682a55",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0005",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5f37c4116c79338a11fb97998e0c82ae3fc0d558d1e9b8aba9667c8600d01ae7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0006",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e8cac9eee0ebdd08d1a15754f47ffa5e5f39f2d2b1bd2f249cccbd59e871c117",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0007",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1b23033d5a1ace9d8fa4e773742febf155e85e9bdd220c3cecf69bbc0f40f1df",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0008",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5babb2d5d40f3fd3162937d544bab8a760c5c4507c0c3d523aa0be8c02d3fe0d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0009",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "76dacb51350510c1378a239cdfc960a9c2ed719b482853ababe71dba7f0dd0d2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0010",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "285d00819491dd8bd794fadb49f75fa292e67cd6137020df578a2944490313ae",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0011",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c3332defdb640417f968970ef62a6f8fea3fb96afb9b7475e3949b9959325190",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "ROOT-0012",
+      "domain": "OMNI-STD-ROOT",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ca467af4b3270cde7f694fe003c344df8f3ff80e2f67660c5e4516af0068cd96",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0001",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0c54adda03c8eb1e38d9f4ea55ccc2809e8da821c3c5d07a79cf659e286e569a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0002",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2066980dba7ba07b1ff70b9f372614ca6bd55545f551d098ec8689d4cd23be41",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0003",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "912db044ba2f26fc189167cf8680c4a8bd0152e0d58c94b257a527d99d937f00",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0004",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ee8dccddec93a6fbbdbfa9dc137f0b2557113f3f76193c1cef4decfe6d755c16",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0005",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "fd82a08902b73372bf7b4c1a68d1c286979480ffa5c347c3c28e2bbda507433e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0006",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "13387c608c2e959b076584ed1ae9dbef7d7b37854ab6d111da9c7d150cdbb856",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0007",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "43dc1ec718117cfbea232d7ea18e34f1297dc6cbcd4a611308f98003090a0ced",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0008",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2e5e9fc0ef71a22b78fa9c84088881d80f48a28856f3a000f056f36c4436394d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0009",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "083f50d5af76c9e5119835e6ce60e5e8112812721859eebe2478cd9b36f65965",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0010",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6d8a6d6cbeded49f755745be3c1b73f248386cd22cb641a3af1f9c4713bcf31b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0011",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a11fc182b237c9d06820c1f8aac9e5db98246697d77dca0cd099f7257a207417",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0012",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f98574e3b2e20efeb13427f881e44728737b6001f914f72148ccd0f87a093255",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RT-0013",
+      "domain": "OMNI-RUNTIME",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d96bf94fd371e02f9aa88d30333d2ffe23026de24c21200b227ffb6b10a6c529",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RULE-0001",
+      "domain": "OMNI-RULES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e5895c47e52a44eb9bbbd6e5778d6d791a0af3a860447783240d29fc847eaa73",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RULE-0002",
+      "domain": "OMNI-RULES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8a0e4849fbac580a7a4f72daf4d76eef0306e5d516ca14803a6192d33781dc25",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RULE-0003",
+      "domain": "OMNI-RULES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "510405ac300ee17552757b8413be91aea86a962eb868780ed7d33be02c7014f0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RULE-0004",
+      "domain": "OMNI-RULES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e884285e6a9e12292922618f4166759a9207bc8274d46d773a20c0de93109fc5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RULE-0005",
+      "domain": "OMNI-RULES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "87cc015778b32b70c8cf5ac1e8b9fa6488baed165c99b03c5d457ad50ee33421",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RULE-0006",
+      "domain": "OMNI-RULES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "eefffcb29d4e53b847a1a04291a966b25db96246afd6c06b67aff8562576fe6d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RULE-0007",
+      "domain": "OMNI-RULES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "13281326632de164b978a640ac2338b21ff7d038c9d9b1f7cda2b0d862ff860d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "RULE-0008",
+      "domain": "OMNI-RULES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4a8d6bc0a2d044a1b20ac044c522d047429689778bb8b956b3cc99aa9cba4c10",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0001",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b703572123f5d8f75709cdb7a6f9d22d577775c587ef87a1e204ffc57ed1fda4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0002",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2d6c019aee67d11acc54371fabfaaf78c4fde9d7ae840d836b67609891a3e668",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0003",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "664b734c6645eae42561568ab230ac466e243dd80cc7e27c6cc366fb4ee8c74b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0004",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b16b29ec91df4a634f63531e6ba227903ab12c25e0296a6c2aaae4f8fe757dc6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0005",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "90bbb74dd3e0b50d56796375931579b54bbda4849079f942a4b3a65cb733d57f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0006",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "37bdb9e3e5554c5c1d64caa5e3034f2959e608378924329ab6608d7ba316512d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0007",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9a81df9dc3cdd1c2d890eb4c5a7cbbd00af7709ac3162261600c5c2c1a49cb87",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0008",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e49bff6d48bbb966026dd4a2515c23b66b96c18234f07a4d25a30e2d30480cf9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0009",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0aeafd340a341ca815d630a2e0cd998e90cf019251a985c502bbc3e0fab7e72c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0010",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bf1ccdf98c0dd02532c4e6bc4f04b7a0fe2ccd98688c19af93583afef289d943",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0011",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0f3e9e78660c02222ced80107b7489532e43cf26452b0866885ad4e83ad88334",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0012",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "41a3709a17fea8449d43f24eab03ff81a42697b1a3c97eff5fce7484543e81e7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SEC-0013",
+      "domain": "OMNI-SECURITY",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "52992d4cc4e2c1252f1eef0db5b8df449102d94445417336b145a3d81870a3e1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0001",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b0e11fa3c05f97b47c2a049ae254a7bdc63b0c974920626db52b1e7f0783c393",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0002",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "86fff4f412f49b54fcd9287a47ebab462e2f43479927ac3889c628a2b1fb8afd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0003",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e339871644827b8266ef0e360b67286084892206a484a0cfe15a26e531bf6be8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0004",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "22e888e894ab3d5cdafb1fbc0e5894de5ab47b8a13e2417ee3cfc86d6f2fea99",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0005",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e23e541d00476785973dd8977f426d194560f2cb612e2e6148524506f7536323",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0006",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "74cd7df0baf0fd58da4ed69e352e1e4fb5e9595098284631f082f08f5f2d079e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0007",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7686e2f4904acc06be3de99b5ab4e53861a42122b8f324234964b55ec0011549",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0008",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "cf74550474795ba7c5a2a5eedf80a4968474fa8441090747aec4f71579e5a9cd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0009",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a186473607fbb58dc8b337e5dd03f1e03fe97edc80001a5c7e553306e5cbc5e7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0010",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c5bee1bde4196489b4bcd3edc4cefcc3cf9e6d7bb073452fdcc1fddccd72e522",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "SRC-0011",
+      "domain": "OMNI-SOURCE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3a197b57838fa0934004bc5384097d40f7a7337e6091896d4dc1169f59c817bc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0001",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "12cd8edddce9b868872b64e2d74fad8cbe489652dd6855b93e57cbfac3d0b3ab",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0002",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4b8231ef24189fe97abeeba8be6f2e95225f6b94ca405f4019d174e7274ec7d2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0003",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7071ea0af69911f78b642bfa5560ec4589dfe6b1b136e28c48e1afd640e63dad",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0004",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c9c71526841f19dbd1e485db34fbcf2cd02e9af98281042dbbca969f203db2f1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0005",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6a878fe94560a0709a6d6afdbe454722a3509a7d684710d19ac90ad1d95aef4b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0006",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4ecfd51c7c9d6a9f648d0bdd2fb960fe2ea22a425c8f3815f6c8274049e31c15",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0007",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7b3f35ac5b80506e6b7a7f497f4a09ce23e42ac883fa5131acd75bfc7292b38f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0008",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c64ac7346fe6987b273f614e458937e595c58d6d6c23314d90153f1c3c57e4db",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TARGET-0009",
+      "domain": "OMNI-TARGET",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "722d676d054b5400bd7714f12a13edd358e6e02f8a30d9e1fa53fbe2fabd9b41",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TERM-0001",
+      "domain": "OMNI-TERMS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2d9c5baaabd24fcb7e3a44305f069623dcfeb28d8730477f92264f6cdb46f892",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TERM-0002",
+      "domain": "OMNI-TERMS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "eca3a10e437167d542633e1240666725ecfa553f664094df4762b3cb99faa010",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TERM-0003",
+      "domain": "OMNI-TERMS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "779c2b5dca6bc80fce80498dcf16ddd79aa2d0e514096873539d1d0b29cb7333",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TERM-0004",
+      "domain": "OMNI-TERMS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c5f7de283084d5d72761fc877c8d23fd46c7d9ee4eba73b00abdf57cb5f8daf9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TERM-0005",
+      "domain": "OMNI-TERMS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "037b567a4df5775366b2eefa8d1d8137be747c8fd048e7db01d946cba8437a8f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TERM-0006",
+      "domain": "OMNI-TERMS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9c12faaf4566c9b1ef29e69521da2bc51788f85c53b572d3f3b19d3b59cd5750",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TERM-0007",
+      "domain": "OMNI-TERMS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a082b14f3c5cd768d4d1df95fa53bec53a20fa32828fc826c5b44b6a3f04a5cd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TERM-0008",
+      "domain": "OMNI-TERMS",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2a341d0364d70864b003b2fbc6d092897d2b17aa74ab656845fd46c20a4dbfb2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0001",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d748f18837678ca8692167b298ae409b680eb6bb510764ad8db26d00830d7d27",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0002",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2b3fb4d07bb22d51e83cd71728bdcfa552805a0cd8ff06bc57ef396b1d9cc5d2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0003",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c51bde5887768a5d1fabdd6a8330b4eb4842f902ae911165ff48d5677a28639c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0004",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "42c10be8a76db9202a6f78e3f608fe7d94a2a529dd1774ead11298921c6370c6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0005",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "61b73e6230901c8b6af9253d1a3678e9470e8ebe69cb2e554ee60f2d96c8a23a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0006",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2838c76c8e891edcd8587ce134da826b1d252a4f9a631bd8b41f4fd47c2dca2c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0007",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "85f355dc7072c9c4af75eeb5078098b5ad09797cb08813a008864581b713d49b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0008",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3c906adfd403b163d8ab3942afd66f0a4f2cc96f7caa6886417328b87eaaa738",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0009",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d87c66bfe04f8056b34d3db927e869014b827af1869294c6b7105f03224e15aa",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0010",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d6660e41934c72607d895c1de3f59db4d22dc9ff0dd6e54cba63b28e61d7ff3a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0011",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4872fd6f5ee2b11acef7acdd372569389172748028dac76020d4a68c22c916ca",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0012",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c292ad2877eeae2e647930b748b007d1960a5816fd88c6e28882553ea56c9e89",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0013",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "cd71154b0cdea5cf0526bf4c9ad00c6b485a47750d4de6dd306becfc285eebda",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0014",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "fbd89528be24209a50b7d59b72617289080e95eafa18ff3d84bd4c2eed3be255",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0015",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b73ebd819c3b9e31e7a70feb83216d84bc2c45ba2242913e5566644fe6a05013",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0016",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "e44ac842d5fa4ba251169213af6037fe67183adcb78acd318f0e1c6232897d29",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0017",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d29de6e1fff78ad5ef4bb8eca71ad6193a4707ce62c6e8286c4b6eb2d2f69f6f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0018",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ee9218ff9c23b3ad71368de79844ff80bc1c48e204a64d348c6f680971242f45",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0019",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ea92146ed76697d423130d5ad874f0e57fba5a7cd86902e4456e821e048cc4b2",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "TYPE-0020",
+      "domain": "OMNI-TYPES",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "38e61ade6c9f068b075e18db65965590af80d67113220cc46c9c087b4d6f0b03",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0001",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9c7e9e2c3c611357f92ea8be9d03b581f4b262740e949f2049dad3771cf79bd0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0002",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9203a6ed181255a5e0bc433f77e19073228914de5cfc3ca84b38b1107a1d519e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0003",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "971cb94f3b407fce6030913af0379546d2c539dceab4dff44b3e75a9aba9e235",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0004",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f6c3038df4e48b5a2330a52264c7881276e1ab03f109b72fa901eac2add320a7",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0005",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5caa84a654df5c94ca28ea59cf8a4f33170ac6d8ca72b3ee0cc1429ad3da8ba6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0006",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d53e79f8e7a6cae928350f0fb92d2a4fee0ca85c9407572d87d8fa9baf3ddcdc",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0007",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "99c3a3194794edafb145e3cec9fa97c6d74a98f62234480b7b17f97fe05a405c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0008",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "85e1f1d4a5ef8f4ff73f9e81f9a13b2abc5a243151834c16fe5bf0da125f23e5",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0009",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "40ef4ff0441e635773af950a3328931a42abd7ea143d3ca05092be06890aa57e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0010",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f03932805b655ed13c02fcb830ffceacbd29aabbe4f91093cce34d97b7a4261e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0011",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "800aa3d26b33aa5f4c6d884e4c7abbedab43798326723db3d0d199c8c6e456e6",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0012",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "258016f2c366366c3d20771ba31e80ecebbea645cdb387d39ad24128681fb12c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0013",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f50890a524fb22a2cd2dea54f65e8041e666795e9676cf7b8d09b98e62e5cfaf",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0014",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6a0db3a692bd0cdd557b2bf6694e1bb3f65e4390e61eb445acf1492ed23b92b1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0015",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "32d30244cc91a5074e1870c70a56ee790f7d78009c2176f220fd60076fd8739b",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UNSAFE-0016",
+      "domain": "OMNI-UNSAFE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "4181d1043535a6d4f2c1c4bb605d94d415bac716a0c780500e40c4d56394d6b0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UPDATE-0001",
+      "domain": "OMNI-UPDATE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "66b6dc663dfbd32f71f617ad84a33b46ddfcef1e570eddf47238bd967f67d946",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UPDATE-0002",
+      "domain": "OMNI-UPDATE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "17f265dcf4565758ca0b6cb95c68263363136c2795501656cad9065ff9c30188",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UPDATE-0003",
+      "domain": "OMNI-UPDATE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "6c9a2bce8ee5f1c946e2fae764a6fa8227edac8a76e68a7018d81bdd7c6f0c05",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UPDATE-0004",
+      "domain": "OMNI-UPDATE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b52b50d192d07a60a1699b7f3ee039cc11fc4a9c701ce4719b29736c37b52de9",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UPDATE-0005",
+      "domain": "OMNI-UPDATE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c160b91d6eeaf0ffe2f26ebd290b75ae918b009beb2fd4482f3b41f04f255332",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UPDATE-0006",
+      "domain": "OMNI-UPDATE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "b85ff8b84a61a902d69fc2b3c2e617326289a99c14266c141400900c9f752edd",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UPDATE-0007",
+      "domain": "OMNI-UPDATE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "97faaccefcdbd494a9d443d8fd0fd0b45aff200b2b7e60cae81890fa04f7b4d0",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "UPDATE-0008",
+      "domain": "OMNI-UPDATE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7a8a5c2389b89d22a732c0ac58fbf1e040b4dc8367729196fbaccbccba08fcf8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "VIBE-GRAM-0001",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "ac0e5f74249ae78cdb73b0f236ce5126ec5010f6b6da0571a4100607e5019e25",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "VIBE-GRAM-0002",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c5098eadb13d077fa14b0baccb47888bcf6581eb58a86cb3c4b65c1d4fc8da1a",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "VIBE-GRAM-0003",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "47e02f5c8555618b5d61113afb7790a3964a5ca7eebdcb8f79d42ddafff7c1cb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "VIBE-GRAM-0004",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "83e777844a7a23aba6a05f618bf7fb527009d415243baa1cf97bb1b12175da55",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "VIBE-GRAM-0005",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "f15692acabe4f1b6e79e8b3f8673a966bb90f029050f743142ba25d0218ad266",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "VIBE-GRAM-0006",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "02da4c5143ee0c85e2577619429fcdae2c17fbfb78661f8837ecd9cfa5027af1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "VIBE-GRAM-0007",
+      "domain": "OMNI-GRAMMAR",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "354ff727001d79dc6ffe68d7dc5bbc55e5046b18235e496f56015c82c881db0d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0001",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "9e3b953405b71cd23b93e312165be9c48fae2781a8b65ab37917544936fb914f",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0002",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "339d5e2bd32afbaf5d4b17d48bca52af257dd70d53cefe79b794693467a488ce",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0003",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "bdfea757af08afb2093e8fecd602f8c3aa9badd937f851684949a92466cd1190",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0004",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1e7f23613dbbac3e3c125f7abcfc7e2484f0d0bf662acdf00b74f30c1fc1fc1c",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0005",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5be72666dc91d1f6b86cdb9509a6a7e933d2abe1530c0d9a878dc51d15285657",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0006",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "3995ebae575f519a120459e9a6b2880d6dd384230a03ac4246cf95b332053df3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0007",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "d7adc1e88270db5bfcccb52d754a398917c642e4cc64af0f2fe04262770ea545",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0008",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "52072426655d9b31394dd8a0536faa61156e5239aa16cb894509e33928bdfa40",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0009",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "8580115e03a407e5d6dde6bd8e28167aff3f473202a6323cfa834cfe41fe554d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0010",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7e37da5386558705732eb0421d015686dbd12cb587383f33daa392e53540ff3e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0011",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2d641aa47bbb1201b9c5d9eb65f67856e53884be7fb43ea32572d82238e62a5d",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0012",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "91ca2b2891c6eb054d06c4b3c16395a7da7c9d88f5ae55a2833e8805080404fb",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0013",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c079f0caf02df63c75af75fc8761bc1af150ef115833e6b26251b4940eec31f3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0014",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "7cb2f1182d1c5fad30124a09c0ba14e6564fd84bc232b7f176182c264d77bba8",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "WIRE-0015",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "a5a378cf4e698b27c350b4c87e1bb11ed753c98ade7d5b0ad344326249654f7a",
+      "dependencies": [],
+      "witness_tests": []
     }
   ]
 }

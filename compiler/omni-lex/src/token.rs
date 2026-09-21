@@ -84,9 +84,7 @@ pub struct Token {
     pub trailing_trivia: Vec<Trivia>,
 }
 
-// Semantic Linkage Tracker
-// `omni-audit` parses the AST and finds this tag.
-// `cfg(any())` evaluates to false, stripping it from `rustc` to prevent "unknown attribute" errors.
-#[cfg(any())]
-#[implements("LEX-0002")]
-fn _audit_trivia_preservation() {}
+// Trivia preservation (lossless CST) behavior lives here. No `implements` tag is
+// claimed: LEX-0002 is Superseded under the Candidate-2 amendment, so the prior
+// ownership tag was stale linkage and was removed by the reaper. Re-ownership
+// awaits a surviving normative rule ID from the specification layer.

@@ -32,6 +32,15 @@ impl<'ast> Visit<'ast> for LinkageVisitor {
         }
         syn::visit::visit_attribute(self, attr);
     }
+
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        if mac.path.is_ident("implements") {
+            if let Ok(lit) = syn::parse2::<syn::LitStr>(mac.tokens.clone()) {
+                self.implements.insert(lit.value());
+            }
+        }
+        syn::visit::visit_macro(self, mac);
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,7 +54,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registry: RuleRegistry = serde_json::from_str(&registry_data)?;
     let mut rules_by_id = BTreeMap::new();
     for rule in registry.rules {
+        if rules_by_id.contains_key(&rule.rule_id) {
+            eprintln!("REAPER ERROR: duplicate rule {}", rule.rule_id);
+            std::process::exit(1);
+        }
         rules_by_id.insert(rule.rule_id.clone(), rule);
+    }
+
+    for rule in rules_by_id.values() {
+        match rule.status.as_str() {
+            "Proposed" | "Candidate" | "Ratified" | "Deprecated" | "Superseded" | "Withdrawn" => {}
+            other => {
+                eprintln!("REAPER ERROR: {} has unknown status {other}", rule.rule_id);
+                std::process::exit(1);
+            }
+        }
+        if rule.status == "Ratified" && rule.witness_tests.is_empty() {
+            eprintln!("REAPER ERROR: Ratified rule {} has no witness tests", rule.rule_id);
+            std::process::exit(1);
+        }
     }
 
     let mut visitor = LinkageVisitor { implements: BTreeSet::new() };
@@ -72,6 +99,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("REAPER ERROR: Deprecated rule {impl_rule}");
                 std::process::exit(1);
             }
+            Some(rule) if rule.status == "Superseded" => {
+                eprintln!("REAPER ERROR: Superseded rule {impl_rule}");
+                std::process::exit(1);
+            }
+            Some(rule) if rule.status == "Withdrawn" => {
+                eprintln!("REAPER ERROR: Withdrawn rule {impl_rule}");
+                std::process::exit(1);
+            }
             Some(rule) if rule.status == "Ratified" && rule.witness_tests.is_empty() => {
                 eprintln!("REAPER ERROR: Ratified rule {impl_rule} has no witness tests");
                 std::process::exit(1);
@@ -85,6 +120,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !rules_by_id.contains_key(dep) {
                 eprintln!("REAPER ERROR: {id} depends on unknown rule {dep}", id = rule.rule_id);
                 std::process::exit(1);
+            }
+        }
+    }
+
+    // Dependency cycles fail the reaper (RULE-0005: dependencies acyclic).
+    // Iterative DFS keeps stack usage bounded on large registries.
+    #[derive(PartialEq, Eq, Clone, Copy)]
+    enum Mark {
+        Temp,
+        Perm,
+    }
+    let mut marks: BTreeMap<&str, Mark> = BTreeMap::new();
+    for id in rules_by_id.keys() {
+        if marks.contains_key(id.as_str()) {
+            continue;
+        }
+        let mut stack: Vec<(&str, bool)> = vec![(id.as_str(), false)];
+        while let Some((node, expanded)) = stack.pop() {
+            if expanded {
+                marks.insert(node, Mark::Perm);
+                continue;
+            }
+            match marks.get(node) {
+                Some(Mark::Perm) => continue,
+                Some(Mark::Temp) => {
+                    eprintln!("REAPER ERROR: dependency cycle at {node}");
+                    std::process::exit(1);
+                }
+                None => {}
+            }
+            marks.insert(node, Mark::Temp);
+            stack.push((node, true));
+            if let Some(rule) = rules_by_id.get(node) {
+                for dep in &rule.dependencies {
+                    match marks.get(dep.as_str()) {
+                        Some(Mark::Temp) => {
+                            eprintln!("REAPER ERROR: dependency cycle at {dep}");
+                            std::process::exit(1);
+                        }
+                        Some(Mark::Perm) => {}
+                        None => stack.push((dep.as_str(), false)),
+                    }
+                }
             }
         }
     }
