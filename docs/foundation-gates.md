@@ -99,3 +99,19 @@ enums and the parse `Diagnostic` remain implementation-internal and must map to 
 emission boundaries (future work); `omni-driver` provenance adopts this format at 0.0.0.12.
 Live gaps, honestly held: zero E-code diagnostics emitted, zero witness records, all 560 rules
 Candidate (Ratified obligations vacuous), `models/`/`data` still empty.
+
+## Specification loader (0.0.0.10, `omni-registry`)
+
+Typed load boundary owned by `omni-registry` (TOOL tier; no compiler edges): `RawSpecification`
+→ `validate()` → `ValidatedSpecification` → `load()` → immutable `LoadedSpecification`, with
+phase-ordered checks (containment, duplicate-rejecting parse, version, schema shape, canonical
+form via `omni-canon`, digest verification, cross-artifact consistency, construction, provenance).
+Manifest authority is enforced: the tree is never inferred by scanning; required artifacts come
+from the canon publication set; `models/`/`data` emptiness is an explicit verified state, while
+any present-but-unregistered model file fails as undeclared (no model schema exists yet, and none
+is invented). Only `1.0.0`/edition 1 loads; future versions fail closed. Load provenance
+(loader version, tree digest, per-artifact digests, ordering) is captured; full cryptographic
+build provenance stays at 0.0.0.12. Authority seams: canon owns bytes/digests, the loader owns
+typed validation, `omni-conform` adjudicates release bindings and evidence on loaded values
+(no parallel parsing), `omni-audit` keeps linkage claims, cycles, and witness resolution.
+Rule-text to hash binding remains procedural (texts live outside the tree).

@@ -425,6 +425,7 @@ version = "0.0.0"
 dependencies = [
  "omni-canon",
  "omni-evidence",
+ "omni-registry",
  "serde",
  "serde_json",
  "walkdir",
@@ -514,6 +515,12 @@ dependencies = [
 [[package]]
 name = "omni-registry"
 version = "0.0.0"
+dependencies = [
+ "omni-canon",
+ "serde",
+ "serde_json",
+ "walkdir",
+]
 
 [[package]]
 name = "omni-runtime"

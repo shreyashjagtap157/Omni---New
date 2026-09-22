@@ -1,53 +1,24 @@
-//! Specification-manifest conformance gate (0.0.0.5).
+//! Specification-manifest conformance gate (0.0.0.5, loader-integrated 0.0.0.10).
 //!
-//! Recomputes the deterministic specification-tree digest, binds it against
-//! `spec/manifest/omni-edition1.manifest.json` and
-//! `spec/release/foundation-gate.json`, and re-validates the registry
-//! structurally. Any mismatch fails closed (exit 101) instead of proceeding.
+//! Authority boundary: `omni-registry` owns typed loading and load-time
+//! validation; this gate consumes the loaded specification and adjudicates
+//! release bindings (manifest/gate digests) plus the evidence corpus policy.
+//! It performs no independent manifest/registry parsing, so no parallel trust
+//! path exists. Any mismatch fails closed (exit 101) instead of proceeding.
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use omni_canon::{reject_duplicate_keys, spec_tree};
 use omni_evidence::{parse_record, EvidenceBundle, EvidenceKind, RegistryView, ValidationContext};
+use omni_registry::load_specification;
 use serde::Deserialize;
 use walkdir::WalkDir;
-
-#[derive(Deserialize)]
-struct Manifest {
-    manifest_version: String,
-    edition: u32,
-    spec_tree_sha256: String,
-}
 
 #[derive(Deserialize)]
 struct Gate {
     gate: String,
     spec_tree_sha256: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RegistryRecord {
-    rule_id: String,
-    domain: String,
-    status: String,
-    normative: bool,
-    text_hash: String,
-    #[serde(default)]
-    dependencies: Vec<String>,
-    #[serde(default)]
-    diagnostics: Vec<String>,
-    #[serde(default)]
-    witness_tests: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RuleRegistry {
-    schema_version: String,
-    rules: Vec<RegistryRecord>,
 }
 
 #[derive(Debug)]
@@ -64,98 +35,24 @@ fn fail(msg: String) -> Box<dyn std::error::Error> {
 }
 
 /// Verify the specification tree rooted at `spec_root` against its manifest
-/// binding and registry. Returns a report on success.
+/// binding and registry. The tree is loaded through the `omni-registry`
+/// loader (load-time validation authority); this gate adjudicates release
+/// bindings and evidence policy on the loaded values. Returns a report.
 pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error::Error>> {
-    let (tree_digest, tree_files) = spec_tree::spec_tree_digest(spec_root)
-        .map_err(|e| fail(format!("spec-tree digest failed: {e}")))?;
-
-    let manifest_raw = fs::read_to_string(spec_root.join("manifest/omni-edition1.manifest.json"))
-        .map_err(|e| fail(format!("manifest unreadable: {e}")))?;
-    let manifest: Manifest =
-        serde_json::from_str(&manifest_raw).map_err(|e| fail(format!("manifest invalid: {e}")))?;
-    if manifest.manifest_version != "1.0.0" {
-        return Err(fail(format!("unsupported manifest_version {}", manifest.manifest_version)));
-    }
-    if manifest.spec_tree_sha256 != tree_digest {
-        return Err(fail(format!(
-            "manifest digest mismatch: manifest={} computed={}",
-            manifest.spec_tree_sha256, tree_digest
-        )));
-    }
+    let loaded = load_specification(spec_root.to_path_buf())
+        .map_err(|e| fail(format!("spec load failed: {e}")))?;
+    let tree_digest = loaded.identity().tree_digest.clone();
+    let tree_files: Vec<String> = loaded.identity().artifacts.keys().cloned().collect();
 
     let gate_raw = fs::read_to_string(spec_root.join("release/foundation-gate.json"))
         .map_err(|e| fail(format!("release gate unreadable: {e}")))?;
     let gate: Gate =
         serde_json::from_str(&gate_raw).map_err(|e| fail(format!("release gate invalid: {e}")))?;
-    if gate.spec_tree_sha256 != manifest.spec_tree_sha256 {
+    if gate.spec_tree_sha256 != tree_digest {
         return Err(fail(format!(
-            "gate digest mismatch: gate={} manifest={}",
-            gate.spec_tree_sha256, manifest.spec_tree_sha256
+            "gate digest mismatch: gate={} loaded={}",
+            gate.spec_tree_sha256, tree_digest
         )));
-    }
-
-    // Registry/hash consistency: rules.json is inside the digested tree, and its
-    // records must satisfy the structural contract (patterns, lifecycle,
-    // duplicate and dependency integrity). Rule-text provenance (0.0.0.4) is
-    // pinned by tree membership: any registry byte change alters tree_digest.
-    let registry_raw = fs::read_to_string(spec_root.join("registry/rules.json"))
-        .map_err(|e| fail(format!("registry unreadable: {e}")))?;
-    reject_duplicate_keys(&registry_raw)
-        .map_err(|e| fail(format!("registry has ambiguous keys: {e}")))?;
-    let registry: RuleRegistry =
-        serde_json::from_str(&registry_raw).map_err(|e| fail(format!("registry invalid: {e}")))?;
-    if registry.schema_version != "1.0.0" {
-        return Err(fail("unsupported registry schema_version".to_string()));
-    }
-    let mut seen = BTreeSet::new();
-    for rule in &registry.rules {
-        if !seen.insert(rule.rule_id.clone()) {
-            return Err(fail(format!("duplicate rule {}", rule.rule_id)));
-        }
-        let id_ok = rule.rule_id.starts_with("VIBE-GRAM-")
-            || (rule
-                .rule_id
-                .chars()
-                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-')
-                && rule.rule_id.contains('-'));
-        if !id_ok {
-            return Err(fail(format!("malformed rule_id {}", rule.rule_id)));
-        }
-        if !rule.text_hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-            || rule.text_hash.len() != 64
-        {
-            return Err(fail(format!("malformed text_hash {}", rule.rule_id)));
-        }
-        match rule.status.as_str() {
-            "Proposed" | "Candidate" | "Ratified" | "Deprecated" | "Superseded" | "Withdrawn" => {}
-            other => return Err(fail(format!("{} unknown status {other}", rule.rule_id))),
-        }
-        if rule.status == "Ratified" && rule.witness_tests.is_empty() {
-            return Err(fail(format!("Ratified rule {} lacks witnesses", rule.rule_id)));
-        }
-        if !rule.domain.starts_with("OMNI-") {
-            return Err(fail(format!("{} bad domain {}", rule.rule_id, rule.domain)));
-        }
-        for diag in &rule.diagnostics {
-            let code_ok = diag.len() == 5
-                && diag.starts_with('E')
-                && diag[1..].chars().all(|c| c.is_ascii_digit());
-            if !code_ok {
-                return Err(fail(format!("{} bad diagnostic {diag}", rule.rule_id)));
-            }
-        }
-    }
-    let ids: BTreeSet<&str> = registry.rules.iter().map(|r| r.rule_id.as_str()).collect();
-    for rule in &registry.rules {
-        for dep in &rule.dependencies {
-            if !ids.contains(dep.as_str()) {
-                return Err(fail(format!("{} depends on unknown {}", rule.rule_id, dep)));
-            }
-        }
-    }
-
-    if manifest.edition != 1 {
-        return Err(fail(format!("unexpected edition {}", manifest.edition)));
     }
     if gate.gate.is_empty() {
         return Err(fail("release gate has no name".to_string()));
@@ -169,7 +66,8 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
     let toolchain = read_toolchain_channel(&workspace_root);
     let workspace_files = workspace_file_set(&workspace_root);
     let view = RegistryView::from_rules(
-        registry
+        loaded
+            .registry()
             .rules
             .iter()
             .map(|r| (r.rule_id.clone(), r.status.clone(), r.text_hash.clone()))
@@ -186,8 +84,8 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
     Ok(ConformReport {
         tree_digest,
         tree_files: tree_files.len(),
-        registry_rules: registry.rules.len(),
-        normative_rules: registry.rules.iter().filter(|r| r.normative).count(),
+        registry_rules: loaded.registry().rules.len(),
+        normative_rules: loaded.registry().rules.iter().filter(|r| r.normative).count(),
         evidence_records,
     })
 }
@@ -311,6 +209,7 @@ fn main() {
 #[cfg(test)]
 mod conform_tests {
     use super::*;
+    use omni_canon::spec_tree;
 
     fn scratch_spec(manifest_digest: Option<&str>) -> PathBuf {
         static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -332,8 +231,13 @@ mod conform_tests {
             "regression",
             "fuzz-promotion",
         ] {
-            fs::write(root.join(format!("schemas/{schema}.schema.json")), br#"{"title":"s"}"#)
-                .expect("write");
+            fs::write(
+                root.join(format!("schemas/{schema}.schema.json")),
+                format!(
+                    "{{\"$schema\":\"http://json-schema.org/draft-07/schema#\",\"title\":\"{schema}\",\"type\":\"object\"}}"
+                ),
+            )
+            .expect("write");
         }
         let (digest, _) = spec_tree::spec_tree_digest(&root).expect("digest");
         let bound = manifest_digest.unwrap_or(&digest).to_string();
@@ -434,7 +338,7 @@ mod conform_tests {
     fn manifest_mismatch_is_rejected() {
         let root = scratch_spec(Some(&"0".repeat(64)));
         let err = verify_spec(&root).expect_err("must reject");
-        assert!(err.to_string().contains("manifest digest mismatch"));
+        assert!(err.to_string().contains("ManifestMismatch"), "got: {err}");
         fs::remove_dir_all(&root).ok();
     }
 

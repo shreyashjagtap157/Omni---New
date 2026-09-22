@@ -240,6 +240,11 @@ pub fn canonical_json_bytes(val: &mut Value, root: &Path) -> Result<Vec<u8>, Can
     serde_json::to_vec(val).map_err(|e| CanonError::InvalidInput(e.to_string()))
 }
 
+/// SHA-256 over LF-normalized raw bytes (artifact identity primitive).
+pub fn sha256_of_normalized_bytes(raw: &[u8]) -> String {
+    spec_tree::sha256_hex(&spec_tree::normalize_bytes(raw))
+}
+
 pub fn canonical_hash_json(
     input_path: &Path,
     root: &Path,
