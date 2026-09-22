@@ -106,13 +106,15 @@ fn check_hex64(value: &str, what: &str) -> Result<(), EvidenceError> {
 }
 
 fn check_rule_id(value: &str) -> Result<(), EvidenceError> {
+    // Prefixes may contain digits (e.g. STAGE0); single-hyphen shape only
+    // (VIBE-GRAM handled explicitly), mirroring the registry schema.
     let ok = if let Some(rest) = value.strip_prefix("VIBE-GRAM-") {
         rest.len() == 4 && rest.chars().all(|c| c.is_ascii_digit())
     } else {
         match value.split_once('-') {
             Some((head, tail)) => {
                 !head.is_empty()
-                    && head.chars().all(|c| c.is_ascii_uppercase())
+                    && head.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
                     && tail.len() == 4
                     && tail.chars().all(|c| c.is_ascii_digit())
             }
@@ -762,6 +764,9 @@ mod evidence_tests {
                 "143add9642fe9d3d2d3ebf21f9cc539fcd683c18d2dc9fcb9a9f0c56ee7ca415".to_string(),
             ),
             ("RULE-0001".to_string(), "Candidate".to_string(), "b".repeat(64)),
+            // Digit-bearing prefix (0.0.0.11 repair: STAGE0 was dropped by
+            // an `[A-Z]+`-only ID class across extractor, schemas, validators).
+            ("STAGE0-0007".to_string(), "Candidate".to_string(), "c".repeat(64)),
         ])
     }
 
@@ -1071,6 +1076,20 @@ mod evidence_tests {
         v.model = None;
         v.rule_id = Some("GHOST-0001".to_string());
         assert!(validate_verification_failure(&v, &c).is_err());
+    }
+
+    #[test]
+    fn digit_prefix_rule_ids_accepted() {
+        let reg = registry();
+        let files = files();
+        let c = ctx(&reg, &files);
+        let mut d = diag();
+        d.rule_id = "STAGE0-0007".to_string();
+        validate_diagnostic(&d, &c).expect("STAGE0 diagnostic");
+        let mut w = wit();
+        w.rule_id = "STAGE0-0007".to_string();
+        w.rule_rev = Some("c".repeat(64));
+        validate_witness(&w, &c).expect("STAGE0 witness");
     }
 
     #[test]

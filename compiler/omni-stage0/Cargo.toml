@@ -7,5 +7,5 @@ publish = false
 [lints]
 workspace = true
 
-[dependencies]
-serde_json = "1.0"
+[dev-dependencies]
+omni-registry = { path = "../../tools/omni-registry" }

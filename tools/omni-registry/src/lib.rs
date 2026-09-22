@@ -114,6 +114,57 @@ pub struct Manifest {
     pub stage0_feature_predicates: serde_json::Value,
 }
 
+impl Manifest {
+    /// Typed Stage-0 predicate lists from the loaded manifest. Presence,
+    /// array shape, and string elements are enforced (no silent drops);
+    /// allowed/forbidden disjointness is enforced by the predicate engine
+    /// at construction. Returns `(allowed, forbidden)`.
+    pub fn stage0_feature_sets(&self) -> Result<(Vec<String>, Vec<String>), LoadError> {
+        let artifact = Some("manifest/omni-edition1.manifest.json".to_string());
+        let get_list = |key: &str| -> Result<Vec<String>, LoadError> {
+            let items = self.stage0_feature_predicates.get(key).and_then(|v| v.as_array()).ok_or(
+                LoadError {
+                    class: LoadErrorClass::MalformedArtifact,
+                    phase: ValidationPhase::Schema,
+                    artifact: artifact.clone(),
+                    detail: format!("stage0_feature_predicates.{key} missing or not an array"),
+                },
+            )?;
+            items
+                .iter()
+                .map(|v| {
+                    v.as_str().map(ToString::to_string).ok_or(LoadError {
+                        class: LoadErrorClass::MalformedArtifact,
+                        phase: ValidationPhase::Schema,
+                        artifact: artifact.clone(),
+                        detail: format!("stage0_feature_predicates.{key} has non-string entry"),
+                    })
+                })
+                .collect()
+        };
+        let allowed = get_list("allowed")?;
+        let forbidden = get_list("forbidden")?;
+        if allowed.is_empty() {
+            return fail(
+                LoadErrorClass::MalformedArtifact,
+                ValidationPhase::Schema,
+                artifact.clone(),
+                "stage0_feature_predicates.allowed is empty".to_string(),
+            );
+        }
+        let allowed_set: BTreeSet<&str> = allowed.iter().map(String::as_str).collect();
+        if let Some(conflict) = forbidden.iter().find(|f| allowed_set.contains(f.as_str())) {
+            return fail(
+                LoadErrorClass::InconsistentReference,
+                ValidationPhase::Consistency,
+                artifact.clone(),
+                format!("stage0 feature both allowed and forbidden: {conflict}"),
+            );
+        }
+        Ok((allowed, forbidden))
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleRecord {
@@ -801,10 +852,10 @@ mod loader_tests {
     #[test]
     fn live_repository_loads() {
         // The actual normative tree (relative to this crate) loads with the
-        // full 560-rule registry and explicit empty model/data states.
+        // full 567-rule registry and explicit empty model/data states.
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../spec");
         let loaded = load_specification(root).expect("live load");
-        assert_eq!(loaded.registry().rules.len(), 560);
+        assert_eq!(loaded.registry().rules.len(), 567);
         assert_eq!(loaded.schemas().len(), 8);
         assert_eq!(loaded.models(), &EmptyDomain(()));
         assert_eq!(loaded.data(), &EmptyDomain(()));

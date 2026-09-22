@@ -13,7 +13,7 @@
     "origin": {"type": "string", "minLength": 1},
     "input_ref": {"type": "string", "minLength": 1},
     "expected": {"type": "string", "enum": ["failure", "success"]},
-    "rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"}, "uniqueItems": true},
+    "rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z0-9]+)-[0-9]{4}$"}, "uniqueItems": true},
     "promotion_source": {"type": "string"},
     "fuzz_promotion_id": {"type": "string", "pattern": "^FUZZ-[0-9]{4}$"},
     "spec_tree_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},

@@ -9,7 +9,7 @@
     "schema_version": {"type": "string", "enum": ["1.0.0"]},
     "kind": {"type": "string", "enum": ["conformance-outcome"]},
     "outcome_id": {"type": "string", "pattern": "^CONF-[0-9]{4}$"},
-    "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"},
+    "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z0-9]+)-[0-9]{4}$"},
     "witness_ids": {"type": "array", "items": {"type": "string", "pattern": "^WIT-[0-9]{4}$"}, "uniqueItems": true},
     "expected": {"type": "string", "minLength": 1},
     "actual": {"type": "string", "minLength": 1},

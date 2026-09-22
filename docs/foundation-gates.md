@@ -27,8 +27,9 @@ nothing). Procedure: walk included directories in lexicographic order of slash-j
 paths, normalize file bytes CRLF/CR to LF, hash each file with SHA-256, then hash the concatenation
 of `path + LF + hex + LF` lines. `omni-canon --spec-tree` computes it; `omni-conform` rejects any
 manifest/gate digest mismatch fail-closed. Current digest:
-`ec1f8b1e680b189493be45a7cb52d0c74cc0d99b70e9a6193dcda2dc50e6a130` (supersedes the 0.0.0.5
-`ecda85bb…` value by publication-set growth, not by contradiction).
+`2af51aa99272b82db8785d234b971e859d0503d24017eb09f5d25c919cd8ba95` (supersedes the 0.0.0.8
+`ec1f8b1e…` value by content repair — seven recovered STAGE0 rules plus widened schema patterns —
+not by contradiction).
 
 Known specification inconsistency (open, not resolved by invention): the normative EBNF predates the
 Candidate-2 amendment and contains no pipeline-operator, newline-termination, projection-shorthand,
@@ -97,7 +98,7 @@ promotion links) resolve within the validated corpus; `omni-conform` additionall
 `spec/evidence/*.json` corpus against registry, tree, and toolchain. Pre-existing compiler error
 enums and the parse `Diagnostic` remain implementation-internal and must map to E-code records at
 emission boundaries (future work); `omni-driver` provenance adopts this format at 0.0.0.12.
-Live gaps, honestly held: zero E-code diagnostics emitted, zero witness records, all 560 rules
+Live gaps, honestly held: zero E-code diagnostics emitted, zero witness records, all 567 rules
 Candidate (Ratified obligations vacuous), `models/`/`data` still empty.
 
 ## Specification loader (0.0.0.10, `omni-registry`)
@@ -115,3 +116,23 @@ build provenance stays at 0.0.0.12. Authority seams: canon owns bytes/digests, t
 typed validation, `omni-conform` adjudicates release bindings and evidence on loaded values
 (no parallel parsing), `omni-audit` keeps linkage claims, cycles, and witness resolution.
 Rule-text to hash binding remains procedural (texts live outside the tree).
+
+## Stage-0 predicates (0.0.0.11, `omni-stage0` + loader assist)
+
+Postmortem honestly recorded: the 0.0.0.4 extractor's `[A-Z]+` identifier class silently dropped
+all seven `STAGE0-*` rules (the sole digit-bearing prefix in the normative suite). The registry now
+holds 567 rules (557 Candidate + 3 Superseded + 7 STAGE0 Candidate); the same class bug was repaired
+in all eight schema patterns and the evidence ID validator, with a regression test proving
+`STAGE0-0007` validates end to end. Tree digest rebound by publication growth (`ec1f8b1e…` →
+`2af51aa9…`) through the established process, never by hand edit.
+
+Predicate mechanism (no second grammar, no new semantics): `Stage0PredicateEngine` built only from
+validated lists (raw-JSON constructor removed), enforcing duplicate/conflict/empty/version
+failures; exactly one profile (`stage0`); unknown features fail as unknown, never as disabled
+(distinct from forbidden). Restriction records map Stage-0 rules to registry or grammar-production
+authorities with resolvability checks; no mappings are curated yet, and none are fabricated.
+Manifest predicate-set integrity (presence, string elements, disjointness) is enforced by the
+loader helper and re-checked on every `omni-conform` run. A dev-dependency integration test proves
+the chain canon → loader → predicates against the live manifest (14 allowed + 8 forbidden);
+production compiler wiring awaits 0.0.1.x consumers, with `compiler → stage0` documented as the
+future query edge (infra stays edge-free today, so topology is unchanged).

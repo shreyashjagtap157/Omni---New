@@ -28,6 +28,8 @@ pub struct ConformReport {
     pub registry_rules: usize,
     pub normative_rules: usize,
     pub evidence_records: usize,
+    pub stage0_allowed: usize,
+    pub stage0_forbidden: usize,
 }
 
 fn fail(msg: String) -> Box<dyn std::error::Error> {
@@ -58,6 +60,14 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
         return Err(fail("release gate has no name".to_string()));
     }
 
+    // Stage-0 predicate integrity (0.0.0.11): the manifest's predicate sets
+    // must be well-formed and conflict-free on every conform run. Query
+    // semantics stay in `omni-stage0`; this gate enforces set integrity.
+    let (allowed, forbidden) = loaded
+        .manifest()
+        .stage0_feature_sets()
+        .map_err(|e| fail(format!("stage0 predicates invalid: {e}")))?;
+
     // Evidence corpus (0.0.0.8): every record under spec/evidence/ validates
     // against the evidence schemas with registry/tree/toolchain binding.
     // An absent or file-empty corpus passes vacuously; the mechanism (not
@@ -87,6 +97,8 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
         registry_rules: loaded.registry().rules.len(),
         normative_rules: loaded.registry().rules.iter().filter(|r| r.normative).count(),
         evidence_records,
+        stage0_allowed: allowed.len(),
+        stage0_forbidden: forbidden.len(),
     })
 }
 
@@ -191,12 +203,14 @@ fn main() {
     match verify_spec(&spec_root) {
         Ok(report) => {
             println!(
-                "CONFORM PASS: tree={} files={} registry_rules={} normative={} evidence={}",
+                "CONFORM PASS: tree={} files={} registry_rules={} normative={} evidence={} stage0={}+{}",
                 report.tree_digest,
                 report.tree_files,
                 report.registry_rules,
                 report.normative_rules,
-                report.evidence_records
+                report.evidence_records,
+                report.stage0_allowed,
+                report.stage0_forbidden
             );
         }
         Err(e) => {
@@ -243,7 +257,10 @@ mod conform_tests {
         let bound = manifest_digest.unwrap_or(&digest).to_string();
         fs::write(
             root.join("manifest/omni-edition1.manifest.json"),
-            format!(r#"{{"manifest_version":"1.0.0","edition":1,"spec_tree_sha256":"{bound}"}}"#),
+            format!(
+                "{{\"manifest_version\":\"1.0.0\",\"edition\":1,\"spec_tree_sha256\":\"{bound}\",\
+                 \"stage0_feature_predicates\":{{\"allowed\":[\"functions\"],\"forbidden\":[\"macros\"]}}}}"
+            ),
         )
         .expect("write");
         fs::write(
@@ -281,8 +298,10 @@ mod conform_tests {
         fs::create_dir_all(root.join("evidence")).expect("mkdir");
         // Rebind after registry rewrite.
         let (digest, _) = spec_tree::spec_tree_digest(&root).expect("digest");
-        let manifest =
-            format!(r#"{{"manifest_version":"1.0.0","edition":1,"spec_tree_sha256":"{digest}"}}"#);
+        let manifest = format!(
+            "{{\"manifest_version\":\"1.0.0\",\"edition\":1,\"spec_tree_sha256\":\"{digest}\",\
+             \"stage0_feature_predicates\":{{\"allowed\":[\"functions\"],\"forbidden\":[\"macros\"]}}}}"
+        );
         fs::write(root.join("manifest/omni-edition1.manifest.json"), manifest).expect("write");
         fs::write(
             root.join("release/foundation-gate.json"),
@@ -331,6 +350,20 @@ mod conform_tests {
         .expect("write");
         let err = verify_spec(&root).expect_err("must reject");
         assert!(err.to_string().contains("unresolved rule"), "got: {err}");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn conflicting_predicate_sets_fail_the_gate() {
+        let root = corpus_spec();
+        let raw = fs::read_to_string(root.join("manifest/omni-edition1.manifest.json")).expect("r");
+        fs::write(
+            root.join("manifest/omni-edition1.manifest.json"),
+            raw.replace(r#""forbidden":["macros"]"#, r#""forbidden":["macros","functions"]"#),
+        )
+        .expect("write");
+        let err = verify_spec(&root).expect_err("must reject");
+        assert!(err.to_string().contains("both allowed and forbidden"), "got: {err}");
         fs::remove_dir_all(&root).ok();
     }
 

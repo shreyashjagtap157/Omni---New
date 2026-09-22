@@ -9,7 +9,7 @@
     "schema_version": {"type": "string", "enum": ["1.0.0"]},
     "kind": {"type": "string", "enum": ["witness"]},
     "witness_id": {"type": "string", "pattern": "^WIT-[0-9]{4}$"},
-    "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"},
+    "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z0-9]+)-[0-9]{4}$"},
     "rule_rev": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "test_ref": {"type": "string", "minLength": 1},
     "test_type": {"type": "string", "enum": ["fixture", "unit", "integration", "fuzz", "manual"]},

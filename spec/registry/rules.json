@@ -4295,6 +4295,69 @@
       "witness_tests": []
     },
     {
+      "rule_id": "STAGE0-0001",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "20ba6b72d31c8ccd1149f4bddce40f75cbbad3c37160d8c20ecb8c5d306ab9d4",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "STAGE0-0002",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "947c8d052cd23e07731e0c92d7e2b7b98f06a0c64e2a25203b3ea419750ff598",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "STAGE0-0003",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "2bedf089b4a27ffd5e9f0d5137741f30fdf92b34e1ce35aedfdd3c1b19a4f55e",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "STAGE0-0004",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "1870897e8a9e66c16fb667cb40a96073a38a7be4fe3bb2c4cf99823e8c299397",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "STAGE0-0005",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "0d99caf62a7066b4b9ad2b329bed42048a8d37d6f1f36ccbf40a5fa94db966c1",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "STAGE0-0006",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "c6c4e71985ae13ca0918af9a765741d33973c7ee68484cc28c841bcda1040c89",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
+      "rule_id": "STAGE0-0007",
+      "domain": "OMNI-WIRE",
+      "status": "Candidate",
+      "normative": true,
+      "text_hash": "5c8b477dd4664469230b0b982cc06c1caea1fc8d3f4d59e2257afabebf8cdbb3",
+      "dependencies": [],
+      "witness_tests": []
+    },
+    {
       "rule_id": "TARGET-0001",
       "domain": "OMNI-TARGET",
       "status": "Candidate",

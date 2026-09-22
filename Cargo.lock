@@ -534,7 +534,7 @@ version = "0.0.0"
 name = "omni-stage0"
 version = "0.0.0"
 dependencies = [
- "serde_json",
+ "omni-registry",
 ]
 
 [[package]]

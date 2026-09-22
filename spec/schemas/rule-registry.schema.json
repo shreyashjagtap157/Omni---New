@@ -13,12 +13,12 @@
         "additionalProperties": false,
         "required": ["rule_id", "domain", "status", "normative", "text_hash", "dependencies", "witness_tests"],
         "properties": {
-          "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"},
+          "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z0-9]+)-[0-9]{4}$"},
           "domain": {"type": "string", "pattern": "^OMNI-[A-Z-]+$"},
           "status": {"type": "string", "enum": ["Proposed", "Candidate", "Ratified", "Deprecated", "Superseded", "Withdrawn"]},
           "normative": {"type": "boolean"},
           "text_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-          "dependencies": {"type": "array", "items": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"}, "uniqueItems": true},
+          "dependencies": {"type": "array", "items": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z0-9]+)-[0-9]{4}$"}, "uniqueItems": true},
           "diagnostics": {"type": "array", "items": {"type": "string", "pattern": "^E[0-9]{4}$"}, "uniqueItems": true},
           "witness_tests": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
         },
