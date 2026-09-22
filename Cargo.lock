@@ -435,11 +435,12 @@ dependencies = [
 name = "omni-driver"
 version = "0.0.0"
 dependencies = [
- "hex",
+ "omni-canon",
  "omni-codegen",
+ "omni-evidence",
  "omni-machine",
- "serde",
- "sha2",
+ "omni-registry",
+ "serde_json",
 ]
 
 [[package]]

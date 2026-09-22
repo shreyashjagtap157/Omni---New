@@ -265,7 +265,14 @@ pub struct VerificationFailure {
     pub regression_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodegenConfig {
+    pub opt_level: u8,
+    pub emit_native: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Provenance {
     pub schema_version: String,
@@ -278,10 +285,110 @@ pub struct Provenance {
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]
+    pub compiler_id: Option<String>,
+    #[serde(default)]
+    pub compiler_version: Option<String>,
+    #[serde(default)]
+    pub source_revision: Option<String>,
+    #[serde(default)]
+    pub codegen: Option<CodegenConfig>,
+    #[serde(default)]
     pub compiler_build_epoch: Option<u64>,
     pub artifact_sha256: String,
     #[serde(default)]
     pub config: serde_json::Value,
+}
+
+/// Declared generation inputs. Freely constructible plain data: these are
+/// claims awaiting validation, not a verified record.
+#[derive(Debug, Clone)]
+pub struct ProvenanceInputs {
+    pub tree_digest: String,
+    pub plan_digest: Option<String>,
+    pub toolchain: String,
+    pub target: String,
+    pub profile: Option<String>,
+    pub compiler_id: String,
+    pub compiler_version: String,
+    pub source_revision: Option<String>,
+    pub codegen_opt_level: u8,
+    pub codegen_emit_native: bool,
+    pub compiler_build_epoch: u64,
+    pub artifact_bytes: Vec<u8>,
+}
+
+/// Validated provenance: constructible only via [`validate_provenance_inputs`],
+/// which derives every identity field from one input set, so mismatched
+/// combinations (revision from A, digest from B) cannot be constructed.
+#[derive(Debug, Clone)]
+pub struct ValidatedProvenance {
+    record: Provenance,
+}
+
+fn check_printable(value: &str, what: &str) -> Result<(), EvidenceError> {
+    if value.is_empty() || value.chars().any(|c| c.is_control()) {
+        return fail(format!("malformed {what}: {value:?}"));
+    }
+    Ok(())
+}
+
+fn check_revision(value: &str) -> Result<(), EvidenceError> {
+    let core = value.strip_suffix("-dirty").unwrap_or(value);
+    if (7..=64).contains(&core.len())
+        && core.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    {
+        Ok(())
+    } else {
+        fail(format!("malformed source revision: {value}"))
+    }
+}
+
+pub fn validate_provenance_inputs(
+    inputs: ProvenanceInputs,
+) -> Result<ValidatedProvenance, EvidenceError> {
+    check_hex64(&inputs.tree_digest, "spec tree digest")?;
+    if let Some(plan) = &inputs.plan_digest {
+        check_hex64(plan, "plan digest")?;
+    }
+    check_printable(&inputs.toolchain, "toolchain")?;
+    check_printable(&inputs.target, "target")?;
+    check_printable(&inputs.compiler_id, "compiler identity")?;
+    check_printable(&inputs.compiler_version, "compiler version")?;
+    if let Some(rev) = &inputs.source_revision {
+        check_revision(rev)?;
+    }
+    Ok(ValidatedProvenance {
+        record: Provenance {
+            schema_version: "1.0.0".to_string(),
+            kind: "provenance".to_string(),
+            spec_tree_sha256: inputs.tree_digest,
+            plan_sha256: inputs.plan_digest,
+            toolchain: inputs.toolchain,
+            target: inputs.target,
+            profile: inputs.profile,
+            compiler_id: Some(inputs.compiler_id),
+            compiler_version: Some(inputs.compiler_version),
+            source_revision: inputs.source_revision,
+            codegen: Some(CodegenConfig {
+                opt_level: inputs.codegen_opt_level,
+                emit_native: inputs.codegen_emit_native,
+            }),
+            compiler_build_epoch: Some(inputs.compiler_build_epoch),
+            artifact_sha256: omni_canon::sha256_of_normalized_bytes(&inputs.artifact_bytes),
+            config: serde_json::Value::Object(Default::default()),
+        },
+    })
+}
+
+impl ValidatedProvenance {
+    pub fn record(&self) -> &Provenance {
+        &self.record
+    }
+
+    /// Canonical bytes via the shared engine (no duplicated canonicalization).
+    pub fn canonical_bytes(&self, workspace_root: &Path) -> Result<Vec<u8>, CanonError> {
+        canonical_record_bytes(&self.record, workspace_root)
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -517,6 +624,15 @@ pub fn validate_provenance(p: &Provenance, _ctx: &ValidationContext) -> Result<(
     }
     if p.toolchain.is_empty() || p.target.is_empty() {
         return fail("empty toolchain/target".to_string());
+    }
+    if let Some(id) = &p.compiler_id {
+        check_printable(id, "compiler identity")?;
+    }
+    if let Some(version) = &p.compiler_version {
+        check_printable(version, "compiler version")?;
+    }
+    if let Some(rev) = &p.source_revision {
+        check_revision(rev)?;
     }
     check_hex64(&p.artifact_sha256, "artifact digest")?;
     Ok(())
@@ -859,6 +975,10 @@ mod evidence_tests {
                 toolchain: "1.95.0".to_string(),
                 target: "x86_64-unknown-linux-gnu".to_string(),
                 profile: None,
+                compiler_id: Some("omni-driver".to_string()),
+                compiler_version: Some("0.0.0".to_string()),
+                source_revision: Some("abc1234".to_string()),
+                codegen: Some(CodegenConfig { opt_level: 0, emit_native: true }),
                 compiler_build_epoch: Some(0),
                 artifact_sha256: "c".repeat(64),
                 config: serde_json::Value::Null,
@@ -1090,6 +1210,118 @@ mod evidence_tests {
         w.rule_id = "STAGE0-0007".to_string();
         w.rule_rev = Some("c".repeat(64));
         validate_witness(&w, &c).expect("STAGE0 witness");
+    }
+
+    fn provenance_inputs() -> ProvenanceInputs {
+        ProvenanceInputs {
+            tree_digest: TREE.to_string(),
+            plan_digest: None,
+            toolchain: "1.95.0".to_string(),
+            target: "x86_64-unknown-linux-gnu".to_string(),
+            profile: None,
+            compiler_id: "omni-driver".to_string(),
+            compiler_version: "0.0.0".to_string(),
+            source_revision: Some("abc1234def5678".to_string()),
+            codegen_opt_level: 2,
+            codegen_emit_native: true,
+            compiler_build_epoch: 0,
+            artifact_bytes: b"object-bytes".to_vec(),
+        }
+    }
+
+    #[test]
+    fn provenance_generation_round_trip() {
+        let validated = validate_provenance_inputs(provenance_inputs()).expect("valid");
+        let record = validated.record();
+        assert_eq!(record.kind, "provenance");
+        assert_eq!(record.codegen.as_ref().expect("codegen").opt_level, 2);
+        let reg = registry();
+        let files = files();
+        let c = ctx(&reg, &files);
+        // Generated records validate against the schema contract.
+        let raw = serde_json::to_string(record).expect("serialize");
+        let parsed: Provenance = serde_json::from_str(&raw).expect("parse");
+        validate_provenance(&parsed, &c).expect("valid");
+        // Canonical identity is deterministic.
+        let root = Path::new("/ws");
+        let a = validated.canonical_bytes(root).expect("bytes");
+        let b = validated.canonical_bytes(root).expect("bytes");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn provenance_inputs_fail_closed() {
+        // Each malformed class rejects: empty toolchain/target/ids, bad
+        // revision, bad tree digest.
+        let mut bad = provenance_inputs();
+        bad.toolchain.clear();
+        assert!(validate_provenance_inputs(bad).is_err());
+        let mut bad = provenance_inputs();
+        bad.target.clear();
+        assert!(validate_provenance_inputs(bad).is_err());
+        let mut bad = provenance_inputs();
+        bad.compiler_id.clear();
+        assert!(validate_provenance_inputs(bad).is_err());
+        let mut bad = provenance_inputs();
+        bad.compiler_version = "bad\nversion".to_string();
+        assert!(validate_provenance_inputs(bad).is_err());
+        let mut bad = provenance_inputs();
+        bad.source_revision = Some("not-a-sha!!".to_string());
+        assert!(validate_provenance_inputs(bad).is_err());
+        let mut bad = provenance_inputs();
+        bad.source_revision = Some("ZZZ".to_string());
+        assert!(validate_provenance_inputs(bad).is_err());
+        let mut bad = provenance_inputs();
+        bad.tree_digest = "short".to_string();
+        assert!(validate_provenance_inputs(bad).is_err());
+        // Dirty-suffixed full SHAs are the documented convention.
+        let mut dirty = provenance_inputs();
+        dirty.source_revision = Some(format!("{}-dirty", "a".repeat(40)));
+        validate_provenance_inputs(dirty).expect("dirty convention");
+        // Host paths never enter identity: none of the inputs accept them,
+        // and canonical bytes contain no absolute host string.
+        let validated = validate_provenance_inputs(provenance_inputs()).expect("valid");
+        let bytes = validated.canonical_bytes(Path::new("/ws")).expect("bytes");
+        let text = String::from_utf8(bytes).expect("utf8");
+        assert!(!text.contains("/ws"), "host root leaked: {text}");
+        assert!(!text.contains("C:\\"), "host path leaked");
+    }
+
+    #[test]
+    fn provenance_identity_tracks_each_input() {
+        let base = validated_bytes();
+        let mut changed = provenance_inputs();
+        changed.source_revision = Some("bbbbbbbbbbbbbbbb".to_string());
+        assert_ne!(base, validated_bytes_with(changed), "revision");
+        let mut changed = provenance_inputs();
+        changed.tree_digest = "e".repeat(64);
+        assert_ne!(base, validated_bytes_with(changed), "tree");
+        let mut changed = provenance_inputs();
+        changed.toolchain = "1.94.0".to_string();
+        assert_ne!(base, validated_bytes_with(changed), "toolchain");
+        let mut changed = provenance_inputs();
+        changed.target = "aarch64-unknown-linux-gnu".to_string();
+        assert_ne!(base, validated_bytes_with(changed), "target");
+        let mut changed = provenance_inputs();
+        changed.codegen_opt_level = 3;
+        assert_ne!(base, validated_bytes_with(changed), "codegen");
+        let mut changed = provenance_inputs();
+        changed.artifact_bytes = b"other-bytes".to_vec();
+        assert_ne!(base, validated_bytes_with(changed), "artifact");
+        let mut changed = provenance_inputs();
+        changed.compiler_build_epoch = 1_700_000_000;
+        assert_ne!(base, validated_bytes_with(changed), "epoch");
+    }
+
+    fn validated_bytes() -> Vec<u8> {
+        validated_bytes_with(provenance_inputs())
+    }
+
+    fn validated_bytes_with(inputs: ProvenanceInputs) -> Vec<u8> {
+        validate_provenance_inputs(inputs)
+            .expect("valid")
+            .canonical_bytes(Path::new("/ws"))
+            .expect("bytes")
     }
 
     #[test]

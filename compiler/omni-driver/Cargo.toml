@@ -10,16 +10,14 @@ workspace = true
 # Orchestrator interface (0.0.0.9): the driver demonstrably uses only the
 # machine and codegen entry points. The remaining compiler tiers are reached
 # through those boundaries, never directly.
+# Provenance (0.0.0.12): spec-infrastructure edges only (leaf-ward); the
+# evidence schema remains the single format authority.
 [dependencies]
 omni-machine = { path = "../omni-machine" }
 omni-codegen = { path = "../omni-codegen" }
+omni-evidence = { path = "../../tools/omni-evidence" }
+omni-registry = { path = "../../tools/omni-registry" }
 
-[dependencies.sha2]
-version = "0.10"
-
-[dependencies.hex]
-version = "0.4"
-
-[dependencies.serde]
-version = "1.0"
-features = ["derive"]
+[dev-dependencies]
+omni-canon = { path = "../../tools/omni-canon" }
+serde_json = "1.0"

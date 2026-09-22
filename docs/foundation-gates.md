@@ -27,9 +27,8 @@ nothing). Procedure: walk included directories in lexicographic order of slash-j
 paths, normalize file bytes CRLF/CR to LF, hash each file with SHA-256, then hash the concatenation
 of `path + LF + hex + LF` lines. `omni-canon --spec-tree` computes it; `omni-conform` rejects any
 manifest/gate digest mismatch fail-closed. Current digest:
-`2af51aa99272b82db8785d234b971e859d0503d24017eb09f5d25c919cd8ba95` (supersedes the 0.0.0.8
-`ec1f8b1e…` value by content repair — seven recovered STAGE0 rules plus widened schema patterns —
-not by contradiction).
+`1e2325f200d66abad8cdb8446af7c36c479d8283ff9d4087c3ae166ba20b85d7` (supersedes the 0.0.0.11
+`2af51aa9…` value by content repair — provenance identity fields — not by contradiction).
 
 Known specification inconsistency (open, not resolved by invention): the normative EBNF predates the
 Candidate-2 amendment and contains no pipeline-operator, newline-termination, projection-shorthand,
@@ -67,6 +66,23 @@ attributed (collaborative implementation). Live state: 8 tags in 57 files (74 te
 Tracked gaps (not invented): RULE-0003 `erratum-corrected` has no enum spelling (needs spec ADR);
 rule-text to hash binding is procedural (deterministic extraction, tree-pinned registry bytes);
 `models/`/`data` emptiness belongs to later milestones.
+
+## Provenance generation (0.0.0.12, `omni-evidence` + driver emission)
+
+Single format authority remains the 0.0.0.8 provenance schema, extended only with optional
+`compiler_id`, `compiler_version`, `source_revision` (`-dirty` convention), and `codegen`
+fields — old records still validate. Generation is state-separated
+(`ProvenanceInputs` → validated → canonical bytes → record) inside `omni-evidence`, reusing the
+canon engine; mismatched identity combinations cannot be constructed. Topology refined to match
+the 0.0.0.9 specification's own infrastructure category: spec infrastructure
+(`canon`/`registry`/`evidence`) is leaf-ward and usable from any tier as counted infra edges but
+may never depend outward; `compiler → stage0` is allowed; true tooling stays isolated both ways.
+The obsolete driver-only provenance struct is deleted; the driver builds records from actual
+inputs (loaded spec identity, pinned toolchain, host descriptor, crate version, git revision or
+graceful absence, declared epoch, emitted bytes) and writes a canonical sidecar on native
+emission, failing closed when `./spec` is unresolvable. Target descriptors are truthful host
+descriptions, not canonical triples (target registry is future work). Full build provenance
+generation beyond per-artifact records stays out of scope until release qualification.
 
 ## Compiler topology (0.0.0.9, `omni-topology`)
 

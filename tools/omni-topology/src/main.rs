@@ -1,13 +1,17 @@
-//! Compiler-crate topology invariant (0.0.0.9).
+//! Compiler-crate topology invariant (0.0.0.9, refined 0.0.0.12).
 //!
 //! Pipeline-order tiers (higher number = later stage; a production edge may
 //! only point at the same or an earlier tier). The driver orchestrates and
 //! may use any compiler tier. The below-MIR consumers (`machine`, `codegen`,
 //! `verify`) additionally declare exact feed tiers so frontend syntax can
-//! never be consumed past the lowering boundary. Infrastructure (`stage0`)
-//! carries no compiler edges at all; `tools/*` may use tools and externals
-//! but never `compiler/*`, and no compiler crate may depend on tooling.
-//! Dev/build edges are direction-exempt but cycle-checked like all edges.
+//! never be consumed past the lowering boundary. Compiler-infra (`stage0`)
+//! carries no edges itself but may be used by any compiler tier. Spec
+//! infrastructure (`canon`, `registry`, `evidence`) is leaf-ward: any crate
+//! may use it as a counted infrastructure edge, while it may never depend
+//! back on compiler crates or on non-infrastructure tooling. True tooling
+//! (`audit`, `conform`, `bindgen`, `topology`) never touches `compiler/*`
+//! and is never touched by it. Dev/build edges are direction-exempt but
+//! cycle-checked like all edges.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -59,6 +63,13 @@ fn is_compiler(crate_name: &str) -> bool {
     tier(crate_name).is_some() || is_driver(crate_name) || is_infra(crate_name)
 }
 
+/// Leaf-ward specification infrastructure: usable from any tier as a counted
+/// infrastructure edge, forbidden from depending back on compiler crates or
+/// on non-infrastructure tooling (cycle-freedom by construction).
+fn is_spec_infra(crate_name: &str) -> bool {
+    matches!(crate_name, "omni-canon" | "omni-registry" | "omni-evidence")
+}
+
 /// Exact feed tiers for below-MIR consumers: lowered representations only.
 fn feeds(crate_name: &str) -> Option<&'static [&'static str]> {
     match crate_name {
@@ -83,6 +94,7 @@ pub struct TopologyReport {
     pub normal_edges: usize,
     pub dev_edges: usize,
     pub build_edges: usize,
+    pub infra_edges: usize,
 }
 
 fn err<T>(msg: String) -> Result<T, String> {
@@ -161,6 +173,7 @@ pub fn check_graph(members: &[String], edges: &[Edge]) -> Result<TopologyReport,
     let mut normal = 0usize;
     let mut dev = 0usize;
     let mut build = 0usize;
+    let mut infra = 0usize;
     for edge in sorted {
         match edge.kind.as_str() {
             "dev" => {
@@ -171,10 +184,23 @@ pub fn check_graph(members: &[String], edges: &[Edge]) -> Result<TopologyReport,
                 build += 1;
                 continue;
             }
-            _ => normal += 1,
+            _ => {}
         }
         let from = edge.from.as_str();
         let to = edge.to.as_str();
+        // Infrastructure category: any tier may use leaf-ward spec
+        // infrastructure or compiler-infra; both stay cycle-checked.
+        if is_spec_infra(to) || (is_infra(to) && is_compiler(from)) {
+            infra += 1;
+            if is_infra(from) {
+                return err(format!("infrastructure carries compiler edge: {from} -> {to}"));
+            }
+            continue;
+        }
+        normal += 1;
+        if is_spec_infra(from) {
+            return err(format!("spec infrastructure depends outward: {from} -> {to}"));
+        }
         if is_tool(from) {
             if is_compiler(to) {
                 return err(format!("tooling depends on compiler crate: {from} -> {to}"));
@@ -211,6 +237,7 @@ pub fn check_graph(members: &[String], edges: &[Edge]) -> Result<TopologyReport,
         normal_edges: normal,
         dev_edges: dev,
         build_edges: build,
+        infra_edges: infra,
     })
 }
 
@@ -309,8 +336,12 @@ fn main() {
     match check_graph(&members, &edges) {
         Ok(report) => {
             println!(
-                "TOPOLOGY PASS: {} members, {} normal + {} dev + {} build internal edges.",
-                report.members, report.normal_edges, report.dev_edges, report.build_edges
+                "TOPOLOGY PASS: {} members, {} normal + {} dev + {} build + {} infra internal edges.",
+                report.members,
+                report.normal_edges,
+                report.dev_edges,
+                report.build_edges,
+                report.infra_edges
             );
         }
         Err(e) => {
@@ -376,7 +407,7 @@ mod topology_tests {
             edge("omni-driver", "omni-machine"),
             edge("omni-driver", "omni-codegen"),
             dev_edge("omni-names", "omni-parse"),
-            edge("omni-canon", "omni-audit"),
+            edge("omni-audit", "omni-canon"),
         ];
         (members, edges)
     }
@@ -385,8 +416,9 @@ mod topology_tests {
     fn healthy_graph_passes() {
         let (members, edges) = healthy();
         let report = check_graph(&members, &edges).expect("pass");
-        assert_eq!(report.normal_edges, 16);
+        assert_eq!(report.normal_edges, 15);
         assert_eq!(report.dev_edges, 1);
+        assert_eq!(report.infra_edges, 1);
     }
 
     #[test]
@@ -448,13 +480,14 @@ mod topology_tests {
     #[test]
     fn tool_and_infra_boundaries_hold() {
         let (members, _) = healthy();
-        let err = check_graph(&members, &[edge("omni-canon", "omni-lex")]).expect_err("tool");
+        // True tooling stays out of compiler crates in both directions.
+        let err = check_graph(&members, &[edge("omni-audit", "omni-lex")]).expect_err("tool");
         assert!(err.contains("tooling depends on compiler"), "got: {err}");
-        let err = check_graph(&members, &[edge("omni-lex", "omni-canon")]).expect_err("tool");
+        let err = check_graph(&members, &[edge("omni-lex", "omni-audit")]).expect_err("tool");
         assert!(err.contains("depends on tooling"), "got: {err}");
         let err = check_graph(&members, &[edge("omni-stage0", "omni-mir")]).expect_err("infra");
         assert!(err.contains("infrastructure carries"), "got: {err}");
-        check_graph(&members, &[edge("omni-canon", "omni-audit")]).expect("tools-tools");
+        check_graph(&members, &[edge("omni-conform", "omni-audit")]).expect("tools-tools");
     }
 
     #[test]
@@ -483,6 +516,27 @@ mod topology_tests {
         // And removal restores a deterministic pass.
         clean.retain(|e| e != &edge("omni-machine", "omni-parse"));
         check_graph(&members, &clean).expect("restored");
+    }
+
+    #[test]
+    fn spec_infra_usable_but_leafward() {
+        let (members, _) = healthy();
+        // Any tier may use spec infrastructure; counted separately.
+        let report =
+            check_graph(&members, &[edge("omni-driver", "omni-evidence")]).expect("infra allowed");
+        assert_eq!(report.infra_edges, 1);
+        assert_eq!(report.normal_edges, 0);
+        // Spec infrastructure may never depend back outward.
+        for (from, to) in [
+            ("omni-evidence", "omni-types"),
+            ("omni-canon", "omni-audit"),
+            ("omni-registry", "omni-driver"),
+        ] {
+            let err = check_graph(&members, &[edge(from, to)]).expect_err("outward");
+            assert!(err.contains("spec infrastructure depends outward"), "got: {err}");
+        }
+        // Compiler-infra is usable by compiler tiers but carries nothing.
+        check_graph(&members, &[edge("omni-parse", "omni-stage0")]).expect("infra usable");
     }
 
     #[test]

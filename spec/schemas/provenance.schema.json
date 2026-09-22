@@ -13,6 +13,18 @@
     "toolchain": {"type": "string", "minLength": 1},
     "target": {"type": "string", "minLength": 1},
     "profile": {"type": "string"},
+    "compiler_id": {"type": "string", "minLength": 1},
+    "compiler_version": {"type": "string", "minLength": 1},
+    "source_revision": {"type": "string", "pattern": "^[0-9a-f]{7,64}(-dirty)?$"},
+    "codegen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opt_level", "emit_native"],
+      "properties": {
+        "opt_level": {"type": "integer", "minimum": 0},
+        "emit_native": {"type": "boolean"}
+      }
+    },
     "compiler_build_epoch": {"type": "integer", "minimum": 0},
     "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "config": {"type": "object"}
