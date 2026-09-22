@@ -9,4 +9,3 @@ workspace = true
 
 [dependencies]
 omni-mir = { path = "../omni-mir" }
-omni-parse = { path = "../omni-parse" }

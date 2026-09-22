@@ -436,19 +436,7 @@ version = "0.0.0"
 dependencies = [
  "hex",
  "omni-codegen",
- "omni-effects",
- "omni-hir",
- "omni-lex",
  "omni-machine",
- "omni-mir",
- "omni-names",
- "omni-own",
- "omni-parse",
- "omni-runtime",
- "omni-source",
- "omni-syntax",
- "omni-types",
- "omni-verify",
  "serde",
  "sha2",
 ]
@@ -489,7 +477,6 @@ name = "omni-machine"
 version = "0.0.0"
 dependencies = [
  "omni-mir",
- "omni-parse",
 ]
 
 [[package]]
@@ -549,6 +536,14 @@ version = "0.0.0"
 dependencies = [
  "omni-lex",
  "rowan",
+]
+
+[[package]]
+name = "omni-topology"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

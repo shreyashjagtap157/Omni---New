@@ -51,3 +51,6 @@ jobs:
 
       - name: Run Semantic Linkage Reaper
         run: cargo run -j 1 -p omni-audit --locked
+
+      - name: Verify Compiler Crate Topology
+        run: cargo run -j 1 -p omni-topology --locked

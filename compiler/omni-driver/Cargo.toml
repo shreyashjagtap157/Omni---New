@@ -7,21 +7,12 @@ publish = false
 [lints]
 workspace = true
 
+# Orchestrator interface (0.0.0.9): the driver demonstrably uses only the
+# machine and codegen entry points. The remaining compiler tiers are reached
+# through those boundaries, never directly.
 [dependencies]
-omni-source = { path = "../omni-source" }
-omni-lex = { path = "../omni-lex" }
-omni-syntax = { path = "../omni-syntax" }
-omni-parse = { path = "../omni-parse" }
-omni-names = { path = "../omni-names" }
-omni-types = { path = "../omni-types" }
-omni-own = { path = "../omni-own" }
-omni-effects = { path = "../omni-effects" }
-omni-hir = { path = "../omni-hir" }
-omni-mir = { path = "../omni-mir" }
-omni-verify = { path = "../omni-verify" }
 omni-machine = { path = "../omni-machine" }
 omni-codegen = { path = "../omni-codegen" }
-omni-runtime = { path = "../omni-runtime" }
 
 [dependencies.sha2]
 version = "0.10"

@@ -24,6 +24,7 @@ members = [
     "tools/omni-conform",
     "tools/omni-bindgen",
     "tools/omni-evidence",
+    "tools/omni-topology",
 ]
 
 [workspace.lints.rust]

@@ -67,6 +67,21 @@ Tracked gaps (not invented): RULE-0003 `erratum-corrected` has no enum spelling 
 rule-text to hash binding is procedural (deterministic extraction, tree-pinned registry bytes);
 `models/`/`data` emptiness belongs to later milestones.
 
+## Compiler topology (0.0.0.9, `omni-topology`)
+
+Pipeline-order tiers (higher = later stage; production edges point at the same or an earlier tier):
+source 0, lex 1, syntax 2, parse 3, names 4, types 5, own/effects/traits 6, hir 7, mir 8, verify 9,
+machine/codegen 10, runtime 11; driver 12 orchestrates and may use any tier. Below-MIR consumers
+declare exact feeds (`machine: {mir}`, `codegen: {mir, verify}`, `verify: {mir}`) so frontend
+syntax can never be consumed past the lowering boundary. `stage0` is edgeless bootstrap
+infrastructure; `tools/*` may use tools/externals but never `compiler/*`, and vice versa.
+Dev/build edges are direction-exempt but cycle-checked; diagnostics are deterministic
+(filename-sorted traversal, sorted edges). Dormant downward edges (e.g. hir scaffolding) are tier
+intent, not violations. 0.0.0.9 corrections: removed the layer-skipping `machine → parse` scaffold
+(the constant-input parse never influenced execution; behavior unchanged) and the twelve unused
+driver path dependencies, leaving the proven `machine`/`codegen` orchestration interface. Live
+state: 24 members, 19 normal + 1 dev + 0 build internal edges, clean.
+
 ## Evidence schemas (0.0.0.8, `omni-evidence` + `spec/schemas/`)
 
 Seven strict (`additionalProperties: false`, version `"1.0.0"`) contracts: `diagnostic` (E-code ID
