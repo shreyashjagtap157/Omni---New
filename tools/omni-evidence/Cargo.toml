@@ -1,5 +1,5 @@
 [package]
-name = "omni-conform"
+name = "omni-evidence"
 version = "0.0.0"
 edition = "2021"
 publish = false
@@ -9,7 +9,5 @@ workspace = true
 
 [dependencies]
 omni-canon = { path = "../omni-canon" }
-omni-evidence = { path = "../omni-evidence" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
-walkdir = "2.5"

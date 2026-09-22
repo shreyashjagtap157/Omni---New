@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "omni://spec/schemas/diagnostic.schema.json",
+  "title": "OmniDiagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "id", "severity", "rule_id", "message", "span"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0.0"]},
+    "kind": {"type": "string", "enum": ["diagnostic"]},
+    "id": {"type": "string", "pattern": "^E[0-9]{4}$"},
+    "severity": {"type": "string", "enum": ["error", "warning", "note", "help"]},
+    "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"},
+    "related_rules": {"type": "array", "items": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"}, "uniqueItems": true},
+    "domain": {"type": "string", "pattern": "^OMNI-[A-Z-]+$"},
+    "message": {"type": "string", "minLength": 1},
+    "span": {"$ref": "#/definitions/span"},
+    "related_spans": {"type": "array", "items": {"$ref": "#/definitions/span"}},
+    "params": {"type": "object"},
+    "fixits": {"type": "array", "items": {"$ref": "#/definitions/fixit"}}
+  },
+  "definitions": {
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "start", "end"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 0}
+      }
+    },
+    "fixit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["span", "replacement"],
+      "properties": {
+        "span": {"$ref": "#/definitions/span"},
+        "replacement": {"type": "string"}
+      }
+    }
+  }
+}

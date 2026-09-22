@@ -424,8 +424,10 @@ name = "omni-conform"
 version = "0.0.0"
 dependencies = [
  "omni-canon",
+ "omni-evidence",
  "serde",
  "serde_json",
+ "walkdir",
 ]
 
 [[package]]
@@ -456,6 +458,15 @@ name = "omni-effects"
 version = "0.0.0"
 dependencies = [
  "omni-types",
+]
+
+[[package]]
+name = "omni-evidence"
+version = "0.0.0"
+dependencies = [
+ "omni-canon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

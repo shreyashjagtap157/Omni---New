@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "omni://spec/schemas/regression.schema.json",
+  "title": "OmniRegression",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "regression_id", "status", "origin", "input_ref", "expected", "spec_tree_sha256", "toolchain"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0.0"]},
+    "kind": {"type": "string", "enum": ["regression"]},
+    "regression_id": {"type": "string", "pattern": "^REG-[0-9]{4}$"},
+    "status": {"type": "string", "enum": ["open", "accepted", "closed"]},
+    "origin": {"type": "string", "minLength": 1},
+    "input_ref": {"type": "string", "minLength": 1},
+    "expected": {"type": "string", "enum": ["failure", "success"]},
+    "rule_ids": {"type": "array", "items": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"}, "uniqueItems": true},
+    "promotion_source": {"type": "string"},
+    "fuzz_promotion_id": {"type": "string", "pattern": "^FUZZ-[0-9]{4}$"},
+    "spec_tree_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "toolchain": {"type": "string", "minLength": 1},
+    "target": {"type": "string"},
+    "profile": {"type": "string"}
+  }
+}

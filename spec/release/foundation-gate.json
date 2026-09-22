@@ -10,6 +10,6 @@
     "riscv64-unknown-none-elf",
     "x86_64-unknown-linux-gnu"
   ],
-  "spec_tree_sha256": "ecda85bb1f460266abf2b05f0a9f8058c9c6162f8c448ef1f46989ad3577698b",
+  "spec_tree_sha256": "ec1f8b1e680b189493be45a7cb52d0c74cc0d99b70e9a6193dcda2dc50e6a130",
   "plan_sha256": "cdf7ff8cb0eae597b52e295fa43c11f701415f62f2a292f4bd4a2be5012cb506"
 }

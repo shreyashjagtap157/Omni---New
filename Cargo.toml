@@ -23,6 +23,7 @@ members = [
     "tools/omni-registry",
     "tools/omni-conform",
     "tools/omni-bindgen",
+    "tools/omni-evidence",
 ]
 
 [workspace.lints.rust]

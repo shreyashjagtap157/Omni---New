@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "omni://spec/schemas/conformance-outcome.schema.json",
+  "title": "OmniConformanceOutcome",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "outcome_id", "rule_id", "expected", "actual", "verdict", "spec_tree_sha256", "toolchain"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0.0"]},
+    "kind": {"type": "string", "enum": ["conformance-outcome"]},
+    "outcome_id": {"type": "string", "pattern": "^CONF-[0-9]{4}$"},
+    "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"},
+    "witness_ids": {"type": "array", "items": {"type": "string", "pattern": "^WIT-[0-9]{4}$"}, "uniqueItems": true},
+    "expected": {"type": "string", "minLength": 1},
+    "actual": {"type": "string", "minLength": 1},
+    "verdict": {"type": "string", "enum": ["pass", "fail"]},
+    "diagnostic_ids": {"type": "array", "items": {"type": "string", "pattern": "^E[0-9]{4}$"}, "uniqueItems": true},
+    "spec_tree_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "toolchain": {"type": "string", "minLength": 1},
+    "target": {"type": "string"},
+    "profile": {"type": "string"}
+  }
+}

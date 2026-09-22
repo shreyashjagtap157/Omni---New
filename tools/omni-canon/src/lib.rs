@@ -226,6 +226,20 @@ pub fn rule_text_hash(text: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Canonicalize a JSON value in place against the declared root.
+/// Shared engine for evidence and tooling domains; byte construction is
+/// identical to [`canonical_hash_json`].
+pub fn canonicalize_json_value(val: &mut Value, root: &Path) -> Result<(), CanonError> {
+    let root_norm = normalize_root(root);
+    canonicalize_value(val, &root_norm)
+}
+
+/// Canonical bytes of an already-parsed value (compact JSON, UTF-8).
+pub fn canonical_json_bytes(val: &mut Value, root: &Path) -> Result<Vec<u8>, CanonError> {
+    canonicalize_json_value(val, root)?;
+    serde_json::to_vec(val).map_err(|e| CanonError::InvalidInput(e.to_string()))
+}
+
 pub fn canonical_hash_json(
     input_path: &Path,
     root: &Path,
@@ -267,8 +281,18 @@ pub mod spec_tree {
     pub const INCLUDED_DIRS: [&str; 5] = ["grammar", "registry", "schemas", "models", "data"];
 
     /// Files explicitly declared outside `models/` and `data/`.
-    pub const DECLARED_FILES: [&str; 3] =
-        ["grammar/omni-edition1.ebnf", "registry/rules.json", "schemas/rule-registry.schema.json"];
+    pub const DECLARED_FILES: [&str; 10] = [
+        "grammar/omni-edition1.ebnf",
+        "registry/rules.json",
+        "schemas/rule-registry.schema.json",
+        "schemas/diagnostic.schema.json",
+        "schemas/witness.schema.json",
+        "schemas/conformance-outcome.schema.json",
+        "schemas/verification-failure.schema.json",
+        "schemas/provenance.schema.json",
+        "schemas/regression.schema.json",
+        "schemas/fuzz-promotion.schema.json",
+    ];
 
     /// Normalize a relative path to `/`-separated form for ordering and hashing.
     pub fn normalize_rel(path: &Path) -> String {
@@ -597,11 +621,24 @@ mod determinism_tests {
     }
 
     fn minimal_tree() -> Vec<(&'static str, &'static [u8])> {
-        vec![
+        let mut files: Vec<(&'static str, &'static [u8])> = vec![
             ("grammar/omni-edition1.ebnf", b"(* t *)\n" as &[u8]),
             ("registry/rules.json", br#"{"schema_version":"1.0.0","rules":[]}"# as &[u8]),
-            ("schemas/rule-registry.schema.json", br#"{"title":"s"}"# as &[u8]),
-        ]
+        ];
+        // Every declared schema file must be present (required-artifact rule).
+        for schema in [
+            "schemas/rule-registry.schema.json",
+            "schemas/diagnostic.schema.json",
+            "schemas/witness.schema.json",
+            "schemas/conformance-outcome.schema.json",
+            "schemas/verification-failure.schema.json",
+            "schemas/provenance.schema.json",
+            "schemas/regression.schema.json",
+            "schemas/fuzz-promotion.schema.json",
+        ] {
+            files.push((schema, br#"{"title":"s"}"# as &[u8]));
+        }
+        files
     }
 
     #[test]

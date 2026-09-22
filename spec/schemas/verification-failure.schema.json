@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "omni://spec/schemas/verification-failure.schema.json",
+  "title": "OmniVerificationFailure",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "failure_id", "failure_class", "location", "explanation", "impact"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0.0"]},
+    "kind": {"type": "string", "enum": ["verification-failure"]},
+    "failure_id": {"type": "string", "pattern": "^VF-[0-9]{4}$"},
+    "failure_class": {"type": "string", "enum": ["assertion", "invariant", "obligation", "counterexample", "timeout", "unsupported", "internal"]},
+    "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"},
+    "model": {"type": "string", "minLength": 1},
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "start", "end"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 0}
+      }
+    },
+    "explanation": {"type": "string", "minLength": 1},
+    "impact": {"type": "string", "enum": ["release-blocking", "non-blocking"]},
+    "regression_id": {"type": "string", "pattern": "^REG-[0-9]{4}$"}
+  },
+  "anyOf": [
+    {"required": ["rule_id"]},
+    {"required": ["model"]}
+  ]
+}

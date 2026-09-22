@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "omni://spec/schemas/witness.schema.json",
+  "title": "OmniWitness",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "witness_id", "rule_id", "test_ref", "expected", "observed"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0.0"]},
+    "kind": {"type": "string", "enum": ["witness"]},
+    "witness_id": {"type": "string", "pattern": "^WIT-[0-9]{4}$"},
+    "rule_id": {"type": "string", "pattern": "^(VIBE-GRAM|[A-Z]+)-[0-9]{4}$"},
+    "rule_rev": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "test_ref": {"type": "string", "minLength": 1},
+    "test_type": {"type": "string", "enum": ["fixture", "unit", "integration", "fuzz", "manual"]},
+    "expected": {"type": "string", "enum": ["pass", "failure"]},
+    "observed": {"type": "string", "enum": ["pass", "failure"]},
+    "diagnostic_ids": {"type": "array", "items": {"type": "string", "pattern": "^E[0-9]{4}$"}, "uniqueItems": true},
+    "target": {"type": "string"},
+    "profile": {"type": "string"},
+    "spec_tree_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

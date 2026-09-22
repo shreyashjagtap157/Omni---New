@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "omni://spec/schemas/fuzz-promotion.schema.json",
+  "title": "OmniFuzzPromotion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "promotion_id", "status", "fuzz_target", "seed_sha256", "reproducer_ref", "failure_class", "spec_tree_sha256", "toolchain"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0.0"]},
+    "kind": {"type": "string", "enum": ["fuzz-promotion"]},
+    "promotion_id": {"type": "string", "pattern": "^FUZZ-[0-9]{4}$"},
+    "status": {"type": "string", "enum": ["candidate", "minimized", "promoted", "rejected"]},
+    "fuzz_target": {"type": "string", "minLength": 1},
+    "seed_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reproducer_ref": {"type": "string", "minLength": 1},
+    "failure_class": {"type": "string", "minLength": 1},
+    "sanitizer": {"type": "string"},
+    "config": {"type": "object"},
+    "regression_id": {"type": "string", "pattern": "^REG-[0-9]{4}$"},
+    "spec_tree_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "toolchain": {"type": "string", "minLength": 1},
+    "target": {"type": "string"}
+  }
+}

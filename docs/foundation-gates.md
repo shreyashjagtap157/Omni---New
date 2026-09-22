@@ -20,13 +20,15 @@ implementation manifests and release evidence under `spec/manifest/` and `spec/r
 from the hashed tree to avoid a self-referential digest. The qualification tool must define and record
 this exclusion set explicitly; it must never hash the manifest containing the digest it is checking.
 
-Publication set (0.0.0.5): `grammar/omni-edition1.ebnf`, `registry/rules.json`,
-`schemas/rule-registry.schema.json`, plus anything under `models/` or `data/` (currently only
-`.gitkeep` scaffolding, which is excluded and contributes nothing). Procedure: walk included
-directories in lexicographic order of slash-joined relative paths, normalize file bytes CRLF/CR to
-LF, hash each file with SHA-256, then hash the concatenation of `path + LF + hex + LF` lines.
-`omni-canon --spec-tree` computes it; `omni-conform` rejects any manifest/gate digest mismatch
-fail-closed. Current digest: `ecda85bb1f460266abf2b05f0a9f8058c9c6162f8c448ef1f46989ad3577698b`.
+Publication set (0.0.0.5, extended 0.0.0.8 with the seven evidence schemas):
+`grammar/omni-edition1.ebnf`, `registry/rules.json`, all ten `schemas/*.schema.json`, plus anything
+under `models/` or `data/` (currently only `.gitkeep` scaffolding, which is excluded and contributes
+nothing). Procedure: walk included directories in lexicographic order of slash-joined relative
+paths, normalize file bytes CRLF/CR to LF, hash each file with SHA-256, then hash the concatenation
+of `path + LF + hex + LF` lines. `omni-canon --spec-tree` computes it; `omni-conform` rejects any
+manifest/gate digest mismatch fail-closed. Current digest:
+`ec1f8b1e680b189493be45a7cb52d0c74cc0d99b70e9a6193dcda2dc50e6a130` (supersedes the 0.0.0.5
+`ecda85bb…` value by publication-set growth, not by contradiction).
 
 Known specification inconsistency (open, not resolved by invention): the normative EBNF predates the
 Candidate-2 amendment and contains no pipeline-operator, newline-termination, projection-shorthand,
@@ -64,3 +66,21 @@ attributed (collaborative implementation). Live state: 8 tags in 57 files (74 te
 Tracked gaps (not invented): RULE-0003 `erratum-corrected` has no enum spelling (needs spec ADR);
 rule-text to hash binding is procedural (deterministic extraction, tree-pinned registry bytes);
 `models/`/`data` emptiness belongs to later milestones.
+
+## Evidence schemas (0.0.0.8, `omni-evidence` + `spec/schemas/`)
+
+Seven strict (`additionalProperties: false`, version `"1.0.0"`) contracts: `diagnostic` (E-code ID
+per the registry diagnostics vocabulary, severity error/warning/note/help, primary rule, spans,
+params, fixits), `witness` (`WIT-NNNN`, live-rule only, optional revision pinned to the registry
+hash with staleness rejection, file artifact resolution), `conformance-outcome` (`CONF-NNNN`,
+pass/fail, tree/toolchain-bound), `verification-failure` (`VF-NNNN`, seven failure classes,
+rule-or-model obligation, release impact), `provenance` (spec/tree/target/artifact identity;
+historical bindings format-checked, never equality-forced), `regression` (`REG-NNNN`,
+open/accepted/closed, contained input), `fuzz-promotion` (`FUZZ-NNNN`, candidate/minimized/
+promoted/rejected, seed digest, reproducer). Cross-references (diagnostic/witness/regression/
+promotion links) resolve within the validated corpus; `omni-conform` additionally validates any
+`spec/evidence/*.json` corpus against registry, tree, and toolchain. Pre-existing compiler error
+enums and the parse `Diagnostic` remain implementation-internal and must map to E-code records at
+emission boundaries (future work); `omni-driver` provenance adopts this format at 0.0.0.12.
+Live gaps, honestly held: zero E-code diagnostics emitted, zero witness records, all 560 rules
+Candidate (Ratified obligations vacuous), `models/`/`data` still empty.

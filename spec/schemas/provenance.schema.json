@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "omni://spec/schemas/provenance.schema.json",
+  "title": "OmniProvenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "kind", "spec_tree_sha256", "toolchain", "target", "artifact_sha256"],
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["1.0.0"]},
+    "kind": {"type": "string", "enum": ["provenance"]},
+    "spec_tree_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "plan_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "toolchain": {"type": "string", "minLength": 1},
+    "target": {"type": "string", "minLength": 1},
+    "profile": {"type": "string"},
+    "compiler_build_epoch": {"type": "integer", "minimum": 0},
+    "artifact_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "config": {"type": "object"}
+  }
+}
