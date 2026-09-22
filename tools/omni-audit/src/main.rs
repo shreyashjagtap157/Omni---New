@@ -169,9 +169,8 @@ pub fn run_audit(workspace_root: &Path) -> Result<AuditReport, String> {
         rules_by_id.insert(rule.rule_id.clone(), rule);
     }
     for rule in rules_by_id.values() {
-        match rule.status.as_str() {
-            "Proposed" | "Candidate" | "Ratified" | "Deprecated" | "Superseded" | "Withdrawn" => {}
-            other => return fail(format!("{} has unknown status {other}", rule.rule_id)),
+        if !omni_registry::LIFECYCLE_STATES.contains(&rule.status.as_str()) {
+            return fail(format!("{} has unknown status {}", rule.rule_id, rule.status));
         }
         if rule.status == "Ratified" && rule.witness_tests.is_empty() {
             return fail(format!("Ratified rule {} has no witness tests", rule.rule_id));
@@ -271,17 +270,8 @@ pub fn run_audit(workspace_root: &Path) -> Result<AuditReport, String> {
     for claim in &visitor.claims {
         match rules_by_id.get(&claim.rule_id) {
             None => return fail(format!("unknown rule {}", claim.rule_id)),
-            Some(rule) if rule.status == "Proposed" => {
-                return fail(format!("Proposed rule {}", claim.rule_id));
-            }
-            Some(rule) if rule.status == "Deprecated" => {
-                return fail(format!("Deprecated rule {}", claim.rule_id));
-            }
-            Some(rule) if rule.status == "Superseded" => {
-                return fail(format!("Superseded rule {}", claim.rule_id));
-            }
-            Some(rule) if rule.status == "Withdrawn" => {
-                return fail(format!("Withdrawn rule {}", claim.rule_id));
+            Some(rule) if !omni_registry::is_ownable_status(&rule.status) => {
+                return fail(format!("{} rule {}", rule.status, claim.rule_id));
             }
             Some(rule) if rule.status == "Ratified" && rule.witness_tests.is_empty() => {
                 return fail(format!("Ratified rule {} has no witness tests", claim.rule_id));
@@ -308,7 +298,18 @@ pub fn run_audit(workspace_root: &Path) -> Result<AuditReport, String> {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let root = args.get(1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let root = match args.get(1).map(PathBuf::from) {
+        Some(explicit) => explicit,
+        None => match omni_registry::discover_spec_root()
+            .and_then(|spec| omni_registry::workspace_root_for_spec(&spec))
+        {
+            Ok(root) => root,
+            Err(e) => {
+                eprintln!("REAPER ERROR: workspace discovery failed: {e}");
+                std::process::exit(101);
+            }
+        },
+    };
     match run_audit(&root) {
         Ok(report) => {
             println!(
@@ -429,7 +430,7 @@ mod reaper_tests {
 
     #[test]
     fn non_ownable_lifecycles_fail() {
-        for status in ["Proposed", "Deprecated", "Superseded", "Withdrawn"] {
+        for status in ["Proposed", "Deprecated", "Superseded", "Withdrawn", "ErratumCorrected"] {
             let rules = vec![rule("LEX-0001", status, &[], &[])];
             let files = vec![("compiler/a.rs", "#[implements(\"LEX-0001\")]\nfn a() {}\n")];
             let root = fixture_repo(&rules, &files);

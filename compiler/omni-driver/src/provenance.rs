@@ -5,10 +5,11 @@
 //! driver build context and writes the canonical sidecar. No identity value
 //! is invented: unresolvable inputs fail the emission instead.
 //!
-//! Known limitation (documented, not hidden): the specification tree is
-//! discovered as `./spec` relative to the invocation directory, and the
-//! toolchain pin as `./rust-toolchain.toml`. Running the driver elsewhere
-//! fails closed on the native-emission path; other paths are unaffected.
+//! Discovery is anchored, never invocation-relative: the specification tree
+//! resolves through `omni-registry` discovery (explicit root or ancestor
+//! walk), and the toolchain pin is read next to the anchored workspace root.
+//! Any CWD under one repository resolves identically; anything else fails
+//! closed on the native-emission path. Other paths are unaffected.
 
 use std::path::{Path, PathBuf};
 
@@ -26,19 +27,20 @@ pub struct EmissionContext {
     pub build_epoch: u64,
 }
 
-/// Locate `./spec` from the invocation directory.
-pub fn discover_spec_root() -> Result<PathBuf, String> {
-    let candidate = PathBuf::from("spec");
-    if candidate.is_dir() {
-        Ok(candidate)
-    } else {
-        Err("specification tree not resolvable: expected ./spec".to_string())
-    }
+/// Anchor the workspace root via specification discovery, then resolve the
+/// specification tree beneath it. Every invocation directory anchored to one
+/// repository yields the same roots.
+pub fn discover_workspace() -> Result<(PathBuf, PathBuf), String> {
+    let spec_root = omni_registry::discover_spec_root()
+        .map_err(|e| format!("specification discovery failed: {e}"))?;
+    let workspace_root = omni_registry::workspace_root_for_spec(&spec_root)
+        .map_err(|e| format!("workspace discovery failed: {e}"))?;
+    Ok((workspace_root, spec_root))
 }
 
-/// Read the pinned channel from `./rust-toolchain.toml`.
-pub fn read_toolchain_channel() -> Result<String, String> {
-    let raw = std::fs::read_to_string("rust-toolchain.toml")
+/// Read the pinned channel next to the anchored workspace root.
+pub fn read_toolchain_channel(workspace_root: &Path) -> Result<String, String> {
+    let raw = std::fs::read_to_string(workspace_root.join("rust-toolchain.toml"))
         .map_err(|e| format!("toolchain pin unreadable: {e}"))?;
     for line in raw.lines() {
         let line = line.trim();
@@ -103,6 +105,9 @@ pub fn emit_provenance_sidecar(
         plan_digest: ctx.plan_digest.clone(),
         toolchain: ctx.toolchain.clone(),
         target: ctx.target_descriptor.clone(),
+        // The driver performs no target selection: every descriptor it emits
+        // is host-derived build-environment metadata, labeled as such.
+        target_source: Some("host".to_string()),
         profile: None,
         compiler_id: "omni-driver".to_string(),
         compiler_version: ctx.compiler_version.clone(),
@@ -151,6 +156,7 @@ mod provenance_tests {
         let raw = std::fs::read_to_string(&sidecar).expect("read");
         let record: omni_evidence::Provenance = serde_json::from_str(&raw).expect("parse");
         assert_eq!(record.compiler_id.as_deref(), Some("omni-driver"));
+        assert_eq!(record.target_source.as_deref(), Some("host"));
         assert_eq!(record.codegen.as_ref().expect("codegen").opt_level, 0);
         // Artifact binding is exact: recompute independently via the engine.
         assert_eq!(record.artifact_sha256, omni_canon::sha256_of_normalized_bytes(bytes));
@@ -168,9 +174,13 @@ mod provenance_tests {
 
     #[test]
     fn host_descriptor_is_truthful() {
-        let descriptor = target_descriptor();
-        assert!(descriptor.contains(std::env::consts::ARCH));
-        assert!(!descriptor.chars().any(|c| c.is_control()));
+        // Exact equality with the two build consts proves no hidden input
+        // (usernames, paths, env, machine identity) can alter the value.
+        assert_eq!(
+            target_descriptor(),
+            format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS)
+        );
+        assert_eq!(target_descriptor(), target_descriptor());
     }
 
     #[test]

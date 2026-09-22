@@ -286,9 +286,11 @@ pub mod spec_tree {
     pub const INCLUDED_DIRS: [&str; 5] = ["grammar", "registry", "schemas", "models", "data"];
 
     /// Files explicitly declared outside `models/` and `data/`.
-    pub const DECLARED_FILES: [&str; 10] = [
+    pub const DECLARED_FILES: [&str; 12] = [
         "grammar/omni-edition1.ebnf",
+        "grammar/candidate2-erratum.md",
         "registry/rules.json",
+        "registry/rule-texts.json",
         "schemas/rule-registry.schema.json",
         "schemas/diagnostic.schema.json",
         "schemas/witness.schema.json",
@@ -628,7 +630,12 @@ mod determinism_tests {
     fn minimal_tree() -> Vec<(&'static str, &'static [u8])> {
         let mut files: Vec<(&'static str, &'static [u8])> = vec![
             ("grammar/omni-edition1.ebnf", b"(* t *)\n" as &[u8]),
+            ("grammar/candidate2-erratum.md", b"# fixture erratum\n" as &[u8]),
             ("registry/rules.json", br#"{"schema_version":"1.0.0","rules":[]}"# as &[u8]),
+            (
+                "registry/rule-texts.json",
+                br#"{"schema_version":"1.0.0","texts":[]}"# as &[u8],
+            ),
         ];
         // Every declared schema file must be present (required-artifact rule).
         for schema in [
@@ -680,14 +687,22 @@ mod determinism_tests {
 
     #[test]
     fn crlf_normalizes_to_lf() {
-        let mut crlf = minimal_tree();
-        crlf[1] = (
-            "registry/rules.json",
+        fn swap_rules(
+            mut files: Vec<(&'static str, &'static [u8])>,
+            bytes: &'static [u8],
+        ) -> Vec<(&'static str, &'static [u8])> {
+            let pos = files.iter().position(|(p, _)| *p == "registry/rules.json").expect("rules");
+            files[pos] = ("registry/rules.json", bytes);
+            files
+        }
+        let crlf = swap_rules(
+            minimal_tree(),
             b"{\"schema_version\":\"1.0.0\",\r\n\"rules\":[]}\r\n" as &[u8],
         );
-        let mut lf = minimal_tree();
-        lf[1] =
-            ("registry/rules.json", b"{\"schema_version\":\"1.0.0\",\n\"rules\":[]}\n" as &[u8]);
+        let lf = swap_rules(
+            minimal_tree(),
+            b"{\"schema_version\":\"1.0.0\",\n\"rules\":[]}\n" as &[u8],
+        );
         let a = scratch_tree(&crlf);
         let b = scratch_tree(&lf);
         let (da, _) = spec_tree::spec_tree_digest(&a).expect("digest a");

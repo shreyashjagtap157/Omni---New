@@ -62,14 +62,13 @@ fn emit_artifact_provenance(
     bytes: &[u8],
     parsed: &Args,
 ) -> Result<PathBuf, String> {
-    let spec_root = provenance::discover_spec_root()?;
-    let loaded = omni_registry::load_specification(spec_root.clone())
+    let (workspace_root, spec_root) = provenance::discover_workspace()?;
+    let loaded = omni_registry::load_specification(spec_root)
         .map_err(|e| format!("specification failed to load: {e}"))?;
-    let workspace_root = std::env::current_dir().map_err(|e| format!("cwd: {e}"))?;
     let ctx = EmissionContext {
         tree_digest: loaded.identity().tree_digest.clone(),
         plan_digest: loaded.manifest().plan_sha256.clone(),
-        toolchain: provenance::read_toolchain_channel()?,
+        toolchain: provenance::read_toolchain_channel(&workspace_root)?,
         target_descriptor: provenance::target_descriptor(),
         compiler_version: env!("CARGO_PKG_VERSION").to_string(),
         source_revision: provenance::source_revision(&workspace_root),

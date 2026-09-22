@@ -44,6 +44,7 @@ pub enum LoadErrorClass {
     MalformedArtifact,
     SchemaViolation,
     UnsupportedVersion,
+    UnsupportedLayout,
     DigestMismatch,
     ManifestMismatch,
     CanonicalizationFailure,
@@ -112,6 +113,10 @@ pub struct Manifest {
     pub modules: Vec<String>,
     #[serde(default)]
     pub stage0_feature_predicates: serde_json::Value,
+    /// Normative erratum overlays (REL-0007 mechanics): tree-relative paths
+    /// resolved against the publication set. Absent means no overlays.
+    #[serde(default)]
+    pub errata: Vec<String>,
 }
 
 impl Manifest {
@@ -188,6 +193,20 @@ pub struct Registry {
     pub rules: Vec<RuleRecord>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleText {
+    rule_id: String,
+    text: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleTexts {
+    schema_version: String,
+    texts: Vec<RuleText>,
+}
+
 /// A validated schema publication: structural properties only (no full
 /// meta-schema interpreter; the enforced subset is documented here).
 #[derive(Debug, Clone)]
@@ -230,6 +249,43 @@ pub struct LoadProvenance {
 
 pub const LOADER_VERSION: &str = "1.0.0";
 const DRAFT07: &str = "http://json-schema.org/draft-07/schema#";
+
+/// Machine shape of a rule identity (`PREFIX-NNNN`, digit-bearing prefixes
+/// included; `VIBE-GRAM` handled explicitly). Shared by the loader and its
+/// tests so overlay reference scans cannot drift from table extraction.
+pub fn is_table_rule_id(id: &str) -> bool {
+    if let Some(rest) = id.strip_prefix("VIBE-GRAM-") {
+        return rest.len() == 4 && rest.chars().all(|c| c.is_ascii_digit());
+    }
+    match id.split_once('-') {
+        Some((head, tail)) => {
+            !head.is_empty()
+                && head.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+                && tail.len() == 4
+                && tail.chars().all(|c| c.is_ascii_digit())
+        }
+        None => false,
+    }
+}
+
+/// Canonical rule lifecycle states (RULE-0003; spelling fixed by
+/// docs/adr/0001-erratum-corrected-lifecycle-state.md). Single source of
+/// truth consumed by the loader, the audit, conformance, and evidence
+/// validation instead of parallel local copies.
+pub const LIFECYCLE_STATES: [&str; 7] = [
+    "Proposed",
+    "Candidate",
+    "Ratified",
+    "Deprecated",
+    "Superseded",
+    "Withdrawn",
+    "ErratumCorrected",
+];
+
+/// States an implementation claim may target.
+pub fn is_ownable_status(status: &str) -> bool {
+    matches!(status, "Candidate" | "Ratified")
+}
 
 // ---------------------------------------------------------------------------
 // State-separated API.
@@ -385,17 +441,13 @@ impl ValidatedSpecification {
                     format!("duplicate rule {}", rule.rule_id),
                 );
             }
-            match rule.status.as_str() {
-                "Proposed" | "Candidate" | "Ratified" | "Deprecated" | "Superseded"
-                | "Withdrawn" => {}
-                other => {
-                    return fail(
-                        LoadErrorClass::SchemaViolation,
-                        ValidationPhase::Schema,
-                        Some("registry/rules.json".to_string()),
-                        format!("{} unknown status {other}", rule.rule_id),
-                    );
-                }
+            if !LIFECYCLE_STATES.contains(&rule.status.as_str()) {
+                return fail(
+                    LoadErrorClass::SchemaViolation,
+                    ValidationPhase::Schema,
+                    Some("registry/rules.json".to_string()),
+                    format!("{} unknown status {}", rule.rule_id, rule.status),
+                );
             }
             if rule.text_hash.len() != 64
                 || !rule.text_hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
@@ -420,6 +472,79 @@ impl ValidatedSpecification {
                     );
                 }
             }
+        }
+
+        // Mechanical rule-text/hash binding (gate closure 2): every stored
+        // hash must rederive from the committed normative text. Stale or
+        // mutated hashes fail here, not in a human-rerun script.
+        let texts_raw = read_contained("registry/rule-texts.json")?;
+        let texts_text = std::str::from_utf8(&texts_raw).map_err(|e| LoadError {
+            class: LoadErrorClass::MalformedArtifact,
+            phase: ValidationPhase::Parse,
+            artifact: Some("registry/rule-texts.json".to_string()),
+            detail: e.to_string(),
+        })?;
+        omni_canon::reject_duplicate_keys(texts_text).map_err(|e| LoadError {
+            class: LoadErrorClass::MalformedArtifact,
+            phase: ValidationPhase::Parse,
+            artifact: Some("registry/rule-texts.json".to_string()),
+            detail: e.to_string(),
+        })?;
+        let texts: RuleTexts = serde_json::from_str(texts_text).map_err(|e| LoadError {
+            class: LoadErrorClass::MalformedArtifact,
+            phase: ValidationPhase::Parse,
+            artifact: Some("registry/rule-texts.json".to_string()),
+            detail: e.to_string(),
+        })?;
+        if texts.schema_version != "1.0.0" {
+            return fail(
+                LoadErrorClass::UnsupportedVersion,
+                ValidationPhase::Version,
+                Some("registry/rule-texts.json".to_string()),
+                format!("schema_version: {}", texts.schema_version),
+            );
+        }
+        let mut text_by_id = BTreeMap::new();
+        for entry in &texts.texts {
+            if text_by_id.insert(entry.rule_id.clone(), entry.text.clone()).is_some() {
+                return fail(
+                    LoadErrorClass::DuplicateArtifact,
+                    ValidationPhase::Schema,
+                    Some("registry/rule-texts.json".to_string()),
+                    format!("duplicate text {}", entry.rule_id),
+                );
+            }
+        }
+        for rule in &registry.rules {
+            match text_by_id.remove(&rule.rule_id) {
+                None => {
+                    return fail(
+                        LoadErrorClass::InconsistentReference,
+                        ValidationPhase::Consistency,
+                        Some("registry/rule-texts.json".to_string()),
+                        format!("rule {} has no normative text", rule.rule_id),
+                    );
+                }
+                Some(text) => {
+                    let derived = omni_canon::rule_text_hash(&text);
+                    if derived != rule.text_hash {
+                        return fail(
+                            LoadErrorClass::InconsistentReference,
+                            ValidationPhase::Consistency,
+                            Some("registry/rules.json".to_string()),
+                            format!("stale text hash for {}", rule.rule_id),
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(orphan) = text_by_id.keys().next() {
+            return fail(
+                LoadErrorClass::InconsistentReference,
+                ValidationPhase::Consistency,
+                Some("registry/rule-texts.json".to_string()),
+                format!("text without rule: {orphan}"),
+            );
         }
 
         // Schema publications: required set derived from the single authority
@@ -484,6 +609,53 @@ impl ValidatedSpecification {
             digest: omni_canon::sha256_of_normalized_bytes(&grammar_raw),
             byte_len: grammar_raw.len() as u64,
         };
+
+        // Erratum overlays: every listed path must be a contained tree
+        // artifact, and every rule identity it cites must resolve in the
+        // registry (typo/drift-proofing without hardcoding overlay content).
+        for overlay in &manifest.errata {
+            let parsed = Path::new(overlay);
+            if parsed.is_absolute()
+                || parsed.components().any(|c| {
+                    matches!(c, Component::ParentDir | Component::Prefix(_) | Component::RootDir)
+                })
+            {
+                return fail(
+                    LoadErrorClass::ContainmentViolation,
+                    ValidationPhase::Containment,
+                    Some(overlay.clone()),
+                    "erratum path escapes the tree".to_string(),
+                );
+            }
+            let raw = read_contained(overlay)?;
+            let text = std::str::from_utf8(&raw).map_err(|e| LoadError {
+                class: LoadErrorClass::MalformedArtifact,
+                phase: ValidationPhase::Parse,
+                artifact: Some(overlay.clone()),
+                detail: e.to_string(),
+            })?;
+            if text.trim().is_empty() {
+                return fail(
+                    LoadErrorClass::MalformedArtifact,
+                    ValidationPhase::Parse,
+                    Some(overlay.clone()),
+                    "empty erratum overlay".to_string(),
+                );
+            }
+            for token in text.split(|c: char| {
+                !(c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-' || c == '/')
+            }) {
+                let id = token.trim_matches('/');
+                if id.contains('-') && is_table_rule_id(id) && !ids.contains(id) {
+                    return fail(
+                        LoadErrorClass::InconsistentReference,
+                        ValidationPhase::Consistency,
+                        Some(overlay.clone()),
+                        format!("erratum cites unknown rule {id}"),
+                    );
+                }
+            }
+        }
 
         // Models/data: explicit empty states. Any present file fails closed:
         // no model schema is registered, so nothing is validatable.
@@ -633,6 +805,76 @@ pub fn load_specification(spec_root: PathBuf) -> Result<LoadedSpecification, Loa
     RawSpecification::new(spec_root).validate()?.load()
 }
 
+/// Anchor specification discovery (gate closure 4). Resolution order:
+/// explicit `OMNI_SPEC_ROOT`, else walk up from the invocation directory to
+/// the first ancestor holding `spec/manifest/omni-edition1.manifest.json`.
+/// Every CWD under one repository resolves to the same tree; anything else
+/// fails closed. The manifest file itself is the anchor: no Cargo.toml
+/// coupling, no silent fallback.
+pub fn discover_spec_root() -> Result<PathBuf, LoadError> {
+    if let Ok(explicit) = std::env::var("OMNI_SPEC_ROOT") {
+        let path = PathBuf::from(&explicit);
+        return validate_spec_dir(&path).map_err(|_| LoadError {
+            class: LoadErrorClass::MissingArtifact,
+            phase: ValidationPhase::Containment,
+            artifact: None,
+            detail: format!("OMNI_SPEC_ROOT does not anchor a specification: {explicit}"),
+        });
+    }
+    let mut dir = std::env::current_dir().map_err(|e| LoadError {
+        class: LoadErrorClass::ContainmentViolation,
+        phase: ValidationPhase::Containment,
+        artifact: None,
+        detail: format!("invocation directory unreadable: {e}"),
+    })?;
+    loop {
+        let candidate = dir.join("spec");
+        if validate_spec_dir(&candidate).is_ok() {
+            return Ok(candidate);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    fail(
+        LoadErrorClass::MissingArtifact,
+        ValidationPhase::Containment,
+        None,
+        "no anchored specification: no ancestor holds spec/manifest/omni-edition1.manifest.json"
+            .to_string(),
+    )
+}
+
+fn validate_spec_dir(path: &Path) -> Result<PathBuf, LoadError> {
+    if path.join("manifest/omni-edition1.manifest.json").is_file() {
+        Ok(path.to_path_buf())
+    } else {
+        fail(
+            LoadErrorClass::MissingArtifact,
+            ValidationPhase::Containment,
+            Some(path.display().to_string()),
+            "not a specification tree".to_string(),
+        )
+    }
+}
+
+/// Workspace root for a discovered tree under the standard layout
+/// (`<workspace>/spec`). Anything else fails: workspace-relative features
+/// must not guess.
+pub fn workspace_root_for_spec(spec_root: &Path) -> Result<PathBuf, LoadError> {
+    if spec_root.file_name().is_some_and(|n| n == "spec") {
+        if let Some(parent) = spec_root.parent() {
+            return Ok(parent.to_path_buf());
+        }
+    }
+    fail(
+        LoadErrorClass::UnsupportedLayout,
+        ValidationPhase::Containment,
+        Some(spec_root.display().to_string()),
+        "specification tree is not in standard <workspace>/spec layout".to_string(),
+    )
+}
+
 #[cfg(test)]
 mod loader_tests {
     use super::*;
@@ -661,11 +903,37 @@ mod loader_tests {
         for dir in ["manifest", "registry", "schemas", "models", "data", "grammar"] {
             fs::create_dir_all(root.join(dir)).expect("mkdir");
         }
+        // Coherent fixture hashes: every rule gets a texts entry whose hash
+        // is rederived, so the loader's mechanical binding holds by
+        // construction and tests exercise targeted mutations only.
+        let mut parsed: serde_json::Value =
+            serde_json::from_str(&format!("{{\"rules\":[{}]}}", rules.join(","))).expect("rules");
+        let mut texts = String::from("{\"schema_version\":\"1.0.0\",\"texts\":[");
+        let mut first = true;
+        for rule in parsed["rules"].as_array_mut().expect("array") {
+            let id = rule["rule_id"].as_str().expect("id").to_string();
+            let text = format!("fixture text for {id}");
+            rule["text_hash"] = serde_json::Value::String(omni_canon::rule_text_hash(&text));
+            if !first {
+                texts.push(',');
+            }
+            first = false;
+            texts.push_str(&format!("{{\"rule_id\":\"{id}\",\"text\":\"{text}\"}}"));
+        }
+        texts.push_str("]}");
         fs::write(
             root.join("registry/rules.json"),
-            format!("{{\"schema_version\":\"1.0.0\",\"rules\":[{}]}}", rules.join(",")),
+            format!(
+                "{{\"schema_version\":\"1.0.0\",\"rules\":{}}}",
+                serde_json::to_string(&parsed["rules"]).expect("serialize")
+            ),
         )
         .expect("write");
+        fs::write(root.join("registry/rule-texts.json"), texts).expect("write");
+        // Minimal erratum overlay: present for the publication set, carrying
+        // no rule references (loader scans references, never content shape).
+        fs::write(root.join("grammar/candidate2-erratum.md"), b"# fixture erratum\n")
+            .expect("write");
         for schema in [
             "rule-registry",
             "diagnostic",
@@ -720,7 +988,7 @@ mod loader_tests {
         assert_eq!(loaded.schemas().len(), 8);
         assert_eq!(loaded.models(), &EmptyDomain(()));
         assert_eq!(loaded.data(), &EmptyDomain(()));
-        assert_eq!(loaded.identity().artifacts.len(), 10);
+        assert_eq!(loaded.identity().artifacts.len(), 12);
         assert_eq!(loaded.provenance().loader_version, LOADER_VERSION);
         fs::remove_dir_all(&root).ok();
     }
@@ -834,6 +1102,34 @@ mod loader_tests {
     }
 
     #[test]
+    fn stale_text_hash_fails_closed() {
+        // Mutating a normative text without updating its hash must fail,
+        // even though the registry remains structurally valid.
+        let root = fixture_tree(&minimal_rules(), None, &[]);
+        let raw = fs::read_to_string(root.join("registry/rule-texts.json")).expect("r");
+        fs::write(
+            root.join("registry/rule-texts.json"),
+            raw.replace("fixture text for LEX-0001", "tampered text"),
+        )
+        .expect("w");
+        let err = load_specification(root.clone()).expect_err("stale hash");
+        assert_eq!(err.class, LoadErrorClass::InconsistentReference);
+        assert!(err.detail.contains("stale text hash"), "got: {err:?}");
+        fs::remove_dir_all(&root).ok();
+        // Text without a rule fails symmetrically.
+        let root = fixture_tree(&minimal_rules(), None, &[]);
+        let raw = fs::read_to_string(root.join("registry/rule-texts.json")).expect("r");
+        fs::write(
+            root.join("registry/rule-texts.json"),
+            raw.replace("\"texts\":[", "\"texts\":[{\"rule_id\":\"GHOST-0001\",\"text\":\"x\"},"),
+        )
+        .expect("w");
+        let err = load_specification(root.clone()).expect_err("orphan text");
+        assert!(err.detail.contains("text without rule"), "got: {err:?}");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn digest_and_manifest_mismatch_classified() {
         // Tampered file after binding.
         let root = fixture_tree(&minimal_rules(), None, &[]);
@@ -847,6 +1143,157 @@ mod loader_tests {
         let err = load_specification(root.clone()).expect_err("bound");
         assert_eq!(err.class, LoadErrorClass::ManifestMismatch);
         fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn lifecycle_authority_agrees_mechanically() {
+        // ADR-0001: the schema file's status enum must equal the canonical
+        // seven-state set consumed by every validator; the vocabulary is
+        // present even though no record uses ErratumCorrected yet.
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../spec");
+        let raw = fs::read_to_string(root.join("schemas/rule-registry.schema.json")).expect("r");
+        let schema: serde_json::Value = serde_json::from_str(&raw).expect("parse");
+        let mut enumerated: Vec<String> = schema["properties"]["rules"]["items"]["properties"]
+            ["status"]["enum"]
+            .as_array()
+            .expect("enum")
+            .iter()
+            .map(|v| v.as_str().expect("string").to_string())
+            .collect();
+        enumerated.sort();
+        let mut canonical: Vec<String> = LIFECYCLE_STATES.iter().map(ToString::to_string).collect();
+        canonical.sort();
+        assert_eq!(enumerated, canonical);
+        let loaded = load_specification(root).expect("live load");
+        assert!(
+            !loaded.registry().rules.iter().any(|r| r.status == "ErratumCorrected"),
+            "vocabulary present but unpopulated"
+        );
+    }
+
+    /// The normative specification document is the single source of rule
+    /// texts: the committed texts file must equal a fresh table-grammmar
+    /// extraction byte-for-byte in content. This replaces the procedural
+    /// extraction script with a mechanical in-repo check.
+    #[test]
+    fn rule_texts_match_normative_document() {
+        let docs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../docs/specification/Omni_Complete_Specification_Edition1_1.0.0-candidate.2_vibe.md",
+        );
+        let raw = fs::read_to_string(&docs).expect("spec doc");
+        let raw = raw.replace("\r\n", "\n");
+        let mut extracted = BTreeMap::new();
+        for line in raw.split('\n') {
+            let line = line.trim_end();
+            // Greedy-equivalent row grammar: id is the first cell, text runs
+            // to the final pipe, so inner pipes in requirement text survive.
+            if !line.starts_with("| `") || !line.ends_with('|') || line.len() < 6 {
+                continue;
+            }
+            let inner = &line[1..line.len() - 1];
+            let Some((id_cell, text_cell)) = inner.split_once('|') else { continue };
+            let id = id_cell.trim().trim_matches('`');
+            if !is_table_rule_id(id) {
+                continue;
+            }
+            let text = text_cell.trim().to_string();
+            if extracted.insert(id.to_string(), text).is_some() {
+                panic!("duplicate rule row in spec document: {id}");
+            }
+        }
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../spec");
+        let committed: RuleTexts = serde_json::from_str(
+            &fs::read_to_string(root.join("registry/rule-texts.json")).expect("texts"),
+        )
+        .expect("parse texts");
+        let mut committed_map = BTreeMap::new();
+        for entry in &committed.texts {
+            committed_map.insert(entry.rule_id.clone(), entry.text.clone());
+        }
+        assert_eq!(extracted, committed_map, "texts file diverged from normative document");
+        assert_eq!(extracted.len(), 567);
+    }
+
+    static GLOBAL_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct RestoreCwd {
+        saved: PathBuf,
+    }
+
+    impl Drop for RestoreCwd {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.saved);
+        }
+    }
+
+    #[test]
+    fn discovery_is_cwd_independent() {
+        let _lock = GLOBAL_GUARD.lock().expect("lock");
+        let saved = std::env::current_dir().expect("cwd");
+        let _restore = RestoreCwd { saved };
+        let workspace =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("ws");
+        let expected = workspace.join("spec").canonicalize().expect("spec");
+        // Repository root and a nested crate directory resolve identically.
+        std::env::set_current_dir(&workspace).expect("chdir root");
+        std::env::remove_var("OMNI_SPEC_ROOT");
+        assert_eq!(discover_spec_root().expect("root"), expected);
+        std::env::set_current_dir(workspace.join("compiler/omni-lex")).expect("chdir nested");
+        std::env::remove_var("OMNI_SPEC_ROOT");
+        assert_eq!(discover_spec_root().expect("nested"), expected);
+        // Outside any anchored tree fails closed, never silently elsewhere.
+        let outside = std::env::temp_dir().join(format!("omni-nowhere-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).expect("mkdir");
+        std::env::set_current_dir(&outside).expect("chdir outside");
+        std::env::remove_var("OMNI_SPEC_ROOT");
+        let err = discover_spec_root().expect_err("outside");
+        assert_eq!(err.class, LoadErrorClass::MissingArtifact);
+        std::fs::remove_dir_all(&outside).ok();
+    }
+
+    #[test]
+    fn explicit_root_override_wins_or_fails() {
+        let _lock = GLOBAL_GUARD.lock().expect("lock");
+        let prior = std::env::var("OMNI_SPEC_ROOT").ok();
+        let workspace =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("ws");
+        let expected = workspace.join("spec").canonicalize().expect("spec");
+        std::env::set_var("OMNI_SPEC_ROOT", &expected);
+        assert_eq!(discover_spec_root().expect("override"), expected);
+        let nowhere = std::env::temp_dir().join(format!("omni-nowhere-{}", std::process::id()));
+        std::fs::create_dir_all(&nowhere).expect("mkdir");
+        std::env::set_var("OMNI_SPEC_ROOT", &nowhere);
+        assert!(discover_spec_root().is_err());
+        std::fs::remove_dir_all(&nowhere).ok();
+        match prior {
+            Some(value) => std::env::set_var("OMNI_SPEC_ROOT", value),
+            None => std::env::remove_var("OMNI_SPEC_ROOT"),
+        }
+    }
+
+    #[test]
+    fn workspace_layout_is_explicit() {
+        let workspace =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("ws");
+        let spec = workspace.join("spec");
+        assert_eq!(workspace_root_for_spec(&spec).expect("layout"), workspace);
+        let odd = std::env::temp_dir();
+        let err = workspace_root_for_spec(&odd).expect_err("layout");
+        assert_eq!(err.class, LoadErrorClass::UnsupportedLayout);
+    }
+
+    #[test]
+    fn manifest_permits_empty_model_data_domains() {
+        // The manifest declares module NAMES, never model/data FILES; empty
+        // domains are therefore contract-consistent, verified explicitly.
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../spec");
+        let raw = fs::read_to_string(root.join("manifest/omni-edition1.manifest.json")).expect("r");
+        let manifest: serde_json::Value = serde_json::from_str(&raw).expect("parse");
+        assert!(manifest.get("models").is_none(), "no file-level model declarations");
+        assert!(manifest.get("data").is_none(), "no file-level data declarations");
+        let loaded = load_specification(root).expect("live load");
+        assert_eq!(loaded.models(), &EmptyDomain(()));
+        assert_eq!(loaded.data(), &EmptyDomain(()));
     }
 
     #[test]

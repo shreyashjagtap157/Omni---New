@@ -199,7 +199,16 @@ fn verify_evidence_corpus(
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let spec_root = args.get(1).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("spec"));
+    let spec_root = match args.get(1).map(PathBuf::from) {
+        Some(explicit) => explicit,
+        None => match omni_registry::discover_spec_root() {
+            Ok(root) => root,
+            Err(e) => {
+                eprintln!("FAIL-CLOSED: {e}");
+                std::process::exit(101);
+            }
+        },
+    };
     match verify_spec(&spec_root) {
         Ok(report) => {
             println!(
@@ -233,8 +242,15 @@ mod conform_tests {
             fs::create_dir_all(root.join(dir)).expect("mkdir");
         }
         fs::write(root.join("grammar/omni-edition1.ebnf"), b"(* t *)\n").expect("write");
+        fs::write(root.join("grammar/candidate2-erratum.md"), b"# fixture erratum\n")
+            .expect("write");
         fs::write(root.join("registry/rules.json"), br#"{"schema_version":"1.0.0","rules":[]}"#)
             .expect("write");
+        fs::write(
+            root.join("registry/rule-texts.json"),
+            br#"{"schema_version":"1.0.0","texts":[]}"#,
+        )
+        .expect("write");
         for schema in [
             "rule-registry",
             "diagnostic",
@@ -275,7 +291,7 @@ mod conform_tests {
     fn matching_binding_passes() {
         let root = scratch_spec(None);
         let report = verify_spec(&root).expect("pass");
-        assert_eq!(report.tree_files, 10);
+        assert_eq!(report.tree_files, 12);
         assert_eq!(report.registry_rules, 0);
         assert_eq!(report.evidence_records, 0);
         fs::remove_dir_all(&root).ok();
@@ -284,12 +300,20 @@ mod conform_tests {
     fn corpus_spec() -> PathBuf {
         let root = scratch_spec(None);
         // Registry with one live rule; corpus files live outside hashed dirs
-        // so the bound digest is unaffected.
+        // so the bound digest is unaffected. Hashes rederive coherently.
+        let corpus_text = "fixture text for LEX-0006";
+        let corpus_hash = omni_canon::rule_text_hash(corpus_text);
         fs::write(
             root.join("registry/rules.json"),
             format!(
-                "{{\"schema_version\":\"1.0.0\",\"rules\":[{{\"rule_id\":\"LEX-0006\",\"domain\":\"OMNI-LEX\",\"status\":\"Candidate\",\"normative\":true,\"text_hash\":\"{}\",\"dependencies\":[],\"witness_tests\":[]}}]}}",
-                "1".repeat(64)
+                "{{\"schema_version\":\"1.0.0\",\"rules\":[{{\"rule_id\":\"LEX-0006\",\"domain\":\"OMNI-LEX\",\"status\":\"Candidate\",\"normative\":true,\"text_hash\":\"{corpus_hash}\",\"dependencies\":[],\"witness_tests\":[]}}]}}"
+            ),
+        )
+        .expect("write");
+        fs::write(
+            root.join("registry/rule-texts.json"),
+            format!(
+                "{{\"schema_version\":\"1.0.0\",\"texts\":[{{\"rule_id\":\"LEX-0006\",\"text\":\"{corpus_text}\"}}]}}"
             ),
         )
         .expect("write");

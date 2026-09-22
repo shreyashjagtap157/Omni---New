@@ -384,6 +384,7 @@ dependencies = [
 name = "omni-audit"
 version = "0.0.0"
 dependencies = [
+ "omni-registry",
  "serde",
  "serde_json",
  "syn 3.0.6",
@@ -455,6 +456,7 @@ name = "omni-evidence"
 version = "0.0.0"
 dependencies = [
  "omni-canon",
+ "omni-registry",
  "serde",
  "serde_json",
 ]

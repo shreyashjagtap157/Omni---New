@@ -69,7 +69,7 @@ impl RegistryView {
     fn require_live_rule(&self, id: &str) -> Result<(), EvidenceError> {
         self.require_rule(id)?;
         match self.statuses.get(id).map(String::as_str) {
-            Some("Candidate") | Some("Ratified") => Ok(()),
+            Some(status) if omni_registry::is_ownable_status(status) => Ok(()),
             Some(other) => fail(format!("rule {id} is {other}, not live")),
             None => fail(format!("unresolved rule ID: {id}")),
         }
@@ -282,6 +282,11 @@ pub struct Provenance {
     pub plan_sha256: Option<String>,
     pub toolchain: String,
     pub target: String,
+    /// How the target string was produced: `host` (truthful build-environment
+    /// description, never a selection) or `explicit` (declared semantic
+    /// input). Host-derived values must never select target identity.
+    #[serde(default)]
+    pub target_source: Option<String>,
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]
@@ -307,6 +312,7 @@ pub struct ProvenanceInputs {
     pub plan_digest: Option<String>,
     pub toolchain: String,
     pub target: String,
+    pub target_source: Option<String>,
     pub profile: Option<String>,
     pub compiler_id: String,
     pub compiler_version: String,
@@ -352,6 +358,11 @@ pub fn validate_provenance_inputs(
     }
     check_printable(&inputs.toolchain, "toolchain")?;
     check_printable(&inputs.target, "target")?;
+    if let Some(source) = &inputs.target_source {
+        if source != "host" && source != "explicit" {
+            return fail(format!("bad target source: {source}"));
+        }
+    }
     check_printable(&inputs.compiler_id, "compiler identity")?;
     check_printable(&inputs.compiler_version, "compiler version")?;
     if let Some(rev) = &inputs.source_revision {
@@ -365,6 +376,7 @@ pub fn validate_provenance_inputs(
             plan_sha256: inputs.plan_digest,
             toolchain: inputs.toolchain,
             target: inputs.target,
+            target_source: inputs.target_source,
             profile: inputs.profile,
             compiler_id: Some(inputs.compiler_id),
             compiler_version: Some(inputs.compiler_version),
@@ -624,6 +636,11 @@ pub fn validate_provenance(p: &Provenance, _ctx: &ValidationContext) -> Result<(
     }
     if p.toolchain.is_empty() || p.target.is_empty() {
         return fail("empty toolchain/target".to_string());
+    }
+    if let Some(source) = &p.target_source {
+        if source != "host" && source != "explicit" {
+            return fail(format!("bad target source: {source}"));
+        }
     }
     if let Some(id) = &p.compiler_id {
         check_printable(id, "compiler identity")?;
@@ -974,6 +991,7 @@ mod evidence_tests {
                 plan_sha256: None,
                 toolchain: "1.95.0".to_string(),
                 target: "x86_64-unknown-linux-gnu".to_string(),
+                target_source: Some("explicit".to_string()),
                 profile: None,
                 compiler_id: Some("omni-driver".to_string()),
                 compiler_version: Some("0.0.0".to_string()),
@@ -1218,6 +1236,7 @@ mod evidence_tests {
             plan_digest: None,
             toolchain: "1.95.0".to_string(),
             target: "x86_64-unknown-linux-gnu".to_string(),
+            target_source: Some("explicit".to_string()),
             profile: None,
             compiler_id: "omni-driver".to_string(),
             compiler_version: "0.0.0".to_string(),

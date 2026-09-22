@@ -20,15 +20,18 @@ implementation manifests and release evidence under `spec/manifest/` and `spec/r
 from the hashed tree to avoid a self-referential digest. The qualification tool must define and record
 this exclusion set explicitly; it must never hash the manifest containing the digest it is checking.
 
-Publication set (0.0.0.5, extended 0.0.0.8 with the seven evidence schemas):
-`grammar/omni-edition1.ebnf`, `registry/rules.json`, all ten `schemas/*.schema.json`, plus anything
-under `models/` or `data/` (currently only `.gitkeep` scaffolding, which is excluded and contributes
-nothing). Procedure: walk included directories in lexicographic order of slash-joined relative
-paths, normalize file bytes CRLF/CR to LF, hash each file with SHA-256, then hash the concatenation
+Publication set (0.0.0.5, extended 0.0.0.8 with the seven evidence schemas, extended by gate
+closure with `registry/rule-texts.json` and `grammar/candidate2-erratum.md`):
+`grammar/omni-edition1.ebnf`, `grammar/candidate2-erratum.md`, `registry/rules.json`,
+`registry/rule-texts.json`, all eight `schemas/*.schema.json`, plus anything under `models/` or
+`data/` (currently only `.gitkeep` scaffolding, which is excluded and contributes nothing).
+Procedure: walk included directories in lexicographic order of slash-joined relative paths,
+normalize file bytes CRLF/CR to LF, hash each file with SHA-256, then hash the concatenation
 of `path + LF + hex + LF` lines. `omni-canon --spec-tree` computes it; `omni-conform` rejects any
 manifest/gate digest mismatch fail-closed. Current digest:
-`1e2325f200d66abad8cdb8446af7c36c479d8283ff9d4087c3ae166ba20b85d7` (supersedes the 0.0.0.11
-`2af51aa9…` value by content repair — provenance identity fields — not by contradiction).
+`0776206193730acd8dec3c07384fd5f5cfad3229f10216919e5698051ad4c7d4` (supersedes the 0.0.0.12
+`1e2325f2…` value by gate-closure content — recovered STAGE0 rules/texts, erratum, widened
+patterns — not by contradiction).
 
 Known specification inconsistency (open, not resolved by invention): the normative EBNF predates the
 Candidate-2 amendment and contains no pipeline-operator, newline-termination, projection-shorthand,
@@ -152,3 +155,25 @@ loader helper and re-checked on every `omni-conform` run. A dev-dependency integ
 the chain canon → loader → predicates against the live manifest (14 allowed + 8 forbidden);
 production compiler wiring awaits 0.0.1.x consumers, with `compiler → stage0` documented as the
 future query edge (infra stays edge-free today, so topology is unchanged).
+
+## 0.0.0.13 gate closure (pre-sign-off; no gate declared)
+
+Lifecycle: ADR-0001 fixes the seventh state spelling as `ErratumCorrected` (normative prose keeps
+the hyphenated form); the canonical set lives once in `omni-registry` and is consumed by the
+loader, audit, conformance, and evidence validators, with a test asserting the schema file's enum
+equals it. Ownership of non-live states stays forbidden; zero records carry the new state.
+Rule-text binding: `registry/rule-texts.json` (567 texts) makes every stored hash mechanically
+rederivable — the loader rejects stale/mutated/orphan/textless entries, and a test asserts the
+texts equal a fresh table-grammar extraction of the normative document.
+Grammar: `grammar/candidate2-erratum.md` records the appendix precedence over the Candidate-1
+EBNF (citing rule IDs and hashes, inventing no productions), pointed to by a new manifest
+`errata` array that the loader resolves and reference-scans; promotion stays blocked per the
+amendment's own ratification gate.
+Discovery: `omni-registry` discovery (explicit `OMNI_SPEC_ROOT`, else manifest-anchored ancestor
+walk) is used by all four binaries and the driver; CWD-independence and layout strictness are
+tested, including nested-directory and outside-tree cases.
+Target/host: provenance records label `target_source` (`host` vs `explicit`); the driver always
+emits `host`, and a purity test proves the descriptor equals the two build consts exactly.
+Models/data: the manifest declares module names, never model/data files, so the loader's explicit
+empty states are contract-consistent (tested). Digest `07762061…` rebound once for all closure
+content through the established process.
