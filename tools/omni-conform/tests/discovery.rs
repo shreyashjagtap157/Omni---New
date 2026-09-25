@@ -25,11 +25,8 @@ fn run_conform(dir: &Path) -> (bool, String) {
         .env_remove("OMNI_SPEC_ROOT")
         .output()
         .expect("spawn conformer");
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let text =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     (out.status.success(), text)
 }
 
@@ -67,8 +64,7 @@ fn root_and_nested_invocations_resolve_identically() {
 
 #[test]
 fn invocation_outside_any_tree_fails_closed() {
-    let outside =
-        std::env::temp_dir().join(format!("omni-conform-outside-{}", std::process::id()));
+    let outside = std::env::temp_dir().join(format!("omni-conform-outside-{}", std::process::id()));
     std::fs::create_dir_all(&outside).expect("mkdir");
     let (ok, text) = run_conform(&outside);
     assert!(!ok, "must fail closed outside a specification tree: {text}");
