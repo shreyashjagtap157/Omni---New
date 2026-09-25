@@ -696,10 +696,8 @@ mod determinism_tests {
             minimal_tree(),
             b"{\"schema_version\":\"1.0.0\",\r\n\"rules\":[]}\r\n" as &[u8],
         );
-        let lf = swap_rules(
-            minimal_tree(),
-            b"{\"schema_version\":\"1.0.0\",\n\"rules\":[]}\n" as &[u8],
-        );
+        let lf =
+            swap_rules(minimal_tree(), b"{\"schema_version\":\"1.0.0\",\n\"rules\":[]}\n" as &[u8]);
         let a = scratch_tree(&crlf);
         let b = scratch_tree(&lf);
         let (da, _) = spec_tree::spec_tree_digest(&a).expect("digest a");
