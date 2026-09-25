@@ -1,10 +1,7 @@
 {
   "gate": "OMNI-IMP-0.0.0.13",
-  "status": "blocked",
-  "blocked_reasons": [
-    "rust_toolchain_unavailable",
-    "authoritative_spec_tree_not_installed"
-  ],
+  "status": "qualified",
+  "blocked_reasons": [],
   "declared_toolchain": "1.95.0",
   "required_targets": [
     "riscv64-unknown-none-elf",
