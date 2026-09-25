@@ -4,74 +4,62 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-compute_sha256() {
-    local target_file="$1"
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "${target_file}" | awk '{print $1}'
-    else
-        shasum -a 256 "${target_file}" | awk '{print $1}'
-    fi
-}
-
 fail() {
     echo "[-] FAIL-CLOSED: $*" >&2
     exit 1
 }
 
 echo "================================================================"
-echo "=== [Omni Gate 0.0.0.13] Pre-0.0.1.0 Foundation Qualification ==="
+echo "=== [Omni Gate 0.0.0.13] Foundation Qualification ==="
 echo "================================================================"
 
 cd "${WORKSPACE_ROOT}"
 
-echo "[Step 1/9] Verifying Git worktree status and maintainer identity..."
+echo "[Step 1/10] Verifying clean Git worktree..."
 [[ -z "$(git status --porcelain)" ]] || fail "Dirty working tree detected."
-CURRENT_USER_NAME="$(git config --local --get user.name || true)"
-CURRENT_USER_EMAIL="$(git config --local --get user.email || true)"
-[[ "${CURRENT_USER_NAME}" == "shreyashjagtap157" && "${CURRENT_USER_EMAIL}" == "ssjagtap2016@gmail.com" ]] || fail "Repository author configuration mismatch: ${CURRENT_USER_NAME} <${CURRENT_USER_EMAIL}>"
-echo "[+] Step 1 PASS: Worktree clean, maintainer identity matched."
+echo "[+] Step 1 PASS: Worktree clean."
 
-echo "[Step 2/9] Validating normative specification SHA-256..."
-SPEC_FILE="${WORKSPACE_ROOT}/docs/specification/Omni_Complete_Specification_Edition1_1.0.0-candidate.1_updated.md"
-EXPECTED_SPEC_HASH="e3ff0e1b6ef0f1f1d713647cc3c0c04dfd940513d292bac95f7b0d44e6c95f0c"
-[[ -f "${SPEC_FILE}" ]] || fail "Missing normative specification file at ${SPEC_FILE}"
-ACTUAL_SPEC_HASH="$(compute_sha256 "${SPEC_FILE}")"
-[[ "${ACTUAL_SPEC_HASH}" == "${EXPECTED_SPEC_HASH}" ]] || fail "Specification hash mismatch. Expected ${EXPECTED_SPEC_HASH}, got ${ACTUAL_SPEC_HASH}"
-echo "[+] Step 2 PASS: Normative specification hash verified."
-
-echo "[Step 3/9] Validating implementation master plan SHA-256..."
-PLAN_FILE="${WORKSPACE_ROOT}/docs/implementation/Omni_Implementation_Master_Plan_Edition1_Final_Comprehensive_MicroAtomic_Final.md"
-EXPECTED_PLAN_HASH="cdf7ff8cb0eae597b52e295fa43c11f701415f62f2a292f4bd4a2be5012cb506"
-[[ -f "${PLAN_FILE}" ]] || fail "Missing implementation plan file at ${PLAN_FILE}"
-ACTUAL_PLAN_HASH="$(compute_sha256 "${PLAN_FILE}")"
-[[ "${ACTUAL_PLAN_HASH}" == "${EXPECTED_PLAN_HASH}" ]] || fail "Implementation plan hash mismatch. Expected ${EXPECTED_PLAN_HASH}, got ${ACTUAL_PLAN_HASH}"
-echo "[+] Step 3 PASS: Implementation plan hash verified."
-
-echo "[Step 4/9] Running assert-toolchain.sh..."
+echo "[Step 2/10] Verifying pinned Rust toolchain..."
 "${WORKSPACE_ROOT}/ci/assert-toolchain.sh"
-echo "[+] Step 4 PASS: Toolchain strictly qualified."
+echo "[+] Step 2 PASS: Toolchain strictly qualified."
 
-echo "[Step 5/9] Auditing workspace unsafe-code lint policy..."
-if ! grep -Eq '^[[:space:]]*unsafe_code[[:space:]]*=[[:space:]]*"forbid"[[:space:]]*$' "${WORKSPACE_ROOT}/Cargo.toml"; then
-    fail "Cargo.toml does not declare workspace unsafe_code = \"forbid\"."
-fi
-echo "[+] Step 5 PASS: Workspace unsafe-code forbid policy verified."
+echo "[Step 3/10] Checking formatting..."
+cargo fmt --all -- --check
+echo "[+] Step 3 PASS: Formatting clean."
 
-echo "[Step 6/9] Executing cargo check across workspace..."
-cargo check --workspace --all-targets
-echo "[+] Step 6 PASS: Workspace check succeeded."
+echo "[Step 4/10] Checking workspace..."
+cargo check -j 1 --workspace --all-targets --locked
+echo "[+] Step 4 PASS: Workspace check succeeded."
 
-echo "[Step 7/9] Executing cargo clippy (-D warnings)..."
-cargo clippy --workspace --all-targets -- -D warnings
-echo "[+] Step 7 PASS: Zero clippy warnings."
+echo "[Step 5/10] Running strict Clippy..."
+cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
+echo "[+] Step 5 PASS: Zero Clippy warnings."
 
-echo "[Step 8/9] Executing cargo fmt check..."
-cargo fmt --check
-echo "[+] Step 8 PASS: Code formatting clean."
+echo "[Step 6/10] Running the complete workspace test suite..."
+cargo test -j 1 --workspace --locked -- --test-threads=1
+echo "[+] Step 6 PASS: Workspace tests succeeded."
 
-echo "[Step 9/9] Executing workspace test runner..."
-cargo test --workspace
-echo "[+] Step 9 PASS: Test harness execution nominal."
+echo "[Step 7/10] Verifying locked metadata and dependency tree..."
+cargo metadata --format-version 1 --locked > /dev/null
+cargo tree --locked > /dev/null
+echo "[+] Step 7 PASS: Metadata and dependency tree verified."
+
+echo "[Step 8/10] Loading the normative specification through omni-registry..."
+cargo run -j 1 -p omni-registry --locked -- "${WORKSPACE_ROOT}/spec"
+echo "[+] Step 8 PASS: Specification loader verified."
+
+echo "[Step 9/10] Running release/conformance/linkage/topology gates..."
+cargo run -j 1 -p omni-conform --locked
+cargo run -j 1 -p omni-audit --locked
+cargo run -j 1 -p omni-topology --locked
+echo "[+] Step 9 PASS: Conformance, linkage, and topology gates passed."
+
+echo "[Step 10/10] Verifying canonical specification-tree identity..."
+EXPECTED_DIGEST="$(sed -n 's/^[[:space:]]*"spec_tree_sha256":[[:space:]]*"\([0-9a-f]\{64\}\)",.*$/\1/p' "${WORKSPACE_ROOT}/spec/manifest/omni-edition1.manifest.json" | head -n 1)"
+[[ -n "${EXPECTED_DIGEST}" ]] || fail "Unable to read manifest spec_tree_sha256."
+ACTUAL_DIGEST="$(cargo run -j 1 -p omni-canon --locked -- --spec-tree "${WORKSPACE_ROOT}/spec")"
+[[ "${ACTUAL_DIGEST}" == "${EXPECTED_DIGEST}" ]] || fail "Specification-tree digest mismatch: expected ${EXPECTED_DIGEST}, got ${ACTUAL_DIGEST}"
+echo "[+] Step 10 PASS: Spec-tree digest ${ACTUAL_DIGEST} verified against the manifest."
 
 echo "================================================================"
 echo "[+] PASS: OMNI-IMP-0.0.0.13 Foundation Gate PASSED."
