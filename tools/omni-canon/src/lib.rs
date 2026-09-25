@@ -632,10 +632,7 @@ mod determinism_tests {
             ("grammar/omni-edition1.ebnf", b"(* t *)\n" as &[u8]),
             ("grammar/candidate2-erratum.md", b"# fixture erratum\n" as &[u8]),
             ("registry/rules.json", br#"{"schema_version":"1.0.0","rules":[]}"# as &[u8]),
-            (
-                "registry/rule-texts.json",
-                br#"{"schema_version":"1.0.0","texts":[]}"# as &[u8],
-            ),
+            ("registry/rule-texts.json", br#"{"schema_version":"1.0.0","texts":[]}"# as &[u8]),
         ];
         // Every declared schema file must be present (required-artifact rule).
         for schema in [
