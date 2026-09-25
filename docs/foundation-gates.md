@@ -29,9 +29,10 @@ Procedure: walk included directories in lexicographic order of slash-joined rela
 normalize file bytes CRLF/CR to LF, hash each file with SHA-256, then hash the concatenation
 of `path + LF + hex + LF` lines. `omni-canon --spec-tree` computes it; `omni-conform` rejects any
 manifest/gate digest mismatch fail-closed. Current digest:
-`0776206193730acd8dec3c07384fd5f5cfad3229f10216919e5698051ad4c7d4` (supersedes the 0.0.0.12
-`1e2325f2…` value by gate-closure content — recovered STAGE0 rules/texts, erratum, widened
-patterns — not by contradiction).
+`07762061…` value by gate-closure content — recovered STAGE0 rules/texts, erratum, widened
+patterns — not by contradiction). Current digest:
+`7e63431f3c624f9818454f076c38f5cde3d517ace9e919926d6188bc177be769` (supersedes previous values
+by REL-0007 machine-block formatting in `candidate2-erratum.md`).
 
 Known specification inconsistency (open, not resolved by invention): the normative EBNF predates the
 Candidate-2 amendment and contains no pipeline-operator, newline-termination, projection-shorthand,

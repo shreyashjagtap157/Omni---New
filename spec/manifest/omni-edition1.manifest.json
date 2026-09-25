@@ -2,7 +2,7 @@
   "manifest_version": "1.0.0",
   "edition": 1,
   "status": "1.0.0-candidate.1",
-  "spec_tree_sha256": "0776206193730acd8dec3c07384fd5f5cfad3229f10216919e5698051ad4c7d4",
+  "spec_tree_sha256": "7e63431f3c624f9818454f076c38f5cde3d517ace9e919926d6188bc177be769",
   "plan_sha256": "cdf7ff8cb0eae597b52e295fa43c11f701415f62f2a292f4bd4a2be5012cb506",
   "errata": ["grammar/candidate2-erratum.md"],
   "modules": [

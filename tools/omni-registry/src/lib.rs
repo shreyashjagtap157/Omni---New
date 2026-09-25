@@ -114,7 +114,10 @@ pub struct Manifest {
     #[serde(default)]
     pub stage0_feature_predicates: serde_json::Value,
     /// Normative erratum overlays (REL-0007 mechanics): tree-relative paths
-    /// resolved against the publication set. Absent means no overlays.
+    /// resolved against the publication set. Absent means no overlays. Every
+    /// listed overlay must carry a machine-readable `rel-0007` metadata block
+    /// whose declared state agrees with this manifest (see
+    /// `validate_rel0007_overlay`), so a draft can never be read as applied.
     #[serde(default)]
     pub errata: Vec<String>,
 }
@@ -655,6 +658,7 @@ impl ValidatedSpecification {
                     );
                 }
             }
+            validate_rel0007_overlay(text, &manifest, overlay)?;
         }
 
         // Models/data: explicit empty states. Any present file fails closed:
@@ -875,6 +879,152 @@ pub fn workspace_root_for_spec(spec_root: &Path) -> Result<PathBuf, LoadError> {
     )
 }
 
+/// REL-0007 machine-readable overlay metadata. Every manifest-listed erratum
+/// overlay must carry exactly this shape inside a fenced `rel-0007` block;
+/// the surrounding prose explains the block but never extends it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Rel0007Overlay {
+    overlay_id: String,
+    classification: String,
+    status: String,
+    effective_releases: Vec<String>,
+    replacement_source_path: String,
+    replacement_source_sha256: String,
+    implementation_impact: String,
+    migration: String,
+    immutability: String,
+    signature_state: String,
+}
+
+/// Extract the body of the first fenced `rel-0007` block, if present.
+fn rel0007_block(text: &str) -> Option<String> {
+    let mut inside = false;
+    let mut body = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !inside {
+            inside = trimmed == "```rel-0007";
+            continue;
+        }
+        if trimmed == "```" {
+            return Some(body);
+        }
+        body.push_str(line);
+        body.push('\n');
+    }
+    None
+}
+
+/// Validate the REL-0007 elements an overlay declares against the manifest
+/// that lists it. Fail-closed on a missing element, a classification or
+/// status mismatch, and any attempt to mark an overlay applied without a
+/// signature and a signed (non-candidate) base release. This is what keeps a
+/// Candidate-2 amendment from being read as a promoted baseline.
+fn validate_rel0007_overlay(
+    text: &str,
+    manifest: &Manifest,
+    overlay: &str,
+) -> Result<(), LoadError> {
+    let artifact = Some(overlay.to_string());
+    let malformed = |detail: String| LoadError {
+        class: LoadErrorClass::MalformedArtifact,
+        phase: ValidationPhase::Schema,
+        artifact: artifact.clone(),
+        detail,
+    };
+    let raw = rel0007_block(text)
+        .ok_or_else(|| malformed("erratum overlay has no ```rel-0007 metadata block".to_string()))?;
+    let meta: Rel0007Overlay =
+        serde_json::from_str(&raw).map_err(|e| malformed(format!("rel-0007 metadata: {e}")))?;
+
+    if meta.overlay_id.trim().is_empty() {
+        return Err(malformed("rel-0007 overlay_id is empty".to_string()));
+    }
+    if meta.classification != "rel-0007-erratum-overlay" {
+        return Err(malformed(format!(
+            "rel-0007 classification must be rel-0007-erratum-overlay, got {}",
+            meta.classification
+        )));
+    }
+    if meta.status != "pre-release" && meta.status != "applied" {
+        return Err(malformed(format!(
+            "rel-0007 status must be pre-release or applied, got {}",
+            meta.status
+        )));
+    }
+    if meta.signature_state != "pending" && meta.signature_state != "attached" {
+        return Err(malformed(format!(
+            "rel-0007 signature_state must be pending or attached, got {}",
+            meta.signature_state
+        )));
+    }
+    if meta.immutability != "spec-tree-sha256" {
+        return Err(malformed(format!(
+            "rel-0007 immutability must be spec-tree-sha256, got {}",
+            meta.immutability
+        )));
+    }
+    if meta.effective_releases.is_empty()
+        || meta.effective_releases.iter().any(|r| r.trim().is_empty())
+    {
+        return Err(malformed(
+            "rel-0007 effective_releases must name at least one release".to_string(),
+        ));
+    }
+    let base = manifest.status.as_deref().unwrap_or_default();
+    if base.trim().is_empty() {
+        return Err(malformed(
+            "base manifest declares no status, so overlay effectiveness is undefined".to_string(),
+        ));
+    }
+    if !meta.effective_releases.iter().any(|r| r == base) {
+        return Err(malformed(format!(
+            "rel-0007 effective_releases must name the base manifest status {base}"
+        )));
+    }
+    if meta.implementation_impact.trim().is_empty() {
+        return Err(malformed("rel-0007 implementation_impact is empty".to_string()));
+    }
+    if meta.migration.trim().is_empty() {
+        return Err(malformed("rel-0007 migration is empty".to_string()));
+    }
+    let source = Path::new(&meta.replacement_source_path);
+    if meta.replacement_source_path.trim().is_empty()
+        || source.is_absolute()
+        || source.components().any(|c| {
+            matches!(c, Component::ParentDir | Component::Prefix(_) | Component::RootDir)
+        })
+    {
+        return Err(malformed(
+            "rel-0007 replacement_source_path must be a relative path".to_string(),
+        ));
+    }
+    if meta.replacement_source_sha256.len() != 64
+        || !meta
+            .replacement_source_sha256
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
+    {
+        return Err(malformed(
+            "rel-0007 replacement_source_sha256 must be 64 lowercase hex digits".to_string(),
+        ));
+    }
+    if meta.status == "applied" {
+        if meta.signature_state != "attached" {
+            return Err(malformed(
+                "rel-0007 applied overlay must be signed (signature_state attached)".to_string(),
+            ));
+        }
+        if base.to_ascii_lowercase().contains("candidate") {
+            return Err(malformed(format!(
+                "rel-0007 overlay cannot be applied to candidate base release {base}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod loader_tests {
     use super::*;
@@ -930,10 +1080,14 @@ mod loader_tests {
         )
         .expect("write");
         fs::write(root.join("registry/rule-texts.json"), texts).expect("write");
-        // Minimal erratum overlay: present for the publication set, carrying
-        // no rule references (loader scans references, never content shape).
-        fs::write(root.join("grammar/candidate2-erratum.md"), b"# fixture erratum\n")
-            .expect("write");
+        // Minimal erratum overlay: present for the publication set and
+        // carrying a valid pre-release REL-0007 block, so overlay validation
+        // runs on every load instead of being skipped by absent metadata.
+        fs::write(
+            root.join("grammar/candidate2-erratum.md"),
+            fixture_erratum("pre-release", "t", "pending"),
+        )
+        .expect("write");
         for schema in [
             "rule-registry",
             "diagnostic",
@@ -969,11 +1123,27 @@ mod loader_tests {
             root.join("manifest/omni-edition1.manifest.json"),
             format!(
                 "{{\"manifest_version\":\"1.0.0\",\"edition\":1,\"status\":\"t\",\
-                 \"spec_tree_sha256\":\"{bound}\",\"modules\":[\"OMNI-LEX\"]}}"
+                 \"spec_tree_sha256\":\"{bound}\",\"modules\":[\"OMNI-LEX\"],\
+                 \"errata\":[\"grammar/candidate2-erratum.md\"]}}"
             ),
         )
         .expect("write");
         root
+    }
+
+    /// Fixture overlay with a valid pre-release REL-0007 metadata block bound
+    /// to the given manifest status, so overlay state can be mutated per test.
+    fn fixture_erratum(status: &str, effective: &str, signature: &str) -> String {
+        format!(
+            "# fixture erratum\n\n```rel-0007\n{{\n  \"overlay_id\": \"fixture-overlay\",\n  \
+             \"classification\": \"rel-0007-erratum-overlay\",\n  \"status\": \"{status}\",\n  \
+             \"effective_releases\": [\"{effective}\"],\n  \
+             \"replacement_source_path\": \"docs/specification/fixture-source.md\",\n  \
+             \"replacement_source_sha256\": \"{hash}\",\n  \
+             \"implementation_impact\": \"none\",\n  \"migration\": \"none\",\n  \
+             \"immutability\": \"spec-tree-sha256\",\n  \"signature_state\": \"{signature}\"\n}}\n```\n",
+            hash = "0".repeat(64)
+        )
     }
 
     fn minimal_rules() -> Vec<String> {
@@ -1212,6 +1382,84 @@ mod loader_tests {
         }
         assert_eq!(extracted, committed_map, "texts file diverged from normative document");
         assert_eq!(extracted.len(), 567);
+    }
+
+    #[test]
+    fn erratum_overlay_requires_rel0007_block() {
+        let root = fixture_tree(&minimal_rules(), None, &[]);
+        fs::write(root.join("grammar/candidate2-erratum.md"), "# no metadata\n").expect("write");
+        let err = load_specification(root.clone()).expect_err("missing block");
+        assert_eq!(err.class, LoadErrorClass::MalformedArtifact);
+        assert!(err.to_string().contains("rel-0007"), "{err}");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn overlay_effectiveness_must_name_the_base_manifest_status() {
+        let root = fixture_tree(&minimal_rules(), None, &[]);
+        fs::write(
+            root.join("grammar/candidate2-erratum.md"),
+            fixture_erratum("pre-release", "9.9.9", "pending"),
+        )
+        .expect("write");
+        let err = load_specification(root.clone()).expect_err("wrong base");
+        assert!(err.to_string().contains("base manifest status"), "{err}");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn applied_overlay_needs_signature_and_a_signed_base() {
+        // Applied without a signature is a claim the process never made.
+        let root = fixture_tree(&minimal_rules(), None, &[]);
+        fs::write(
+            root.join("grammar/candidate2-erratum.md"),
+            fixture_erratum("applied", "t", "pending"),
+        )
+        .expect("write");
+        let err = load_specification(root.clone()).expect_err("unsigned applied");
+        assert!(err.to_string().contains("must be signed"), "{err}");
+        fs::remove_dir_all(&root).ok();
+
+        // Signed but applied to a candidate base would be silent promotion.
+        let root = fixture_tree(&minimal_rules(), None, &[]);
+        let raw = fs::read_to_string(root.join("manifest/omni-edition1.manifest.json")).expect("r");
+        fs::write(
+            root.join("manifest/omni-edition1.manifest.json"),
+            raw.replace("\"status\":\"t\"", "\"status\":\"1.0.0-candidate.1\""),
+        )
+        .expect("w");
+        fs::write(
+            root.join("grammar/candidate2-erratum.md"),
+            fixture_erratum("applied", "1.0.0-candidate.1", "attached"),
+        )
+        .expect("write");
+        let err = load_specification(root.clone()).expect_err("candidate base");
+        assert!(err.to_string().contains("candidate base release"), "{err}");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn published_overlay_declares_the_actual_replacement_source() {
+        let overlay = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/grammar/candidate2-erratum.md"),
+        )
+        .expect("overlay");
+        let raw = rel0007_block(&overlay).expect("rel-0007 block");
+        let meta: Rel0007Overlay = serde_json::from_str(&raw).expect("metadata");
+        let document = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+            .join(&meta.replacement_source_path);
+        let bytes = fs::read(&document).expect("replacement source exists");
+        assert_eq!(
+            omni_canon::sha256_of_normalized_bytes(&bytes),
+            meta.replacement_source_sha256,
+            "declared replacement digest drifted from the document"
+        );
+        // The overlay must remain pre-release: signature and application are
+        // outstanding, and neither is claimed here.
+        assert_eq!(meta.status, "pre-release");
+        assert_eq!(meta.signature_state, "pending");
+        assert_eq!(meta.classification, "rel-0007-erratum-overlay");
     }
 
     static GLOBAL_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());

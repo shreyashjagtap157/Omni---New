@@ -4,7 +4,12 @@
 //! validation; this gate consumes the loaded specification and adjudicates
 //! release bindings (manifest/gate digests) plus the evidence corpus policy.
 //! It performs no independent manifest/registry parsing, so no parallel trust
-//! path exists. Any mismatch fails closed (exit 101) instead of proceeding.
+//! path exists. Discovery is likewise single-authority: the specification
+//! root comes from `omni-registry` (explicit `OMNI_SPEC_ROOT` or anchored
+//! ancestor walk) and the workspace root is derived from that same tree via
+//! `workspace_root_for_spec`; this crate keeps no alternate resolver, no
+//! Cargo.toml coupling, and no silent fallback. Any mismatch fails closed
+//! (exit 101) instead of proceeding.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -72,7 +77,8 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
     // against the evidence schemas with registry/tree/toolchain binding.
     // An absent or file-empty corpus passes vacuously; the mechanism (not
     // fabricated records) is what this gate qualifies.
-    let workspace_root = workspace_root_of(spec_root);
+    let workspace_root = omni_registry::workspace_root_for_spec(spec_root)
+        .map_err(|e| fail(format!("workspace anchor failed: {e}")))?;
     let toolchain = read_toolchain_channel(&workspace_root);
     let workspace_files = workspace_file_set(&workspace_root);
     let view = RegistryView::from_rules(
@@ -100,19 +106,6 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
         stage0_allowed: allowed.len(),
         stage0_forbidden: forbidden.len(),
     })
-}
-
-/// Workspace root for evidence resolution: the parent of `spec/` in standard
-/// layout (recognized by a sibling `Cargo.toml`), else `spec/` itself.
-fn workspace_root_of(spec_root: &Path) -> PathBuf {
-    if spec_root.file_name().is_some_and(|n| n == "spec") {
-        if let Some(parent) = spec_root.parent() {
-            if parent.join("Cargo.toml").is_file() {
-                return parent.to_path_buf();
-            }
-        }
-    }
-    spec_root.to_path_buf()
 }
 
 /// Declared toolchain channel from `rust-toolchain.toml`, if resolvable.
@@ -234,15 +227,33 @@ mod conform_tests {
     use super::*;
     use omni_canon::spec_tree;
 
+    /// Fixture overlay with a valid pre-release REL-0007 metadata block bound
+    /// to the fixture manifest status, so the loader's overlay checks run.
+    fn fixture_erratum() -> String {
+        format!(
+            "# fixture erratum\n\n```rel-0007\n{{\n  \"overlay_id\": \"fixture-overlay\",\n  \
+             \"classification\": \"rel-0007-erratum-overlay\",\n  \"status\": \"pre-release\",\n  \
+             \"effective_releases\": [\"1.0.0-candidate.1\"],\n  \
+             \"replacement_source_path\": \"docs/specification/fixture-source.md\",\n  \
+             \"replacement_source_sha256\": \"{hash}\",\n  \
+             \"implementation_impact\": \"none\",\n  \"migration\": \"none\",\n  \
+             \"immutability\": \"spec-tree-sha256\",\n  \"signature_state\": \"pending\"\n}}\n```\n",
+            hash = "0".repeat(64)
+        )
+    }
+
+    /// Fixture in the standard `<workspace>/spec` layout, so the workspace
+    /// anchor is derived by `omni-registry` exactly as in the repository.
+    /// Returns the specification root; `cleanup` removes the fixture tree.
     fn scratch_spec(manifest_digest: Option<&str>) -> PathBuf {
         static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let id = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let root = std::env::temp_dir().join(format!("omni-conform-{id}"));
+        let root = std::env::temp_dir().join(format!("omni-conform-{id}")).join("spec");
         for dir in ["manifest", "release", "grammar", "registry", "schemas", "models", "data"] {
             fs::create_dir_all(root.join(dir)).expect("mkdir");
         }
         fs::write(root.join("grammar/omni-edition1.ebnf"), b"(* t *)\n").expect("write");
-        fs::write(root.join("grammar/candidate2-erratum.md"), b"# fixture erratum\n")
+        fs::write(root.join("grammar/candidate2-erratum.md"), fixture_erratum())
             .expect("write");
         fs::write(root.join("registry/rules.json"), br#"{"schema_version":"1.0.0","rules":[]}"#)
             .expect("write");
@@ -274,7 +285,8 @@ mod conform_tests {
         fs::write(
             root.join("manifest/omni-edition1.manifest.json"),
             format!(
-                "{{\"manifest_version\":\"1.0.0\",\"edition\":1,\"spec_tree_sha256\":\"{bound}\",\
+                "{{\"manifest_version\":\"1.0.0\",\"edition\":1,\"status\":\"1.0.0-candidate.1\",\
+                 \"spec_tree_sha256\":\"{bound}\",\"errata\":[\"grammar/candidate2-erratum.md\"],\
                  \"stage0_feature_predicates\":{{\"allowed\":[\"functions\"],\"forbidden\":[\"macros\"]}}}}"
             ),
         )
@@ -287,6 +299,12 @@ mod conform_tests {
         root
     }
 
+    fn cleanup(spec_root: &Path) {
+        if let Some(ws) = spec_root.parent() {
+            fs::remove_dir_all(ws).ok();
+        }
+    }
+
     #[test]
     fn matching_binding_passes() {
         let root = scratch_spec(None);
@@ -294,7 +312,19 @@ mod conform_tests {
         assert_eq!(report.tree_files, 12);
         assert_eq!(report.registry_rules, 0);
         assert_eq!(report.evidence_records, 0);
-        fs::remove_dir_all(&root).ok();
+        cleanup(&root);
+    }
+
+    #[test]
+    fn non_standard_layout_fails_closed() {
+        // A tree that is not `<workspace>/spec` cannot be workspace-anchored
+        // by the single discovery authority, so the gate refuses to guess.
+        let root = scratch_spec(None);
+        let odd = root.parent().expect("ws").join("spec-odd");
+        fs::rename(&root, &odd).expect("rename");
+        let err = verify_spec(&odd).expect_err("must reject");
+        assert!(err.to_string().contains("workspace anchor failed"), "got: {err}");
+        fs::remove_dir_all(root.parent().expect("ws")).ok();
     }
 
     fn corpus_spec() -> PathBuf {
@@ -317,13 +347,17 @@ mod conform_tests {
             ),
         )
         .expect("write");
-        fs::create_dir_all(root.join("fix")).expect("mkdir");
-        fs::write(root.join("fix/a.omni"), b"let x = 1;\n").expect("write");
+        // Evidence span files are workspace-relative: they live beside
+        // `spec/`, outside the hashed specification tree.
+        let ws = root.parent().expect("workspace").to_path_buf();
+        fs::create_dir_all(ws.join("fix")).expect("mkdir");
+        fs::write(ws.join("fix/a.omni"), b"let x = 1;\n").expect("write");
         fs::create_dir_all(root.join("evidence")).expect("mkdir");
         // Rebind after registry rewrite.
         let (digest, _) = spec_tree::spec_tree_digest(&root).expect("digest");
         let manifest = format!(
-            "{{\"manifest_version\":\"1.0.0\",\"edition\":1,\"spec_tree_sha256\":\"{digest}\",\
+            "{{\"manifest_version\":\"1.0.0\",\"edition\":1,\"status\":\"1.0.0-candidate.1\",\
+             \"spec_tree_sha256\":\"{digest}\",\"errata\":[\"grammar/candidate2-erratum.md\"],\
              \"stage0_feature_predicates\":{{\"allowed\":[\"functions\"],\"forbidden\":[\"macros\"]}}}}"
         );
         fs::write(root.join("manifest/omni-edition1.manifest.json"), manifest).expect("write");
@@ -361,7 +395,7 @@ mod conform_tests {
         let report = verify_spec(&root).expect("pass");
         assert_eq!(report.evidence_records, 3);
         assert_eq!(report.registry_rules, 1);
-        fs::remove_dir_all(&root).ok();
+        cleanup(&root);
     }
 
     #[test]
@@ -374,7 +408,7 @@ mod conform_tests {
         .expect("write");
         let err = verify_spec(&root).expect_err("must reject");
         assert!(err.to_string().contains("unresolved rule"), "got: {err}");
-        fs::remove_dir_all(&root).ok();
+        cleanup(&root);
     }
 
     #[test]
@@ -388,7 +422,7 @@ mod conform_tests {
         .expect("write");
         let err = verify_spec(&root).expect_err("must reject");
         assert!(err.to_string().contains("both allowed and forbidden"), "got: {err}");
-        fs::remove_dir_all(&root).ok();
+        cleanup(&root);
     }
 
     #[test]
@@ -396,7 +430,7 @@ mod conform_tests {
         let root = scratch_spec(Some(&"0".repeat(64)));
         let err = verify_spec(&root).expect_err("must reject");
         assert!(err.to_string().contains("ManifestMismatch"), "got: {err}");
-        fs::remove_dir_all(&root).ok();
+        cleanup(&root);
     }
 
     #[test]
@@ -411,6 +445,6 @@ mod conform_tests {
         let err = verify_spec(&root).expect_err("must reject");
         assert!(err.to_string().contains("gate digest mismatch"));
         assert!(digest.len() == 64);
-        fs::remove_dir_all(&root).ok();
+        cleanup(&root);
     }
 }
