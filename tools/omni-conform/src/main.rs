@@ -253,8 +253,7 @@ mod conform_tests {
             fs::create_dir_all(root.join(dir)).expect("mkdir");
         }
         fs::write(root.join("grammar/omni-edition1.ebnf"), b"(* t *)\n").expect("write");
-        fs::write(root.join("grammar/candidate2-erratum.md"), fixture_erratum())
-            .expect("write");
+        fs::write(root.join("grammar/candidate2-erratum.md"), fixture_erratum()).expect("write");
         fs::write(root.join("registry/rules.json"), br#"{"schema_version":"1.0.0","rules":[]}"#)
             .expect("write");
         fs::write(
