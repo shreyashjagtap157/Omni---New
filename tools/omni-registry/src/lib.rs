@@ -933,8 +933,9 @@ fn validate_rel0007_overlay(
         artifact: artifact.clone(),
         detail,
     };
-    let raw = rel0007_block(text)
-        .ok_or_else(|| malformed("erratum overlay has no ```rel-0007 metadata block".to_string()))?;
+    let raw = rel0007_block(text).ok_or_else(|| {
+        malformed("erratum overlay has no ```rel-0007 metadata block".to_string())
+    })?;
     let meta: Rel0007Overlay =
         serde_json::from_str(&raw).map_err(|e| malformed(format!("rel-0007 metadata: {e}")))?;
 
@@ -992,9 +993,9 @@ fn validate_rel0007_overlay(
     let source = Path::new(&meta.replacement_source_path);
     if meta.replacement_source_path.trim().is_empty()
         || source.is_absolute()
-        || source.components().any(|c| {
-            matches!(c, Component::ParentDir | Component::Prefix(_) | Component::RootDir)
-        })
+        || source
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_) | Component::RootDir))
     {
         return Err(malformed(
             "rel-0007 replacement_source_path must be a relative path".to_string(),
@@ -1447,7 +1448,8 @@ mod loader_tests {
         .expect("overlay");
         let raw = rel0007_block(&overlay).expect("rel-0007 block");
         let meta: Rel0007Overlay = serde_json::from_str(&raw).expect("metadata");
-        let document = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+        let document = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
             .join(&meta.replacement_source_path);
         let bytes = fs::read(&document).expect("replacement source exists");
         assert_eq!(
