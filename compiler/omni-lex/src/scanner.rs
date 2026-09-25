@@ -179,6 +179,26 @@ impl<'a> Scanner<'a> {
             "enum" => Some(Kw::Enum),
             "true" => Some(Kw::True),
             "false" => Some(Kw::False),
+            "pub" => Some(Kw::Pub),
+            "use" => Some(Kw::Use),
+            "mod" => Some(Kw::Mod),
+            "trait" => Some(Kw::Trait),
+            "impl" => Some(Kw::Impl),
+            "type" => Some(Kw::Type),
+            "where" => Some(Kw::Where),
+            "for" => Some(Kw::For),
+            "in" => Some(Kw::In),
+            "while" => Some(Kw::While),
+            "loop" => Some(Kw::Loop),
+            "break" => Some(Kw::Break),
+            "continue" => Some(Kw::Continue),
+            "async" => Some(Kw::Async),
+            "await" => Some(Kw::Await),
+            "try" => Some(Kw::Try),
+            "catch" => Some(Kw::Catch),
+            "as" => Some(Kw::As),
+            "with" => Some(Kw::With),
+            "parallel" => Some(Kw::Parallel),
             _ => None,
         };
         keyword.map(TokenKind::Keyword).unwrap_or(TokenKind::Ident)
@@ -195,9 +215,15 @@ impl<'a> Scanner<'a> {
             '-' => Punct::Minus,
             '*' => Punct::Star,
             '/' => Punct::Slash,
+            '%' => Punct::Percent,
+            '^' => Punct::Caret,
             '=' if self.peek() == Some('=') => {
                 self.advance();
                 Punct::EqEq
+            }
+            '=' if self.peek() == Some('>') => {
+                self.advance();
+                Punct::FatArrow
             }
             '=' => Punct::Eq,
             '!' if self.peek() == Some('=') => {
@@ -222,15 +248,49 @@ impl<'a> Scanner<'a> {
             '[' => Punct::LBracket,
             ']' => Punct::RBracket,
             ',' => Punct::Comma,
+            ':' if self.peek() == Some(':') => {
+                self.advance();
+                Punct::ColonColon
+            }
             ':' => Punct::Colon,
             ';' => Punct::Semicolon,
+            '&' if self.peek() == Some('&') => {
+                self.advance();
+                Punct::AmpAmp
+            }
             '&' => Punct::Amp,
             '|' if self.peek() == Some('>') => {
                 self.advance();
                 Punct::PipeArrow
             }
+            '|' if self.peek() == Some('|') => {
+                self.advance();
+                Punct::PipePipe
+            }
             '|' => Punct::Pipe,
+            '.' if self.peek() == Some('.') => {
+                self.advance();
+                if self.peek() == Some('=') {
+                    self.advance();
+                    Punct::DotDotEq
+                } else {
+                    Punct::DotDot
+                }
+            }
             '.' => Punct::Dot,
+            '?' if self.peek() == Some('.') => {
+                self.advance();
+                Punct::QuestionDot
+            }
+            '?' if self.peek() == Some('?') => {
+                self.advance();
+                Punct::QuestionQuestion
+            }
+            '?' => Punct::Question,
+            '@' => Punct::At,
+            '#' => Punct::Hash,
+            '$' => Punct::Dollar,
+            '_' => Punct::Underscore,
             _ => return TokenKind::Error,
         };
         TokenKind::Punct(kind)

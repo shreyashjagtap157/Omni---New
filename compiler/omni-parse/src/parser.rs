@@ -322,6 +322,7 @@ impl<'a> Parser<'a> {
             TokenKind::Punct(_) => SyntaxKind::Punct,
             TokenKind::Indent => SyntaxKind::Indent,
             TokenKind::Dedent => SyntaxKind::Dedent,
+            TokenKind::Char | TokenKind::String | TokenKind::RawString => SyntaxKind::Ident,
             TokenKind::Error => SyntaxKind::ErrorToken,
         };
         (kind, &self.source[t.span.start as usize..t.span.end as usize])
