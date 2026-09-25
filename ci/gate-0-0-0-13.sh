@@ -15,9 +15,11 @@ echo "================================================================"
 
 cd "${WORKSPACE_ROOT}"
 
-echo "[Step 1/10] Verifying clean Git worktree..."
+echo "[Step 1/10] Verifying clean Git worktree and exact HEAD..."
 [[ -z "$(git status --porcelain)" ]] || fail "Dirty working tree detected."
-echo "[+] Step 1 PASS: Worktree clean."
+EXPECTED_HEAD="$(git rev-parse HEAD)"
+[[ -n "${EXPECTED_HEAD}" ]] || fail "Unable to resolve repository HEAD."
+echo "[+] Step 1 PASS: Worktree clean at ${EXPECTED_HEAD}."
 
 echo "[Step 2/10] Verifying pinned Rust toolchain..."
 "${WORKSPACE_ROOT}/ci/assert-toolchain.sh"
