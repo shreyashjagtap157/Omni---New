@@ -5,4 +5,3 @@ newline_style = "Unix"
 use_small_heuristics = "Max"
 reorder_imports = true
 reorder_modules = true
-format_code_in_doc_comments = true
