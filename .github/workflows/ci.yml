@@ -54,3 +54,6 @@ jobs:
 
       - name: Verify Compiler Crate Topology
         run: cargo run -j 1 -p omni-topology --locked
+
+      - name: Run Foundation 0.0.0.13 Gate
+        run: ./ci/gate-0-0-0-13.sh
