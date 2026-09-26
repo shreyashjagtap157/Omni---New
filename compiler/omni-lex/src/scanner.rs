@@ -594,7 +594,7 @@ impl<'a> Scanner<'a> {
         let start = self.cursor.pos();
         let ch = self.cursor.advance();
         let end = self.cursor.pos();
-        if ch == Some('\u{FFFD}') && self.source[start..end] != *"\u{FFFD}".as_bytes() {
+        if ch == Some('\u{FFFD}') && self.source[start..end] != "\u{FFFD}".as_bytes() {
             return Err(());
         }
         Ok(ch)
@@ -660,9 +660,6 @@ impl<'a> Scanner<'a> {
     }
 
     fn scan_escape_value(&mut self) -> Result<u32, ()> {
-        if self.cursor.advance() != Some('\\') {
-            return Err(());
-        }
         match self.cursor.advance() {
             Some('0') => Ok(0),
             Some('t') => Ok('\t' as u32),
@@ -820,8 +817,8 @@ impl<'a> Scanner<'a> {
                 continue;
             }
             match self.advance_valid_scalar()? {
-                Some('"') => self.skip_quoted_body('"')?,
-                Some('\'') => self.skip_quoted_body('\'')?,
+                Some('"') => self.skip_quoted_tail('"')?,
+                Some('\'') => self.skip_quoted_tail('\'')?,
                 Some('(') => stack.push(')'),
                 Some('[') => stack.push(']'),
                 Some('{') => stack.push('}'),
@@ -883,6 +880,10 @@ impl<'a> Scanner<'a> {
         if self.cursor.advance() != Some(quote) {
             return Err(());
         }
+        self.skip_quoted_tail(quote)
+    }
+
+    fn skip_quoted_tail(&mut self, quote: char) -> Result<(), ()> {
         loop {
             match self.cursor.advance() {
                 Some(c) if c == quote => return Ok(()),
