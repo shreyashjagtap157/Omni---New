@@ -419,7 +419,169 @@ impl<'a> Scanner<'a> {
         })
     }
 
-    /// Scan an Edition-1 integer/float literal using a deterministic DFA.\n    ///\n    /// Numeric separators are accepted only between digits. Base prefixes,\n    /// exponent markers, decimal/hexadecimal fractions, and normative\n    /// integer/float suffixes are consumed as part of one token.\n    fn scan_number(&mut self) -> TokenKind {\n        if self.cursor.peek() == Some('0') {\n            match self.cursor.peek_nth(1) {\n                Some('b') => {\n                    self.cursor.advance();\n                    self.cursor.advance();\n                    if self.scan_digit_run(is_binary_digit).is_err() { return TokenKind::Error; }\n                    self.consume_suffix(INTEGER_SUFFIXES);\n                    return TokenKind::Int;\n                }\n                Some('o') => {\n                    self.cursor.advance();\n                    self.cursor.advance();\n                    if self.scan_digit_run(is_octal_digit).is_err() { return TokenKind::Error; }\n                    self.consume_suffix(INTEGER_SUFFIXES);\n                    return TokenKind::Int;\n                }\n                Some('x') => {\n                    self.cursor.advance();\n                    self.cursor.advance();\n                    if self.scan_digit_run(is_hex_digit).is_err() { return TokenKind::Error; }\n                    if self.cursor.peek() == Some('.') {\n                        self.cursor.advance();\n                        if self.scan_optional_digit_run(is_hex_digit).is_err() { return TokenKind::Error; }\n                        if self.cursor.peek() != Some('p') { return TokenKind::Error; }\n                        self.cursor.advance();\n                        if self.scan_exponent_body().is_err() { return TokenKind::Error; }\n                        self.consume_suffix(FLOAT_SUFFIXES);\n                        return TokenKind::Float;\n                    }\n                    self.consume_suffix(INTEGER_SUFFIXES);\n                    return TokenKind::Int;\n                }\n                _ => {}\n            }\n        }\n\n        if self.scan_digit_run(is_decimal_digit).is_err() { return TokenKind::Error; }\n        match self.cursor.peek() {\n            Some('.') if self.cursor.peek_nth(1).is_some_and(is_decimal_digit) => {\n                self.cursor.advance();\n                if self.scan_digit_run(is_decimal_digit).is_err() { return TokenKind::Error; }\n                if matches!(self.cursor.peek(), Some('e' | 'E')) {\n                    self.cursor.advance();\n                    if self.scan_exponent_body().is_err() { return TokenKind::Error; }\n                }\n                self.consume_suffix(FLOAT_SUFFIXES);\n                TokenKind::Float\n            }\n            Some('e' | 'E') => {\n                self.cursor.advance();\n                if self.scan_exponent_body().is_err() { return TokenKind::Error; }\n                self.consume_suffix(FLOAT_SUFFIXES);\n                TokenKind::Float\n            }\n            _ => {\n                self.consume_suffix(INTEGER_SUFFIXES);\n                TokenKind::Int\n            }\n        }\n    }\n\n    /// Consume one-or-more radix digits with underscore only between digits.\n    fn scan_digit_run(&mut self, valid: fn(char) -> bool) -> Result<usize, ()> {\n        let mut digits = 0usize;\n        let mut previous_was_digit = false;\n        loop {\n            match self.cursor.peek() {\n                Some(c) if valid(c) => { self.cursor.advance(); digits += 1; previous_was_digit = true; }\n                Some('_') => {\n                    if !previous_was_digit { return Err(()); }\n                    self.cursor.advance();\n                    previous_was_digit = false;\n                }\n                _ => break,\n            }\n        }\n        if digits == 0 || !previous_was_digit { Err(()) } else { Ok(digits) }\n    }\n\n    /// Consume a possibly-empty hexadecimal fractional digit run.\n    fn scan_optional_digit_run(&mut self, valid: fn(char) -> bool) -> Result<(), ()> {\n        let mut saw_digit = false;\n        let mut previous_was_digit = false;\n        loop {\n            match self.cursor.peek() {\n                Some(c) if valid(c) => { self.cursor.advance(); saw_digit = true; previous_was_digit = true; }\n                Some('_') => {\n                    if !previous_was_digit { return Err(()); }\n                    self.cursor.advance();\n                    previous_was_digit = false;\n                }\n                _ => break,\n            }\n        }\n        if saw_digit && !previous_was_digit { Err(()) } else { Ok(()) }\n    }\n\n    fn scan_exponent_body(&mut self) -> Result<(), ()> {\n        if matches!(self.cursor.peek(), Some('+' | '-')) { self.cursor.advance(); }\n        self.scan_digit_run(is_decimal_digit).map(|_| ())\n    }\n\n    fn consume_suffix(&mut self, suffixes: &[&str]) {\n        let pos = self.cursor.pos();\n        for suffix in suffixes {\n            let end = pos + suffix.len();\n            if end <= self.source.len() && &self.source[pos..end] == suffix.as_bytes() {\n                for _ in suffix.bytes() { self.cursor.advance(); }\n                return;\n            }\n        }\n    }\n
+    /// Scan an Edition-1 integer/float literal using a deterministic DFA.
+    ///
+    /// Numeric separators are accepted only between digits. Base prefixes,
+    /// exponent markers, decimal/hexadecimal fractions, and normative
+    /// integer/float suffixes are consumed as part of one token.
+    fn scan_number(&mut self) -> TokenKind {
+        if self.cursor.peek() == Some('0') {
+            match self.cursor.peek_nth(1) {
+                Some('b') => {
+                    self.cursor.advance();
+                    self.cursor.advance();
+                    if self.scan_digit_run(is_binary_digit).is_err() {
+                        return TokenKind::Error;
+                    }
+                    self.consume_suffix(INTEGER_SUFFIXES);
+                    return TokenKind::Int;
+                }
+                Some('o') => {
+                    self.cursor.advance();
+                    self.cursor.advance();
+                    if self.scan_digit_run(is_octal_digit).is_err() {
+                        return TokenKind::Error;
+                    }
+                    self.consume_suffix(INTEGER_SUFFIXES);
+                    return TokenKind::Int;
+                }
+                Some('x') => {
+                    self.cursor.advance();
+                    self.cursor.advance();
+                    if self.scan_digit_run(is_hex_digit).is_err() {
+                        return TokenKind::Error;
+                    }
+                    if self.cursor.peek() == Some('.') {
+                        self.cursor.advance();
+                        if self.scan_optional_digit_run(is_hex_digit).is_err() {
+                            return TokenKind::Error;
+                        }
+                        if self.cursor.peek() != Some('p') {
+                            return TokenKind::Error;
+                        }
+                        self.cursor.advance();
+                        if self.scan_exponent_body().is_err() {
+                            return TokenKind::Error;
+                        }
+                        self.consume_suffix(FLOAT_SUFFIXES);
+                        return TokenKind::Float;
+                    }
+                    self.consume_suffix(INTEGER_SUFFIXES);
+                    return TokenKind::Int;
+                }
+                _ => {}
+            }
+        }
+
+        if self.scan_digit_run(is_decimal_digit).is_err() {
+            return TokenKind::Error;
+        }
+
+        match self.cursor.peek() {
+            Some('.') if self.cursor.peek_nth(1).is_some_and(is_decimal_digit) => {
+                self.cursor.advance();
+                if self.scan_digit_run(is_decimal_digit).is_err() {
+                    return TokenKind::Error;
+                }
+                if matches!(self.cursor.peek(), Some('e' | 'E')) {
+                    self.cursor.advance();
+                    if self.scan_exponent_body().is_err() {
+                        return TokenKind::Error;
+                    }
+                }
+                self.consume_suffix(FLOAT_SUFFIXES);
+                TokenKind::Float
+            }
+            Some('e' | 'E') => {
+                self.cursor.advance();
+                if self.scan_exponent_body().is_err() {
+                    return TokenKind::Error;
+                }
+                self.consume_suffix(FLOAT_SUFFIXES);
+                TokenKind::Float
+            }
+            _ => {
+                self.consume_suffix(INTEGER_SUFFIXES);
+                TokenKind::Int
+            }
+        }
+    }
+
+    /// Consume one-or-more radix digits with underscore only between digits.
+    fn scan_digit_run(&mut self, valid: fn(char) -> bool) -> Result<usize, ()> {
+        let mut digits = 0usize;
+        let mut previous_was_digit = false;
+        loop {
+            match self.cursor.peek() {
+                Some(c) if valid(c) => {
+                    self.cursor.advance();
+                    digits += 1;
+                    previous_was_digit = true;
+                }
+                Some('_') => {
+                    if !previous_was_digit {
+                        return Err(());
+                    }
+                    self.cursor.advance();
+                    previous_was_digit = false;
+                }
+                _ => break,
+            }
+        }
+        if digits == 0 || !previous_was_digit {
+            Err(())
+        } else {
+            Ok(digits)
+        }
+    }
+
+    /// Consume a possibly-empty hexadecimal fractional digit run.
+    fn scan_optional_digit_run(&mut self, valid: fn(char) -> bool) -> Result<(), ()> {
+        let mut saw_digit = false;
+        let mut previous_was_digit = false;
+        loop {
+            match self.cursor.peek() {
+                Some(c) if valid(c) => {
+                    self.cursor.advance();
+                    saw_digit = true;
+                    previous_was_digit = true;
+                }
+                Some('_') => {
+                    if !previous_was_digit {
+                        return Err(());
+                    }
+                    self.cursor.advance();
+                    previous_was_digit = false;
+                }
+                _ => break,
+            }
+        }
+        if saw_digit && !previous_was_digit {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn scan_exponent_body(&mut self) -> Result<(), ()> {
+        if matches!(self.cursor.peek(), Some('+' | '-')) {
+            self.cursor.advance();
+        }
+        self.scan_digit_run(is_decimal_digit).map(|_| ())
+    }
+
+    fn consume_suffix(&mut self, suffixes: &[&str]) {
+        let pos = self.cursor.pos();
+        for suffix in suffixes {
+            let end = pos + suffix.len();
+            if end <= self.source.len() && &self.source[pos..end] == suffix.as_bytes() {
+                for _ in suffix.bytes() {
+                    self.cursor.advance();
+                }
+                return;
+            }
+        }
+    }
     fn scan_string(&mut self) -> TokenKind {
         self.cursor.advance();
         while let Some(c) = self.cursor.peek() {
@@ -451,27 +613,26 @@ impl<'a> Scanner<'a> {
     }
 
     fn scan_raw_string(&mut self) -> TokenKind {
-        self.cursor.advance();
-        let mut hashes = 0;
-        while self.cursor.peek() == Some('#') {
-            self.cursor.advance();
-            hashes += 1;
-        }
-        if self.cursor.advance() != Some('"') {
-            return TokenKind::Error;
-        }
-        while let Some(c) = self.cursor.advance() {
-            if c == '"' {
-                let mut h = 0;
-                while self.cursor.peek() == Some('#') && h < hashes {
-                    self.cursor.advance();
-                    h += 1;
-                }
-                if h == hashes {
-                    return TokenKind::RawString;
-                }
-            }
-        }
-        TokenKind::Error
-    }
-}\nconst INTEGER_SUFFIXES: &[&str] = &[\n    "i128", "u128", "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8",\n];\n\nconst FLOAT_SUFFIXES: &[&str] = &[\n    "dec128", "dec64", "dec32", "f128", "f64", "f32", "f16", "bf16",\n];\n\nfn is_decimal_digit(c: char) -> bool { c.is_ascii_digit() }\nfn is_binary_digit(c: char) -> bool { matches!(c, '0' | '1') }\nfn is_octal_digit(c: char) -> bool { matches!(c, '0'..='7') }\nfn is_hex_digit(c: char) -> bool { c.is_ascii_hexdigit() }\n
+        self.curconst INTEGER_SUFFIXES: &[&str] = &[
+    "i128", "u128", "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8",
+];
+
+const FLOAT_SUFFIXES: &[&str] = &[
+    "dec128", "dec64", "dec32", "f128", "f64", "f32", "f16", "bf16",
+];
+
+fn is_decimal_digit(c: char) -> bool {
+    c.is_ascii_digit()
+}
+
+fn is_binary_digit(c: char) -> bool {
+    matches!(c, '0' | '1')
+}
+
+fn is_octal_digit(c: char) -> bool {
+    matches!(c, '0'..='7')
+}
+
+fn is_hex_digit(c: char) -> bool {
+    c.is_ascii_hexdigit()
+}
