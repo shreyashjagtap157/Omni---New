@@ -2,38 +2,34 @@
 
 use libfuzzer_sys::fuzz_target;
 use omni_lex::Scanner;
-use omni_source::Cursor;
 
 fuzz_target!(|data: &[u8]| {
-    // Omni requires valid UTF-8 source files
-    let Ok(source_str) = std::str::from_utf8(data) else {
-        return; 
+    // No UTF-8 gating: byte entry is the contract, so arbitrary bytes must be
+    // scannable without panicking and must still reconstruct exactly.
+    let mut scanner = Scanner::new(data, 0);
+    let mut reconstructed: Vec<u8> = Vec::with_capacity(data.len() + 16);
+
+    let append = |out: &mut Vec<u8>, span: (usize, usize)| {
+        out.extend_from_slice(&data[span.0..span.1]);
     };
 
-    let cursor = Cursor::new(data);
-    let mut scanner = Scanner::new(source_str, cursor, 0);
-    let mut reconstructed = String::new();
-
     while let Some(token) = scanner.next_token() {
-        // 1. Append leading trivia
         for trivia in &token.leading_trivia {
-            reconstructed.push_str(&source_str[trivia.span.start as usize .. trivia.span.end as usize]);
+            append(&mut reconstructed, (trivia.span.start as usize, trivia.span.end as usize));
         }
-        
-        // 2. Append token text
-        reconstructed.push_str(&source_str[token.span.start as usize .. token.span.end as usize]);
-        
-        // 3. Append trailing trivia
+        append(&mut reconstructed, (token.span.start as usize, token.span.end as usize));
         for trivia in &token.trailing_trivia {
-            reconstructed.push_str(&source_str[trivia.span.start as usize .. trivia.span.end as usize]);
+            append(&mut reconstructed, (trivia.span.start as usize, trivia.span.end as usize));
         }
     }
+    for trivia in scanner.take_eof_trivia() {
+        append(&mut reconstructed, (trivia.span.start as usize, trivia.span.end as usize));
+    }
 
-    // Mathematical proof of LEX-0002
-    if source_str != reconstructed {
+    if data != reconstructed.as_slice() {
         panic!(
-            "LEX-0002 Lossless Reconstruction Failed!\nOriginal: {:?}\nReconstructed: {:?}", 
-            source_str, reconstructed
+            "lossless reconstruction failed\noriginal:      {:?}\nreconstructed: {:?}",
+            data, reconstructed
         );
     }
 });

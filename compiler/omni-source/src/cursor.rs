@@ -1,4 +1,4 @@
-//! UTF-8 Byte Cursor with single-pass line ending normalization and BOM stripping.
+//! UTF-8 Byte Cursor with single-pass line ending normalization.
 
 /// Zero-allocation UTF-8 byte cursor for lexical scanning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,17 +10,28 @@ pub struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    /// Creates a new cursor.
+    /// Creates a new cursor positioned at byte offset zero.
     ///
-    /// Strips the UTF-8 BOM (`0xEF, 0xBB, 0xBF`) strictly at `pos == 0`.
+    /// The cursor never skips bytes on its own: every input byte stays covered
+    /// by an offset so span arithmetic against the original buffer is exact.
+    /// A leading UTF-8 BOM is skipped on demand through [`Cursor::skip_bom`],
+    /// which lets the scanner span-cover it as trivia instead of dropping it.
     pub fn new(bytes: &'a [u8]) -> Self {
-        let mut cursor = Self { bytes, pos: 0, line: 1, col: 1 };
+        Self { bytes, pos: 0, line: 1, col: 1 }
+    }
 
-        if cursor.bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-            cursor.pos = 3;
+    /// Skips a UTF-8 BOM (`0xEF, 0xBB, 0xBF`) when it sits exactly at offset 0.
+    ///
+    /// Returns `true` when the three BOM bytes were consumed. `line` and `col`
+    /// are left untouched, so the first real character still reports column 1.
+    /// A BOM anywhere else is left in place and is rejected by the scanner.
+    pub fn skip_bom(&mut self) -> bool {
+        if self.pos == 0 && self.bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            self.pos = 3;
+            true
+        } else {
+            false
         }
-
-        cursor
     }
 
     /// Advances the cursor and returns the next normalized Unicode character.
@@ -30,10 +41,6 @@ impl<'a> Cursor<'a> {
     /// - Advances line/column counters predictably.
     /// - Replaces malformed or incomplete UTF-8 byte sequences with `U+FFFD` without panicking.
     pub fn advance(&mut self) -> Option<char> {
-        if self.pos == 0 && self.bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-            self.pos = 3;
-        }
-
         if self.pos >= self.bytes.len() {
             return None;
         }
@@ -190,13 +197,42 @@ mod tests {
     }
 
     #[test]
-    fn test_bom_stripping_at_zero() {
+    fn test_cursor_never_skips_bytes_silently() {
         let input = b"\xEF\xBB\xBFfn main";
         let mut cursor = Cursor::new(input);
+        assert_eq!(cursor.pos(), 0, "construction must not consume the BOM");
+        assert_eq!(cursor.advance(), Some('\u{FEFF}'));
         assert_eq!(cursor.pos(), 3);
+        assert_eq!(cursor.col(), 2);
+    }
+
+    #[test]
+    fn test_skip_bom_only_at_offset_zero() {
+        let input = b"\xEF\xBB\xBFfn main";
+        let mut cursor = Cursor::new(input);
+        assert!(cursor.skip_bom());
+        assert_eq!(cursor.pos(), 3);
+        assert_eq!(cursor.line(), 1);
+        assert_eq!(cursor.col(), 1, "BOM must not shift the first column");
         assert_eq!(cursor.advance(), Some('f'));
         assert_eq!(cursor.pos(), 4);
         assert_eq!(cursor.col(), 2);
+    }
+
+    #[test]
+    fn test_skip_bom_rejects_mid_file_and_repeated_calls() {
+        let mut early = Cursor::new(b"a\xEF\xBB\xBFb");
+        assert!(!early.skip_bom());
+        assert_eq!(early.pos(), 0);
+
+        let mut late = Cursor::new(b"a\xEF\xBB\xBF");
+        assert_eq!(late.advance(), Some('a'));
+        assert!(!late.skip_bom(), "BOM after offset zero must not be skipped");
+        assert_eq!(late.pos(), 1);
+
+        let mut repeated = Cursor::new(b"\xEF\xBB\xBFx");
+        assert!(repeated.skip_bom());
+        assert!(!repeated.skip_bom(), "a BOM is only honoured once");
     }
 
     #[test]

@@ -2,7 +2,6 @@
 
 use omni_lex::token::{Kw, Punct, Trivia};
 use omni_lex::{Scanner, Span, Token, TokenKind};
-use omni_source::Cursor;
 use omni_syntax::{SyntaxKind, SyntaxNode};
 use rowan::GreenNodeBuilder;
 
@@ -50,8 +49,18 @@ pub struct Parser<'a> {
 }
 impl<'a> Parser<'a> {
     pub fn from_source(source: &'a str) -> Self {
-        let mut scanner = Scanner::new(source, Cursor::new(source.as_bytes()), 0);
-        let tokens = std::iter::from_fn(|| scanner.next_token()).collect();
+        let mut scanner = Scanner::from_str(source, 0);
+        let mut tokens: Vec<Token> = std::iter::from_fn(|| scanner.next_token()).collect();
+        // The scanner parks bytes past the final token on `next_token()`'s
+        // `None`; folding them into a terminal token is what keeps the emitted
+        // green tree equal to the original source.
+        let eof_end = source.len() as u32;
+        tokens.push(Token {
+            kind: TokenKind::Eof,
+            span: Span { start: eof_end, end: eof_end, file_id: 0 },
+            leading_trivia: scanner.take_eof_trivia(),
+            trailing_trivia: Vec::new(),
+        });
         Self { source, tokens, diagnostics: Vec::new(), pos: 0 }
     }
     pub fn new(tokens: Vec<String>) -> Parser<'static> {
@@ -72,7 +81,10 @@ impl<'a> Parser<'a> {
     pub fn parse_source(&mut self) -> ParseResult {
         self.pos = 0;
         self.diagnostics.clear();
-        let root = self.parse_source_file();
+        let mut root = self.parse_source_file();
+        if let Some(i) = self.tokens.iter().position(|t| t.kind == TokenKind::Eof) {
+            root.children.push(Child::Token(i));
+        }
         let mut b = GreenNodeBuilder::new();
         self.emit_node(&mut b, &root);
         let green = b.finish();
@@ -333,6 +345,13 @@ impl<'a> Parser<'a> {
         for tr in &t.leading_trivia {
             self.emit_trivia(b, tr);
         }
+        if t.kind == TokenKind::Eof {
+            // Zero-width terminal: emit only the trivia it carries.
+            for tr in &t.trailing_trivia {
+                self.emit_trivia(b, tr);
+            }
+            return;
+        }
         let (kind, text) = self.token_text(t);
         b.token(kind.into(), text);
         for tr in &t.trailing_trivia {
@@ -359,6 +378,7 @@ impl<'a> Parser<'a> {
             TokenKind::Dedent => SyntaxKind::Dedent,
             TokenKind::Char | TokenKind::String | TokenKind::RawString => SyntaxKind::Ident,
             TokenKind::Error => SyntaxKind::ErrorToken,
+            TokenKind::Eof => SyntaxKind::ErrorToken,
         };
         (kind, &self.source[t.span.start as usize..t.span.end as usize])
     }
@@ -427,7 +447,10 @@ impl<'a> Parser<'a> {
         self.current_kind() == Some(TokenKind::Ident)
     }
     fn eof(&self) -> bool {
-        self.pos >= self.tokens.len()
+        match self.tokens.get(self.pos) {
+            Some(t) => t.kind == TokenKind::Eof,
+            None => true,
+        }
     }
 }
 impl Node {
@@ -466,5 +489,20 @@ mod tests {
         let r = p.parse_source();
         assert!(!r.is_ok());
         assert!(!r.syntax().text().is_empty());
+    }
+    #[test]
+    fn green_tree_text_is_the_original_source() {
+        for src in [
+            "fn main() {\n    return 0;\n}\n\n// tail comment\n",
+            "\u{FEFF}fn f() {}\n",
+            "// only a comment\n",
+            "",
+            "   \n\t\n",
+            "fn f() { return 1; }",
+        ] {
+            let mut p = Parser::from_source(src);
+            let r = p.parse_source();
+            assert_eq!(r.syntax().text().to_string(), src, "lossless tree for {:?}", src);
+        }
     }
 }

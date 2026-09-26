@@ -161,6 +161,12 @@ pub enum TokenKind {
     Indent,
     Dedent,
     Error,
+    /// Terminal token emitted after the last real token.
+    ///
+    /// It carries the zero-width span at end of input plus any trivia that
+    /// follows the final token, which is what lets consumers reconstruct the
+    /// source byte-for-byte instead of dropping the tail of the file.
+    Eof,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

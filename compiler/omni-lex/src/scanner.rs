@@ -2,20 +2,51 @@ use crate::token::{Kw, Punct, Span, Token, TokenKind, Trivia, TriviaKind};
 use omni_source::Cursor;
 
 pub struct Scanner<'a> {
-    source: &'a str,
+    source: &'a [u8],
     cursor: Cursor<'a>,
     file_id: u16,
+    eof_trivia: Vec<Trivia>,
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(source: &'a str, cursor: Cursor<'a>, file_id: u16) -> Self {
-        Self { source, cursor, file_id }
+    /// Creates a scanner over raw source bytes.
+    ///
+    /// Accepting `&[u8]` is what makes malformed UTF-8 reachable: the cursor
+    /// decodes what it can and emits `U+FFFD` for the rest without ever
+    /// panicking, and every token span is an exact byte range of this buffer
+    /// taken before line-ending normalization, so `source[span]` round-trips.
+    pub fn new(source: &'a [u8], file_id: u16) -> Self {
+        Self { source, cursor: Cursor::new(source), file_id, eof_trivia: Vec::new() }
+    }
+
+    /// Convenience constructor for UTF-8 text sources.
+    pub fn from_str(source: &'a str, file_id: u16) -> Self {
+        Self::new(source.as_bytes(), file_id)
+    }
+
+    /// Trailing trivia that follows the last token, captured when
+    /// [`Scanner::next_token`] first reported end of input.
+    ///
+    /// Taking it is required for lossless reconstruction: without a following
+    /// token there is nothing else to carry the bytes past the final newline,
+    /// the byte-order mark of a mark-only file, or an otherwise trivia-only
+    /// source.
+    pub fn take_eof_trivia(&mut self) -> Vec<Trivia> {
+        std::mem::take(&mut self.eof_trivia)
     }
 
     pub fn next_token(&mut self) -> Option<Token> {
         let leading_trivia = self.scan_trivia(false);
         let start = self.cursor.pos() as u32;
-        let c = self.cursor.peek()?;
+        let c = match self.cursor.peek() {
+            Some(c) => c,
+            None => {
+                if self.eof_trivia.is_empty() {
+                    self.eof_trivia = leading_trivia;
+                }
+                return None;
+            }
+        };
 
         // Peek ahead to handle multi-char tokens
         let c2 = self.cursor.peek_nth(1);
@@ -50,6 +81,16 @@ impl<'a> Scanner<'a> {
 
     fn scan_trivia(&mut self, stop_at_newline: bool) -> Vec<Trivia> {
         let mut trivias = Vec::new();
+        // SRC-0001: an optional UTF-8 BOM is honoured only at byte offset zero.
+        // Carrying it as whitespace trivia keeps the three bytes span-covered,
+        // so reconstruction stays lossless while semantic hashing (which skips
+        // trivia) never sees it.
+        if self.cursor.pos() == 0 && self.cursor.skip_bom() {
+            trivias.push(Trivia {
+                kind: TriviaKind::Whitespace,
+                span: Span { start: 0, end: 3, file_id: self.file_id },
+            });
+        }
         while let Some(c) = self.cursor.peek() {
             if stop_at_newline && c == '\n' {
                 break;
@@ -152,7 +193,11 @@ impl<'a> Scanner<'a> {
             }
         }
         let end = self.cursor.pos() as u32;
-        let text = &self.source[start as usize..end as usize];
+        // `scan_ident_or_keyword` only ever consumes ASCII identifier bytes, so
+        // this decodes; a non-UTF-8 slice can only arise from a future grammar
+        // change, and degrading to `Ident` keeps the scanner total.
+        let text =
+            std::str::from_utf8(&self.source[start as usize..end as usize]).unwrap_or_default();
         match text {
             "Never" => TokenKind::Keyword(Kw::Never),
             "Self" => TokenKind::Keyword(Kw::SelfKw),
