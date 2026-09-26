@@ -24,6 +24,7 @@ pub enum Kw {
     Char,
     Const,
     Continue,
+    Crate,
     Dec128,
     Dec32,
     Dec64,
@@ -68,7 +69,6 @@ pub enum Kw {
     Override,
     Package,
     Panic,
-    Parallel,
     Persistent,
     Pub,
     Pure,
@@ -99,7 +99,6 @@ pub enum Kw {
     Verified,
     Where,
     While,
-    With,
     Yield,
 }
 

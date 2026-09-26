@@ -474,6 +474,7 @@ name = "omni-lex"
 version = "0.0.0"
 dependencies = [
  "omni-source",
+ "unicode-ident",
 ]
 
 [[package]]

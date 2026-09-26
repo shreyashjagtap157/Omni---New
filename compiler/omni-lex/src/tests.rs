@@ -1,10 +1,12 @@
-//! Workstream 0.0.1.A acceptance and rejection tests.
+//! Workstream 0.0.1 acceptance and rejection tests.
 //!
 //! Covers byte-oriented entry, malformed UTF-8, BOM placement, line-ending
-//! normalization, exact byte spans, and end-of-input at every lexical state.
+//! normalization, exact byte spans and end-of-input at every lexical state
+//! (workstream A), then Unicode identifiers, the normative keyword table and
+//! raw identifiers (workstream B).
 
 use crate::scanner::Scanner;
-use crate::token::{Span, Token, TokenKind, TriviaKind};
+use crate::token::{Kw, Punct, Span, Token, TokenKind, TriviaKind};
 
 /// Reconstructs `bytes` from the tokens and trivia the scanner produced.
 fn reconstruct(bytes: &[u8]) -> Vec<u8> {
@@ -434,4 +436,273 @@ fn token_stream_is_monotonic_and_non_overlapping() {
         assert!(token.span.end >= token.span.start);
         cursor = token.span.end;
     }
+}
+
+// --------------------------------------------------------------------------
+// 0.0.1.B: Unicode identifiers
+// --------------------------------------------------------------------------
+
+#[test]
+fn underscore_forms_are_identifiers() {
+    let tokens = assert_lossless(b"let _x = __;");
+    assert_eq!(
+        tokens.into_iter().map(|t| (t.kind, t.span.start, t.span.end)).collect::<Vec<_>>(),
+        vec![
+            (TokenKind::Keyword(Kw::Let), 0, 3),
+            (TokenKind::Ident, 4, 6),
+            (TokenKind::Punct(Punct::Eq), 7, 8),
+            (TokenKind::Ident, 9, 11),
+            (TokenKind::Punct(Punct::Semicolon), 11, 12),
+        ],
+        "`_` is an identifier start, never punctuation (identifier = (XID_Start | \"_\") ...)"
+    );
+}
+
+#[test]
+fn xid_start_accepts_non_ascii_identifiers() {
+    let text = "let \u{65E5}\u{672C}\u{8A9E} = 1;".as_bytes();
+    let tokens = assert_lossless(text);
+    let name = &tokens[1];
+    assert_eq!(name.kind, TokenKind::Ident);
+    assert_eq!((name.span.start, name.span.end), (4, 13), "each CJK character is 3 bytes");
+    assert_eq!(&text[4..13], "\u{65E5}\u{672C}\u{8A9E}".as_bytes());
+
+    let tokens = assert_lossless("\u{03B1}\u{03B2}\u{03B3}".as_bytes());
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, TokenKind::Ident);
+    assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, 6));
+}
+
+#[test]
+fn xid_continue_only_code_points_cannot_start_an_identifier() {
+    // U+0301 COMBINING ACUTE ACCENT (Mn) and U+00B7 MIDDLE DOT are
+    // XID_Continue but not XID_Start.
+    for lone in ["\u{0301}", "\u{00B7}"] {
+        let mut bytes = lone.as_bytes().to_vec();
+        bytes.push(b'x');
+        let tokens = assert_lossless(&bytes);
+        assert_eq!(tokens.len(), 2, "{:?} must not start an identifier", lone);
+        assert_eq!(tokens[0].kind, TokenKind::Error);
+        assert_eq!(
+            (tokens[0].span.start, tokens[0].span.end),
+            (0, lone.len() as u32),
+            "the rejected code point stays spanned"
+        );
+        assert_eq!(tokens[1].kind, TokenKind::Ident);
+        assert_eq!(
+            (tokens[1].span.start, tokens[1].span.end),
+            (lone.len() as u32, bytes.len() as u32)
+        );
+    }
+}
+
+#[test]
+fn xid_continue_glues_across_ascii_and_non_ascii() {
+    for src in ["a\u{00B7}b", "a\u{0301}", "\u{0430}\u{0431}\u{0432}"] {
+        let bytes = src.as_bytes();
+        let tokens = assert_lossless(bytes);
+        assert_eq!(tokens.len(), 1, "{:?} is a single identifier", src);
+        assert_eq!(tokens[0].kind, TokenKind::Ident);
+        assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, bytes.len() as u32));
+    }
+}
+
+#[test]
+fn keyword_prefixes_do_not_split_off_from_longer_identifiers() {
+    for src in ["iffy", "letx", "returned", "crateful", "modulator"] {
+        let tokens = assert_lossless(src.as_bytes());
+        assert_eq!(tokens.len(), 1, "{:?} must lex as one identifier", src);
+        assert_eq!(tokens[0].kind, TokenKind::Ident, "{:?} must not split", src);
+    }
+}
+
+// --------------------------------------------------------------------------
+// 0.0.1.B: the normative keyword table
+// --------------------------------------------------------------------------
+
+fn quoted_strings(s: &str) -> Vec<&str> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'"' {
+            let start = i + 1;
+            let mut j = start;
+            while j < bytes.len() && bytes[j] != b'"' {
+                j += 1;
+            }
+            if j >= bytes.len() {
+                break;
+            }
+            out.push(&s[start..j]);
+            i = j + 1;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+fn normative_keywords() -> Vec<String> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/grammar/omni-edition1.ebnf");
+    let ebnf = std::fs::read_to_string(path).expect("the spec grammar must be readable");
+    let start = ebnf.find("keyword =").expect("the spec declares a keyword production");
+    let rest = &ebnf[start..];
+    let end = rest.find(';').expect("the keyword production is terminated");
+    quoted_strings(&rest[..end]).iter().map(|s| (*s).to_string()).collect()
+}
+
+#[test]
+fn keyword_table_matches_the_normative_grammar() {
+    let keywords = normative_keywords();
+    let unique: std::collections::BTreeSet<&str> = keywords.iter().map(String::as_str).collect();
+    assert_eq!(unique.len(), keywords.len(), "the keyword production must be duplicate-free");
+    assert_eq!(keywords.len(), 91, "the normative keyword production declares 91 spellings");
+
+    // Every declared keyword must lex as a keyword, never as an identifier.
+    for kw in &keywords {
+        let tokens = assert_lossless(kw.as_bytes());
+        assert_eq!(tokens.len(), 1, "{:?} must lex as a single token", kw);
+        assert!(
+            matches!(tokens[0].kind, TokenKind::Keyword(_)),
+            "{:?} must lex as a keyword, got {:?}",
+            kw,
+            tokens[0].kind
+        );
+    }
+
+    // The scanner's table is the production plus the two identifier-shaped
+    // terminals the grammar body needs (`mod`, `crate`) and nothing else.
+    let scanner_path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/scanner.rs");
+    let scanner_src =
+        std::fs::read_to_string(scanner_path).expect("scanner source must be readable");
+    assert_eq!(
+        scanner_src.matches("=> TokenKind::Keyword(").count(),
+        keywords.len() + 2,
+        "scanner keyword table must be production + mod + crate"
+    );
+
+    for extra in ["mod", "crate"] {
+        let tokens = assert_lossless(extra.as_bytes());
+        assert!(
+            matches!(tokens[0].kind, TokenKind::Keyword(_)),
+            "{:?} is a grammar-body terminal and must stay a keyword",
+            extra
+        );
+    }
+    for not_a_kw in ["parallel", "with", "module_", "mods"] {
+        let tokens = assert_lossless(not_a_kw.as_bytes());
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::Ident,
+            "{:?} appears in neither the keyword production nor the grammar body",
+            not_a_kw
+        );
+    }
+}
+
+#[test]
+fn module_and_extern_crate_declarations_are_lexable() {
+    // `module_decl = [ "pub" ] "mod" identifier ...`
+    let tokens = assert_lossless(b"mod geometry { }");
+    assert_eq!(tokens[0].kind, TokenKind::Keyword(Kw::Mod));
+    assert_eq!(tokens[1].kind, TokenKind::Ident);
+    assert_eq!((tokens[1].span.start, tokens[1].span.end), (4, 12));
+
+    // `extern_crate_decl = "extern" "crate" identifier [ "as" identifier ] ";"`
+    let tokens = assert_lossless(b"extern crate geometry as geo;");
+    assert_eq!(tokens[0].kind, TokenKind::Keyword(Kw::Extern));
+    assert_eq!(tokens[1].kind, TokenKind::Keyword(Kw::Crate));
+    assert_eq!(tokens[2].kind, TokenKind::Ident);
+}
+
+// --------------------------------------------------------------------------
+// 0.0.1.B: raw identifiers
+// --------------------------------------------------------------------------
+
+#[test]
+fn raw_identifiers_escape_keywords() {
+    // `raw_identifier = "r#" identifier`; LEX-0005 allows the underlying
+    // name to equal a keyword.
+    for kw in ["fn", "type", "let", "mod", "crate", "use"] {
+        let src = format!("r#{}", kw);
+        let tokens = assert_lossless(src.as_bytes());
+        assert_eq!(tokens.len(), 1, "{:?} must lex as one token", src);
+        assert_eq!(tokens[0].kind, TokenKind::Ident, "r#{} must not become a keyword", kw);
+        assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, src.len() as u32));
+    }
+
+    let tokens = assert_lossless(b"let r#mod = 1;");
+    assert_eq!(
+        tokens.into_iter().map(|t| (t.kind, t.span.start, t.span.end)).collect::<Vec<_>>(),
+        vec![
+            (TokenKind::Keyword(Kw::Let), 0, 3),
+            (TokenKind::Ident, 4, 9),
+            (TokenKind::Punct(Punct::Eq), 10, 11),
+            (TokenKind::Int, 12, 13),
+            (TokenKind::Punct(Punct::Semicolon), 13, 14),
+        ]
+    );
+}
+
+#[test]
+fn raw_identifier_tail_must_satisfy_the_identifier_rule() {
+    let mut combining = b"r#".to_vec();
+    combining.extend_from_slice("\u{0301}".as_bytes());
+    let mut cases: Vec<&[u8]> = vec![b"r#", b"r#1", b"r#9x"];
+    cases.push(combining.as_slice());
+
+    for src in cases {
+        let tokens = assert_lossless(src);
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::Error,
+            "{:?} has an invalid tail",
+            String::from_utf8_lossy(src)
+        );
+        assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, 2), "the r# prefix is spanned");
+    }
+
+    // The offending tail character becomes its own token, not part of the error.
+    let tokens = assert_lossless(b"r#1");
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[1].kind, TokenKind::Int);
+    assert_eq!((tokens[1].span.start, tokens[1].span.end), (2, 3));
+
+    let tokens = assert_lossless("r#\u{03B1}".as_bytes());
+    assert_eq!(tokens.len(), 1, "a valid XID_Start tail is accepted");
+    assert_eq!(tokens[0].kind, TokenKind::Ident);
+    assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, 4));
+}
+
+#[test]
+fn raw_string_takes_precedence_over_raw_identifier() {
+    let tokens = assert_lossless(b"r#\"fn\"#");
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, TokenKind::RawString);
+    assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, 7));
+}
+
+#[test]
+fn raw_identifier_is_only_recognised_directly_after_r() {
+    let tokens = assert_lossless(b"xr#y");
+    assert_eq!(
+        tokens.into_iter().map(|t| (t.kind, t.span.start, t.span.end)).collect::<Vec<_>>(),
+        vec![
+            (TokenKind::Ident, 0, 2),
+            (TokenKind::Punct(Punct::Hash), 2, 3),
+            (TokenKind::Ident, 3, 4),
+        ],
+        "`#` may only start a raw identifier directly after an `r`"
+    );
+}
+
+#[test]
+fn identifier_trivia_and_separators_stay_byte_exact_after_unicode() {
+    let text = "fn \u{51FD}\u{6570}(\u{53C2}: i32) -> i32 { return \u{503C}; }\n";
+    let bytes = text.as_bytes();
+    let tokens = assert_lossless(bytes);
+    assert!(tokens.iter().any(|t| t.kind == TokenKind::Ident));
+    assert!(tokens.iter().any(|t| t.kind == TokenKind::Keyword(Kw::Fn)));
+    assert_eq!(reconstruct(bytes), bytes);
 }

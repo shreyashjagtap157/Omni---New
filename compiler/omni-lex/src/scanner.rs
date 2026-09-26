@@ -1,5 +1,6 @@
 use crate::token::{Kw, Punct, Span, Token, TokenKind, Trivia, TriviaKind};
 use omni_source::Cursor;
+use unicode_ident::{is_xid_continue, is_xid_start};
 
 pub struct Scanner<'a> {
     source: &'a [u8],
@@ -56,6 +57,10 @@ impl<'a> Scanner<'a> {
             'r' if c2 == Some('"') || (c2 == Some('#') && self.cursor.peek_nth(2) == Some('"')) => {
                 self.scan_raw_string()
             }
+            // `r#"` is a raw string (checked above); any other `r#` is a raw
+            // identifier, which is the only spelling that makes a keyword
+            // usable as a name (LEX-0005).
+            'r' if c2 == Some('#') => self.scan_raw_identifier(),
             'b' if c2 == Some('\'') || c2 == Some('"') => {
                 self.cursor.advance();
                 if self.cursor.peek() == Some('\'') {
@@ -66,7 +71,8 @@ impl<'a> Scanner<'a> {
             }
             '\'' => self.scan_char_or_byte(),
             '"' => self.scan_string(),
-            c if c.is_ascii_alphanumeric() || c == '_' => self.scan_ident_or_keyword(),
+            // identifier = (XID_Start | "_") (XID_Continue | "_")*
+            c if is_xid_start(c) || c == '_' => self.scan_ident_or_keyword(),
             _ => self.scan_punctuation(),
         };
         let end = self.cursor.pos() as u32;
@@ -183,19 +189,45 @@ impl<'a> Scanner<'a> {
         trivias
     }
 
-    fn scan_ident_or_keyword(&mut self) -> TokenKind {
-        let start = self.cursor.pos() as u32;
+    fn scan_ident_tail(&mut self) {
         while let Some(c) = self.cursor.peek() {
-            if c.is_ascii_alphanumeric() || c == '_' {
+            if is_xid_continue(c) || c == '_' {
                 self.cursor.advance();
             } else {
                 break;
             }
         }
+    }
+
+    /// `raw_identifier = "r#" identifier` (LEX-0005).
+    ///
+    /// The `r#` prefix is validated by the caller's guard. The tail is checked
+    /// against the identifier rule but is deliberately never looked up in the
+    /// keyword table — that omission is the entire point of the form, and it
+    /// also means a malformed tail reports `Error` instead of silently
+    /// producing a keyword.
+    fn scan_raw_identifier(&mut self) -> TokenKind {
+        self.cursor.advance();
+        self.cursor.advance();
+        match self.cursor.peek() {
+            Some(c) if is_xid_start(c) || c == '_' => {}
+            _ => return TokenKind::Error,
+        }
+        self.scan_ident_tail();
+        TokenKind::Ident
+    }
+
+    fn scan_ident_or_keyword(&mut self) -> TokenKind {
+        let start = self.cursor.pos() as u32;
+        self.scan_ident_tail();
         let end = self.cursor.pos() as u32;
-        // `scan_ident_or_keyword` only ever consumes ASCII identifier bytes, so
-        // this decodes; a non-UTF-8 slice can only arise from a future grammar
-        // change, and degrading to `Ident` keeps the scanner total.
+        // Keyword set = the normative `keyword` production (91 spellings)
+        // plus the two identifier-shaped terminals the grammar body requires
+        // but the production omits: `mod` (`module_decl`, spec line 166) and
+        // `crate` (`extern_crate_decl`, line 169). Honouring the production
+        // alone would make both productions unsatisfiable. Conversely
+        // `parallel` and `with` are in neither place, so they stay
+        // identifiers. See `tests::keyword_table_matches_the_normative_grammar`.
         let text =
             std::str::from_utf8(&self.source[start as usize..end as usize]).unwrap_or_default();
         match text {
@@ -216,6 +248,7 @@ impl<'a> Scanner<'a> {
             "char" => TokenKind::Keyword(Kw::Char),
             "const" => TokenKind::Keyword(Kw::Const),
             "continue" => TokenKind::Keyword(Kw::Continue),
+            "crate" => TokenKind::Keyword(Kw::Crate),
             "dec128" => TokenKind::Keyword(Kw::Dec128),
             "dec32" => TokenKind::Keyword(Kw::Dec32),
             "dec64" => TokenKind::Keyword(Kw::Dec64),
@@ -260,7 +293,6 @@ impl<'a> Scanner<'a> {
             "override" => TokenKind::Keyword(Kw::Override),
             "package" => TokenKind::Keyword(Kw::Package),
             "panic" => TokenKind::Keyword(Kw::Panic),
-            "parallel" => TokenKind::Keyword(Kw::Parallel),
             "persistent" => TokenKind::Keyword(Kw::Persistent),
             "pub" => TokenKind::Keyword(Kw::Pub),
             "pure" => TokenKind::Keyword(Kw::Pure),
@@ -291,7 +323,6 @@ impl<'a> Scanner<'a> {
             "verified" => TokenKind::Keyword(Kw::Verified),
             "where" => TokenKind::Keyword(Kw::Where),
             "while" => TokenKind::Keyword(Kw::While),
-            "with" => TokenKind::Keyword(Kw::With),
             "yield" => TokenKind::Keyword(Kw::Yield),
             _ => TokenKind::Ident,
         }
