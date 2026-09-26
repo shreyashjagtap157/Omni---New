@@ -27,7 +27,14 @@ pub fn parse_expr_bp<P: ExprParser>(p: &mut P, min_bp: u8) {
     };
     let mark = p.start_node(match kind {
         TokenKind::Ident => SyntaxKind::NameRef,
-        TokenKind::Int | TokenKind::Float | TokenKind::Keyword(_) => SyntaxKind::LiteralExpr,
+        TokenKind::Int
+        | TokenKind::Float
+        | TokenKind::Char
+        | TokenKind::Byte
+        | TokenKind::String
+        | TokenKind::RawString
+        | TokenKind::InterpolatedString
+        | TokenKind::Keyword(_) => SyntaxKind::LiteralExpr,
         TokenKind::Punct(Punct::Minus | Punct::Bang | Punct::Amp) => SyntaxKind::UnaryExpr,
         _ => SyntaxKind::ErrorNode,
     });
