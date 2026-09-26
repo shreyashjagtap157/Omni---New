@@ -861,3 +861,67 @@ fn numeric_suffixes_use_longest_first_matching() {
         assert_eq!(tokens[0].kind, TokenKind::Float, "{source}");
     }
 }
+
+#[test]
+fn character_and_byte_literals_are_single_tokens() {
+    for (source, expected) in [
+        ("'a'", TokenKind::Char),
+        ("'\\n'", TokenKind::Char),
+        ("'\\u{1F600}'", TokenKind::Char),
+        ("'é'", TokenKind::Char),
+        ("b'x'", TokenKind::Byte),
+        ("b'\\0'", TokenKind::Byte),
+        ("b'\\xFF'", TokenKind::Byte),
+    ] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} must be one token");
+        assert_eq!(tokens[0].kind, expected, "{source}");
+        assert_eq!(
+            (tokens[0].span.start, tokens[0].span.end),
+            (0, source.len() as u32),
+            "{source} must span its full introducer and closing quote"
+        );
+    }
+}
+
+#[test]
+fn byte_literal_prefix_is_not_consumed_as_literal_data() {
+    // `b'` is a two-character introducer. A scanner that eats only the `b` and
+    // then reads the opening quote as the value produces TokenKind::Error for
+    // the whole literal, which silently downgrades the token to a parse error.
+    let tokens = assert_lossless(b"b'x'");
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, TokenKind::Byte, "b'x' must lex as a byte literal");
+
+    // A bare `b` immediately followed by a non-quote stays an identifier, so
+    // the prefix rule cannot swallow following source.
+    let tokens = assert_lossless(b"b x");
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[0].kind, TokenKind::Ident);
+
+    // An unterminated byte literal fails closed as a lexical error.
+    let tokens = assert_lossless(b"b'x");
+    assert_eq!(tokens[0].kind, TokenKind::Error);
+}
+
+#[test]
+fn string_and_interpolated_literals_are_single_tokens() {
+    for (source, expected) in [
+        ("\"\"", TokenKind::String),
+        ("\"hi\"", TokenKind::String),
+        ("\"a\\nb\"", TokenKind::String),
+        ("b\"bytes\"", TokenKind::String),
+        ("r\"raw\\n\"", TokenKind::RawString),
+        ("r#\"raw\"#", TokenKind::RawString),
+        ("f\"hi ${name}\"", TokenKind::InterpolatedString),
+    ] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} must be one token, got {tokens:?}");
+        assert_eq!(tokens[0].kind, expected, "{source}");
+        assert_eq!(
+            (tokens[0].span.start, tokens[0].span.end),
+            (0, source.len() as u32),
+            "{source} span"
+        );
+    }
+}

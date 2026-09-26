@@ -594,7 +594,7 @@ impl<'a> Scanner<'a> {
         let start = self.cursor.pos();
         let ch = self.cursor.advance();
         let end = self.cursor.pos();
-        if ch == Some('\u{FFFD}') && self.source[start..end] != "\u{FFFD}".as_bytes() {
+        if ch == Some('\u{FFFD}') && self.source[start..end] != *"\u{FFFD}".as_bytes() {
             return Err(());
         }
         Ok(ch)
@@ -627,6 +627,11 @@ impl<'a> Scanner<'a> {
     }
 
     fn scan_char_or_byte(&mut self, byte_literal: bool) -> TokenKind {
+        if byte_literal {
+            // `b'` is a two-character introducer: consume the prefix byte so
+            // the opening quote below is the literal's delimiter, not its data.
+            self.cursor.advance();
+        }
         self.cursor.advance();
         let value = match self.scan_literal_value() {
             Ok(value) => value,
