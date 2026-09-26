@@ -54,24 +54,16 @@ impl<'a> Scanner<'a> {
 
         let kind = match c {
             '0'..='9' => self.scan_number(),
-            'r' if c2 == Some('"') || (c2 == Some('#') && self.cursor.peek_nth(2) == Some('"')) => {
-                self.scan_raw_string()
+            _ if self.starts_raw_string() => self.scan_raw_string(),
+            _ if self.starts_ascii(b"br\"") || self.starts_ascii(b"rb\"") => {
+                self.scan_string_with_prefix(2)
             }
-            // `r#"` is a raw string (checked above); any other `r#` is a raw
-            // identifier, which is the only spelling that makes a keyword
-            // usable as a name (LEX-0005).
+            _ if self.starts_ascii(b"f\"") => self.scan_interpolated_string(),
+            _ if self.starts_ascii(b"b\"") => self.scan_string_with_prefix(1),
+            _ if self.starts_ascii(b"b'") => self.scan_char_or_byte(true),
+            '"' => self.scan_string_with_prefix(0),
+            '\'' => self.scan_char_or_byte(false),
             'r' if c2 == Some('#') => self.scan_raw_identifier(),
-            'b' if c2 == Some('\'') || c2 == Some('"') => {
-                self.cursor.advance();
-                if self.cursor.peek() == Some('\'') {
-                    self.scan_char_or_byte()
-                } else {
-                    self.scan_string()
-                }
-            }
-            '\'' => self.scan_char_or_byte(),
-            '"' => self.scan_string(),
-            // identifier = (XID_Start | "_") (XID_Continue | "_")*
             c if is_xid_start(c) || c == '_' => self.scan_ident_or_keyword(),
             _ => self.scan_punctuation(),
         };
@@ -582,59 +574,356 @@ impl<'a> Scanner<'a> {
             }
         }
     }
-    fn scan_string(&mut self) -> TokenKind {
-        self.cursor.advance();
-        while let Some(c) = self.cursor.peek() {
-            if c == '"' {
-                self.cursor.advance();
-                return TokenKind::String;
-            }
-            if c == '\\' {
-                self.cursor.advance();
-            }
-            self.cursor.advance();
-        }
-        TokenKind::Error
+    fn starts_ascii(&self, prefix: &[u8]) -> bool {
+        self.cursor.rest().starts_with(prefix)
     }
 
-    fn scan_char_or_byte(&mut self) -> TokenKind {
-        self.cursor.advance();
-        while let Some(c) = self.cursor.peek() {
-            if c == '\'' {
-                self.cursor.advance();
-                return TokenKind::Char;
-            }
-            if c == '\\' {
-                self.cursor.advance();
-            }
-            self.cursor.advance();
+    fn starts_raw_string(&self) -> bool {
+        let rest = self.cursor.rest();
+        if !rest.starts_with(b"r") {
+            return false;
         }
-        TokenKind::Error
+        let mut i = 1usize;
+        while i < rest.len() && rest[i] == b'#' {
+            i += 1;
+        }
+        rest.get(i) == Some(&b'"')
     }
 
-    fn scan_raw_string(&mut self) -> TokenKind {
-        self.cursor.advance();
-        let mut hashes = 0;
-        while self.cursor.peek() == Some('#') {
+    fn advance_valid_scalar(&mut self) -> Result<Option<char>, ()> {
+        let start = self.cursor.pos();
+        let ch = self.cursor.advance();
+        let end = self.cursor.pos();
+        if ch == Some('\u{FFFD}') && self.source[start..end] != *"\u{FFFD}".as_bytes() {
+            return Err(());
+        }
+        Ok(ch)
+    }
+
+    fn scan_string_with_prefix(&mut self, prefix_len: usize) -> TokenKind {
+        for _ in 0..prefix_len {
             self.cursor.advance();
-            hashes += 1;
         }
         if self.cursor.advance() != Some('"') {
             return TokenKind::Error;
         }
+        self.scan_string_body()
+    }
+
+    fn scan_string_body(&mut self) -> TokenKind {
+        loop {
+            match self.advance_valid_scalar() {
+                Ok(Some('"')) => return TokenKind::String,
+                Ok(Some('\\')) => {
+                    if self.scan_escape_value().is_err() {
+                        self.drain_to_quote('"');
+                        return TokenKind::Error;
+                    }
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(()) => return TokenKind::Error,
+            }
+        }
+    }
+
+    fn scan_char_or_byte(&mut self, byte_literal: bool) -> TokenKind {
+        self.cursor.advance();
+        let value = match self.scan_literal_value() {
+            Ok(value) => value,
+            Err(()) => {
+                self.drain_to_quote('\'');
+                return TokenKind::Error;
+            }
+        };
+        if self.cursor.peek() != Some('\'') {
+            self.drain_to_quote('\'');
+            return TokenKind::Error;
+        }
+        self.cursor.advance();
+        if byte_literal {
+            if value <= u8::MAX as u32 {
+                TokenKind::Byte
+            } else {
+                TokenKind::Error
+            }
+        } else {
+            TokenKind::Char
+        }
+    }
+
+    fn scan_literal_value(&mut self) -> Result<u32, ()> {
+        match self.advance_valid_scalar()? {
+            Some('\\') => self.scan_escape_value(),
+            Some('\'') | None => Err(()),
+            Some(ch) => Ok(ch as u32),
+        }
+    }
+
+    fn scan_escape_value(&mut self) -> Result<u32, ()> {
+        if self.cursor.advance() != Some('\\') {
+            return Err(());
+        }
+        match self.cursor.advance() {
+            Some('0') => Ok(0),
+            Some('t') => Ok('\t' as u32),
+            Some('n') => Ok('\n' as u32),
+            Some('r') => Ok('\r' as u32),
+            Some('"') => Ok('"' as u32),
+            Some('\'') => Ok('\'' as u32),
+            Some('\\') => Ok('\\' as u32),
+            Some('x') => {
+                let hi = self.hex_escape_digit()?;
+                let lo = self.hex_escape_digit()?;
+                Ok((hi << 4) | lo)
+            }
+            Some('u') => {
+                if self.cursor.advance() != Some('{') {
+                    return Err(());
+                }
+                let mut value = 0u32;
+                let mut digits = 0usize;
+                loop {
+                    match self.cursor.peek() {
+                        Some(c) if c.is_ascii_hexdigit() => {
+                            if digits == 6 {
+                                return Err(());
+                            }
+                            self.cursor.advance();
+                            value = value * 16 + c.to_digit(16).ok_or(())?;
+                            digits += 1;
+                        }
+                        Some('}') => {
+                            if digits == 0 {
+                                return Err(());
+                            }
+                            self.cursor.advance();
+                            return char::from_u32(value).map(|ch| ch as u32).ok_or(());
+                        }
+                        _ => return Err(()),
+                    }
+                }
+            }
+            _ => Err(()),
+        }
+    }
+
+    fn hex_escape_digit(&mut self) -> Result<u32, ()> {
+        match self.cursor.advance() {
+            Some(c) if c.is_ascii_hexdigit() => c.to_digit(16).ok_or(()),
+            _ => Err(()),
+        }
+    }
+
+    fn drain_to_quote(&mut self, quote: char) {
         while let Some(c) = self.cursor.advance() {
-            if c == '"' {
-                let mut h = 0;
-                while self.cursor.peek() == Some('#') && h < hashes {
-                    self.cursor.advance();
-                    h += 1;
-                }
-                if h == hashes {
-                    return TokenKind::RawString;
-                }
+            if c == '\\' {
+                let _ = self.cursor.advance();
+            } else if c == quote {
+                break;
+            }
+        }
+    }
+
+    fn scan_raw_string(&mut self) -> TokenKind {
+        self.cursor.advance();
+        let mut hashes = 0usize;
+        while self.cursor.peek() == Some('#') {
+            self.cursor.advance();
+            hashes += 1;
+        }
+        let too_many = hashes > 255;
+        if self.cursor.advance() != Some('"') {
+            return TokenKind::Error;
+        }
+        if too_many {
+            self.drain_to_quote('"');
+            return TokenKind::Error;
+        }
+        while let Some(c) = self.cursor.advance() {
+            if c != '"' {
+                continue;
+            }
+            let mut h = 0usize;
+            while h < hashes && self.cursor.peek() == Some('#') {
+                self.cursor.advance();
+                h += 1;
+            }
+            if h == hashes {
+                return TokenKind::RawString;
             }
         }
         TokenKind::Error
+    }
+
+    fn scan_interpolated_string(&mut self) -> TokenKind {
+        self.cursor.advance();
+        if self.cursor.advance() != Some('"') {
+            return TokenKind::Error;
+        }
+        loop {
+            match self.advance_valid_scalar() {
+                Ok(Some('"')) => return TokenKind::InterpolatedString,
+                Ok(Some('\\')) => {
+                    if self.scan_escape_value().is_err() {
+                        self.drain_to_quote('"');
+                        return TokenKind::Error;
+                    }
+                }
+                Ok(Some('$')) if self.cursor.peek() == Some('{') => {
+                    self.cursor.advance();
+                    if self.scan_interpolation_body().is_err() {
+                        self.drain_to_quote('"');
+                        return TokenKind::Error;
+                    }
+                }
+                Ok(Some('{')) if self.cursor.peek() == Some('{') => {
+                    self.cursor.advance();
+                }
+                Ok(Some('}')) if self.cursor.peek() == Some('}') => {
+                    self.cursor.advance();
+                }
+                Ok(Some('{')) | Ok(Some('}')) | Err(()) => {
+                    self.drain_to_quote('"');
+                    return TokenKind::Error;
+                }
+                Ok(Some(_)) => {}
+                Ok(None) => return TokenKind::Error,
+            }
+        }
+    }
+
+    fn scan_interpolation_body(&mut self) -> Result<(), ()> {
+        let mut stack = vec!['}'];
+        loop {
+            if self.starts_ascii(b"//") {
+                self.skip_line_comment_for_interpolation();
+                continue;
+            }
+            if self.starts_ascii(b"/*") {
+                self.skip_block_comment_for_interpolation()?;
+                continue;
+            }
+            if self.starts_raw_string() {
+                self.skip_raw_for_interpolation()?;
+                continue;
+            }
+            if self.starts_ascii(b"br\"") || self.starts_ascii(b"rb\"") {
+                self.skip_quoted_for_interpolation(2, '"')?;
+                continue;
+            }
+            if self.starts_ascii(b"f\"") || self.starts_ascii(b"b\"") {
+                self.skip_quoted_for_interpolation(1, '"')?;
+                continue;
+            }
+            if self.starts_ascii(b"b'") {
+                self.skip_quoted_for_interpolation(1, '\'')?;
+                continue;
+            }
+            match self.advance_valid_scalar()? {
+                Some('"') => self.skip_quoted_body('"')?,
+                Some('\'') => self.skip_quoted_body('\'')?,
+                Some('(') => stack.push(')'),
+                Some('[') => stack.push(']'),
+                Some('{') => stack.push('}'),
+                Some(close @ (')' | ']' | '}')) => {
+                    if stack.last().copied() != Some(close) {
+                        return Err(());
+                    }
+                    stack.pop();
+                    if stack.is_empty() {
+                        return Ok(());
+                    }
+                }
+                Some(_) => {}
+                None => return Err(()),
+            }
+        }
+    }
+
+    fn skip_line_comment_for_interpolation(&mut self) {
+        self.cursor.advance();
+        self.cursor.advance();
+        while let Some(c) = self.cursor.peek() {
+            if c == '\n' {
+                break;
+            }
+            self.cursor.advance();
+        }
+    }
+
+    fn skip_block_comment_for_interpolation(&mut self) -> Result<(), ()> {
+        self.cursor.advance();
+        self.cursor.advance();
+        let mut depth = 1usize;
+        while depth > 0 {
+            match self.cursor.advance() {
+                Some('/') if self.cursor.peek() == Some('*') => {
+                    self.cursor.advance();
+                    depth += 1;
+                }
+                Some('*') if self.cursor.peek() == Some('/') => {
+                    self.cursor.advance();
+                    depth -= 1;
+                }
+                Some(_) => {}
+                None => return Err(()),
+            }
+        }
+        Ok(())
+    }
+
+    fn skip_quoted_for_interpolation(&mut self, prefix_len: usize, quote: char) -> Result<(), ()> {
+        for _ in 0..prefix_len {
+            self.cursor.advance();
+        }
+        self.skip_quoted_body(quote)
+    }
+
+    fn skip_quoted_body(&mut self, quote: char) -> Result<(), ()> {
+        if self.cursor.advance() != Some(quote) {
+            return Err(());
+        }
+        loop {
+            match self.cursor.advance() {
+                Some(c) if c == quote => return Ok(()),
+                Some('\\') => {
+                    self.cursor.advance();
+                }
+                Some(_) => {}
+                None => return Err(()),
+            }
+        }
+    }
+
+    fn skip_raw_for_interpolation(&mut self) -> Result<(), ()> {
+        self.cursor.advance();
+        let mut hashes = 0usize;
+        while self.cursor.peek() == Some('#') {
+            self.cursor.advance();
+            hashes += 1;
+            if hashes > 255 {
+                return Err(());
+            }
+        }
+        if self.cursor.advance() != Some('"') {
+            return Err(());
+        }
+        loop {
+            match self.cursor.advance() {
+                Some('"') => {
+                    let mut h = 0usize;
+                    while h < hashes && self.cursor.peek() == Some('#') {
+                        self.cursor.advance();
+                        h += 1;
+                    }
+                    if h == hashes {
+                        return Ok(());
+                    }
+                }
+                Some(_) => {}
+                None => return Err(()),
+            }
+        }
     }
 }
 const INTEGER_SUFFIXES: &[&str] =
