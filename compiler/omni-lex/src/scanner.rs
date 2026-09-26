@@ -637,13 +637,10 @@ impl<'a> Scanner<'a> {
         TokenKind::Error
     }
 }
-const INTEGER_SUFFIXES: &[&str] = &[
-    "i128", "u128", "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8",
-];
+const INTEGER_SUFFIXES: &[&str] =
+    &["i128", "u128", "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8"];
 
-const FLOAT_SUFFIXES: &[&str] = &[
-    "dec128", "dec64", "dec32", "f128", "f64", "f32", "f16", "bf16",
-];
+const FLOAT_SUFFIXES: &[&str] = &["dec128", "dec64", "dec32", "f128", "f64", "f32", "f16", "bf16"];
 
 fn is_decimal_digit(c: char) -> bool {
     c.is_ascii_digit()
