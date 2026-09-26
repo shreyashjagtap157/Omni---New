@@ -706,3 +706,152 @@ fn identifier_trivia_and_separators_stay_byte_exact_after_unicode() {
     assert!(tokens.iter().any(|t| t.kind == TokenKind::Keyword(Kw::Fn)));
     assert_eq!(reconstruct(bytes), bytes);
 }
+
+
+#[test]
+fn decimal_integer_literals_and_suffixes_are_single_tokens() {
+    for (source, expected) in [
+        ("0", TokenKind::Int),
+        ("42", TokenKind::Int),
+        ("1_000_000", TokenKind::Int),
+        ("42i8", TokenKind::Int),
+        ("42i128", TokenKind::Int),
+        ("42isize", TokenKind::Int),
+        ("42u8", TokenKind::Int),
+        ("42u128", TokenKind::Int),
+        ("42usize", TokenKind::Int),
+    ] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} must be one token");
+        assert_eq!(tokens[0].kind, expected, "{source}");
+        assert_eq!(
+            (tokens[0].span.start, tokens[0].span.end),
+            (0, source.len() as u32),
+            "{source} span"
+        );
+    }
+}
+
+#[test]
+fn base_prefixed_integer_literals_are_single_tokens() {
+    for source in ["0b0", "0b1010", "0b1_0_1_0", "0o0", "0o755", "0x0", "0xFF", "0xDEAD_BEEF"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} must be one token");
+        assert_eq!(tokens[0].kind, TokenKind::Int, "{source}");
+        assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, source.len() as u32));
+    }
+
+    for source in ["0b1010u8", "0o755usize", "0xFFu32"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} suffix must be consumed");
+        assert_eq!(tokens[0].kind, TokenKind::Int, "{source}");
+    }
+}
+
+#[test]
+fn decimal_float_literals_cover_dot_exponent_and_suffix_forms() {
+    for source in [
+        "0.0",
+        "3.14159",
+        "1_000.25",
+        "1e10",
+        "1E-10",
+        "6.02e23",
+        "6.02E+23",
+        "1.0f16",
+        "1.0bf16",
+        "1.0f32",
+        "1.0f64",
+        "1.0f128",
+        "1.0dec32",
+        "1.0dec64",
+        "1.0dec128",
+    ] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} must be one token");
+        assert_eq!(tokens[0].kind, TokenKind::Float, "{source}");
+        assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, source.len() as u32));
+    }
+}
+
+#[test]
+fn hexadecimal_float_literals_require_lowercase_p_exponent() {
+    for source in ["0x1.0p0", "0x1.fp3", "0xDEAD.BEEFp+4", "0x1.p2"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} must be one token");
+        assert_eq!(tokens[0].kind, TokenKind::Float, "{source}");
+    }
+
+    let tokens = assert_lossless(b"0x1.0P0");
+    assert_eq!(tokens[0].kind, TokenKind::Error, "uppercase P is not Edition-1 syntax");
+}
+
+#[test]
+fn range_operator_does_not_turn_integer_prefix_into_float() {
+    for source in ["1..2", "1..=2", "0..10", "42.foo"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_ne!(tokens.first().map(|t| t.kind), Some(TokenKind::Float), "{source}");
+        assert_eq!(tokens[0].kind, TokenKind::Int, "{source} starts with integer");
+    }
+}
+
+#[test]
+fn decimal_float_requires_a_digit_after_dot() {
+    let tokens = assert_lossless(b"1.");
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[0].kind, TokenKind::Int);
+    assert_eq!(tokens[0].span.end, 1);
+    assert_eq!(tokens[1].kind, TokenKind::Punct(Punct::Dot));
+}
+
+#[test]
+fn numeric_separator_boundaries_are_rejected() {
+    for source in ["1_", "1__2", "0b_1", "0b1_", "0o_7", "0o7_", "0x_FF", "0xFF_", "1.0_", "1e_2", "1e2_"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens[0].kind, TokenKind::Error, "{source} must be rejected");
+    }
+}
+
+#[test]
+fn prefixed_literals_require_digits() {
+    for source in ["0b", "0o", "0x", "0x.p1"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens[0].kind, TokenKind::Error, "{source} must be rejected");
+    }
+}
+
+#[test]
+fn exponent_forms_require_decimal_digits() {
+    for source in ["1e", "1E", "1e+", "1e-", "1e+_", "1.0e", "1.0e+"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens[0].kind, TokenKind::Error, "{source} must be rejected");
+    }
+}
+
+#[test]
+fn numeric_spans_cover_original_bytes_exactly() {
+    for source in ["1_000", "0xDEAD_BEEF", "6.02e23f64", "0x1.fp+4"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source}");
+        assert_eq!(
+            &source.as_bytes()[tokens[0].span.start as usize..tokens[0].span.end as usize],
+            source.as_bytes(),
+            "{source} must round-trip through its span"
+        );
+    }
+}
+
+#[test]
+fn numeric_suffixes_use_longest_first_matching() {
+    for source in ["1i8", "1i16", "1i32", "1i64", "1i128", "1isize", "1u8", "1u16", "1u32", "1u64", "1u128", "1usize"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} must not split its suffix");
+        assert_eq!(tokens[0].kind, TokenKind::Int, "{source}");
+    }
+
+    for source in ["1.0f16", "1.0f32", "1.0f64", "1.0f128", "1.0bf16", "1.0dec32", "1.0dec64", "1.0dec128"] {
+        let tokens = assert_lossless(source.as_bytes());
+        assert_eq!(tokens.len(), 1, "{source} must not split its suffix");
+        assert_eq!(tokens[0].kind, TokenKind::Float, "{source}");
+    }
+}
