@@ -502,7 +502,7 @@ mod tests {
             "fn f() { return b'x'; }",
             "fn f() { return \"x\"; }",
             "fn f() { return r\"x\"; }",
-            "fn f() { return f\"hello ${name}\\"; }",
+            "fn f() { return f\"hello ${name}\"; }",
         ] {
             let mut p = Parser::from_source(src);
             let r = p.parse_source();
