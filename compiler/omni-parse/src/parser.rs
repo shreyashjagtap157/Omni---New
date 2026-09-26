@@ -376,7 +376,7 @@ impl<'a> Parser<'a> {
             TokenKind::Punct(_) => SyntaxKind::Punct,
             TokenKind::Indent => SyntaxKind::Indent,
             TokenKind::Dedent => SyntaxKind::Dedent,
-            TokenKind::Char | TokenKind::String | TokenKind::RawString => SyntaxKind::Ident,
+            TokenKind::Int | TokenKind::Float | TokenKind::Char | TokenKind::Byte | TokenKind::String | TokenKind::RawString | TokenKind::InterpolatedString => SyntaxKind::LiteralExpr,
             TokenKind::Error => SyntaxKind::ErrorToken,
             TokenKind::Eof => SyntaxKind::ErrorToken,
         };
