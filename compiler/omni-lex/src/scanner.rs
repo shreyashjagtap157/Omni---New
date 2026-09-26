@@ -613,7 +613,31 @@ impl<'a> Scanner<'a> {
     }
 
     fn scan_raw_string(&mut self) -> TokenKind {
-        self.curconst INTEGER_SUFFIXES: &[&str] = &[
+        self.cursor.advance();
+        let mut hashes = 0;
+        while self.cursor.peek() == Some('#') {
+            self.cursor.advance();
+            hashes += 1;
+        }
+        if self.cursor.advance() != Some('"') {
+            return TokenKind::Error;
+        }
+        while let Some(c) = self.cursor.advance() {
+            if c == '"' {
+                let mut h = 0;
+                while self.cursor.peek() == Some('#') && h < hashes {
+                    self.cursor.advance();
+                    h += 1;
+                }
+                if h == hashes {
+                    return TokenKind::RawString;
+                }
+            }
+        }
+        TokenKind::Error
+    }
+}
+const INTEGER_SUFFIXES: &[&str] = &[
     "i128", "u128", "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8",
 ];
 
