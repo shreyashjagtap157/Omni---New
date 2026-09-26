@@ -305,7 +305,15 @@ impl<'a> Parser<'a> {
         }
         match self.current_kind() {
             Some(TokenKind::Ident) => Node::new(SyntaxKind::NameRef).with_token(self.bump()),
-            Some(TokenKind::Int | TokenKind::Float)
+            Some(
+                TokenKind::Int
+                | TokenKind::Float
+                | TokenKind::Char
+                | TokenKind::Byte
+                | TokenKind::String
+                | TokenKind::RawString
+                | TokenKind::InterpolatedString,
+            )
             | Some(TokenKind::Keyword(Kw::True | Kw::False)) => {
                 Node::new(SyntaxKind::LiteralExpr).with_token(self.bump())
             }
@@ -372,11 +380,15 @@ impl<'a> Parser<'a> {
             TokenKind::Ident => SyntaxKind::Ident,
             TokenKind::Int => SyntaxKind::Int,
             TokenKind::Float => SyntaxKind::Float,
+            TokenKind::Char
+            | TokenKind::Byte
+            | TokenKind::String
+            | TokenKind::RawString
+            | TokenKind::InterpolatedString => SyntaxKind::LiteralExpr,
             TokenKind::Keyword(_) => SyntaxKind::Keyword,
             TokenKind::Punct(_) => SyntaxKind::Punct,
             TokenKind::Indent => SyntaxKind::Indent,
             TokenKind::Dedent => SyntaxKind::Dedent,
-            TokenKind::Int | TokenKind::Float | TokenKind::Char | TokenKind::Byte | TokenKind::String | TokenKind::RawString | TokenKind::InterpolatedString => SyntaxKind::LiteralExpr,
             TokenKind::Error => SyntaxKind::ErrorToken,
             TokenKind::Eof => SyntaxKind::ErrorToken,
         };
@@ -482,6 +494,22 @@ mod tests {
         );
         assert!(r.syntax().descendants().any(|n| n.kind() == SyntaxKind::CallExpr));
         assert!(r.syntax().descendants().any(|n| n.kind() == SyntaxKind::BinaryExpr));
+    }
+    #[test]
+    fn parses_character_and_string_literals_as_literal_expressions() {
+        for src in [
+            "fn f() { return 'x'; }",
+            "fn f() { return b'x'; }",
+            "fn f() { return \"x\"; }",
+            "fn f() { return r\"x\"; }",
+            "fn f() { return f\"hello ${name}\\"; }",
+        ] {
+            let mut p = Parser::from_source(src);
+            let r = p.parse_source();
+            assert!(r.is_ok(), "{:?} for {:?}", r.diagnostics, src);
+            assert!(r.syntax().descendants().any(|n| n.kind() == SyntaxKind::LiteralExpr));
+            assert_eq!(r.syntax().text().to_string(), src);
+        }
     }
     #[test]
     fn reports_and_recovers() {
