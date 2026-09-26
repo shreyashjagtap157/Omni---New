@@ -707,7 +707,6 @@ fn identifier_trivia_and_separators_stay_byte_exact_after_unicode() {
     assert_eq!(reconstruct(bytes), bytes);
 }
 
-
 #[test]
 fn decimal_integer_literals_and_suffixes_are_single_tokens() {
     for (source, expected) in [
@@ -806,7 +805,9 @@ fn decimal_float_requires_a_digit_after_dot() {
 
 #[test]
 fn numeric_separator_boundaries_are_rejected() {
-    for source in ["1_", "1__2", "0b_1", "0b1_", "0o_7", "0o7_", "0x_FF", "0xFF_", "1.0_", "1e_2", "1e2_"] {
+    for source in
+        ["1_", "1__2", "0b_1", "0b1_", "0o_7", "0o7_", "0x_FF", "0xFF_", "1.0_", "1e_2", "1e2_"]
+    {
         let tokens = assert_lossless(source.as_bytes());
         assert_eq!(tokens[0].kind, TokenKind::Error, "{source} must be rejected");
     }
@@ -843,13 +844,18 @@ fn numeric_spans_cover_original_bytes_exactly() {
 
 #[test]
 fn numeric_suffixes_use_longest_first_matching() {
-    for source in ["1i8", "1i16", "1i32", "1i64", "1i128", "1isize", "1u8", "1u16", "1u32", "1u64", "1u128", "1usize"] {
+    for source in [
+        "1i8", "1i16", "1i32", "1i64", "1i128", "1isize", "1u8", "1u16", "1u32", "1u64", "1u128",
+        "1usize",
+    ] {
         let tokens = assert_lossless(source.as_bytes());
         assert_eq!(tokens.len(), 1, "{source} must not split its suffix");
         assert_eq!(tokens[0].kind, TokenKind::Int, "{source}");
     }
 
-    for source in ["1.0f16", "1.0f32", "1.0f64", "1.0f128", "1.0bf16", "1.0dec32", "1.0dec64", "1.0dec128"] {
+    for source in
+        ["1.0f16", "1.0f32", "1.0f64", "1.0f128", "1.0bf16", "1.0dec32", "1.0dec64", "1.0dec128"]
+    {
         let tokens = assert_lossless(source.as_bytes());
         assert_eq!(tokens.len(), 1, "{source} must not split its suffix");
         assert_eq!(tokens[0].kind, TokenKind::Float, "{source}");
