@@ -146,7 +146,42 @@ impl<'a> Parser<'a> {
     }
     fn parse_type(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::Type);
-        if self.at_ident() || self.at_kw(Kw::True) || self.at_kw(Kw::False) {
+        if self.at_ident()
+            || matches!(
+                self.current_kind(),
+                Some(TokenKind::Keyword(
+                    Kw::Never
+                        | Kw::SelfKw
+                        | Kw::Sized
+                        | Kw::Bf16
+                        | Kw::Bool
+                        | Kw::Byte
+                        | Kw::Char
+                        | Kw::Dec128
+                        | Kw::Dec32
+                        | Kw::Dec64
+                        | Kw::F128
+                        | Kw::F16
+                        | Kw::F32
+                        | Kw::F64
+                        | Kw::I128
+                        | Kw::I16
+                        | Kw::I32
+                        | Kw::I64
+                        | Kw::I8
+                        | Kw::Isize
+                        | Kw::Str
+                        | Kw::U128
+                        | Kw::U16
+                        | Kw::U32
+                        | Kw::U64
+                        | Kw::U8
+                        | Kw::Usize
+                        | Kw::True
+                        | Kw::False
+                ))
+            )
+        {
             n.children.push(Child::Token(self.bump()));
         } else {
             n.children.push(Child::Node(self.error_node("expected type name")));
