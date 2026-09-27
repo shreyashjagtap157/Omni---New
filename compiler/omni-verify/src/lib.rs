@@ -71,3 +71,6 @@ mod polonius_tests {
 }
 
 pub mod llvm_val;
+pub mod mir_verifier;
+
+pub use mir_verifier::{MirVerificationError, MirVerifier};

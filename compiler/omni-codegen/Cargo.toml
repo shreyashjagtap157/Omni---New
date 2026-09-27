@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 index_vec = "0.1.4"
 omni-mir = { path = "../omni-mir" }
+omni-verify = { path = "../omni-verify" }
 cranelift-codegen = "0.110"
 cranelift-frontend = "0.110"
 cranelift-module = "0.110"

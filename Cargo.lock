@@ -417,6 +417,7 @@ dependencies = [
  "index_vec",
  "object",
  "omni-mir",
+ "omni-verify",
  "target-lexicon",
 ]
 
