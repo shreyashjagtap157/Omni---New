@@ -913,3 +913,55 @@ fn test_binary_comparison_infers_bool_and_rejects_mismatch() {
     );
     assert!(matches!(mismatch, Err(TypeError::MismatchedTypes { .. })));
 }
+
+
+#[test]
+fn test_unary_operations_enforce_operand_types() {
+    let mut checker = TypeChecker::new();
+    let env = SubstEnv::new();
+    let locals = HashMap::new();
+
+    let neg = checker
+        .infer_expr(
+            &Expr::Unary {
+                op: UnOp::Neg,
+                expr: Box::new(Expr::Literal(Lit::Int(1))),
+            },
+            &env,
+            &locals,
+        )
+        .expect("integer negation should type-check");
+    assert_eq!(neg, checker.tcx.intern(TyKind::Int));
+
+    let logical_not = checker
+        .infer_expr(
+            &Expr::Unary {
+                op: UnOp::Not,
+                expr: Box::new(Expr::Literal(Lit::Bool(false))),
+            },
+            &env,
+            &locals,
+        )
+        .expect("boolean not should type-check");
+    assert_eq!(logical_not, checker.tcx.intern(TyKind::Bool));
+
+    let bad_neg = checker.infer_expr(
+        &Expr::Unary {
+            op: UnOp::Neg,
+            expr: Box::new(Expr::Literal(Lit::Bool(true))),
+        },
+        &env,
+        &locals,
+    );
+    assert!(matches!(bad_neg, Err(TypeError::MismatchedTypes { .. })));
+
+    let bad_not = checker.infer_expr(
+        &Expr::Unary {
+            op: UnOp::Not,
+            expr: Box::new(Expr::Literal(Lit::Int(1))),
+        },
+        &env,
+        &locals,
+    );
+    assert!(matches!(bad_not, Err(TypeError::MismatchedTypes { .. })));
+}
