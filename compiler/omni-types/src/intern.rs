@@ -11,7 +11,17 @@ pub enum TyKind {
     Int,
     Float,
     Bool,
-    // We will expand this with Structs, Enums, and Functions as the grammar grows.
+    Char,
+    Byte,
+    String,
+    Unit,
+    GenericParam(String),
+    Tuple(Vec<Ty>),
+    Array(Ty, usize),
+    Range(Ty),
+    Fn(Vec<Ty>, Ty),
+    Struct(String, Vec<Ty>),
+    Infer(u32),
 }
 
 /// The Type Context (Arena) responsible for interning types.
@@ -29,12 +39,10 @@ impl TyCtxt {
 
     /// Interns a TyKind and returns its O(1) Ty handle.
     pub fn intern(&mut self, kind: TyKind) -> Ty {
-        // If we've seen this type before, return its existing index.
         if let Some(&ty) = self.dedup.get(&kind) {
             return ty;
         }
 
-        // Otherwise, mint a new index, store it, and return it.
         let index = self.arena.len() as u32;
         let ty = Ty(index);
 
@@ -47,5 +55,55 @@ impl TyCtxt {
     /// Retrieves the actual TyKind structure for a given Ty handle.
     pub fn get(&self, ty: Ty) -> &TyKind {
         &self.arena[ty.0 as usize]
+    }
+
+    /// Produces a deterministic, collision-free mangled representation of a type.
+    pub fn mangle(&self, ty: Ty) -> String {
+        match self.get(ty) {
+            TyKind::Error => "error".to_string(),
+            TyKind::Int => "i64".to_string(),
+            TyKind::Float => "f64".to_string(),
+            TyKind::Bool => "bool".to_string(),
+            TyKind::Char => "char".to_string(),
+            TyKind::Byte => "u8".to_string(),
+            TyKind::String => "String".to_string(),
+            TyKind::Unit => "unit".to_string(),
+            TyKind::GenericParam(name) => format!("param_{name}"),
+            TyKind::Tuple(tys) => {
+                let parts: Vec<String> = tys.iter().map(|&t| self.mangle(t)).collect();
+                format!("tuple_{}_end", parts.join("_"))
+            }
+            TyKind::Array(elem, len) => format!("arr_{len}_{}_end", self.mangle(*elem)),
+            TyKind::Range(elem) => format!("range_{}_end", self.mangle(*elem)),
+            TyKind::Fn(params, ret) => {
+                let p: Vec<String> = params.iter().map(|&t| self.mangle(t)).collect();
+                format!("fn_{}_ret_{}_end", p.join("_"), self.mangle(*ret))
+            }
+            TyKind::Struct(name, args) => {
+                let a: Vec<String> = args.iter().map(|&t| self.mangle(t)).collect();
+                format!("struct_{}_{}_end", name, a.join("_"))
+            }
+            TyKind::Infer(id) => format!("var_{id}"),
+        }
+    }
+
+    /// Checks if a type contains no unresolved generic parameters or type variables.
+    pub fn is_concrete(&self, ty: Ty) -> bool {
+        match self.get(ty) {
+            TyKind::Error | TyKind::GenericParam(_) | TyKind::Infer(_) => false,
+            TyKind::Int
+            | TyKind::Float
+            | TyKind::Bool
+            | TyKind::Char
+            | TyKind::Byte
+            | TyKind::String
+            | TyKind::Unit => true,
+            TyKind::Tuple(tys) => tys.iter().all(|&t| self.is_concrete(t)),
+            TyKind::Array(elem, _) | TyKind::Range(elem) => self.is_concrete(*elem),
+            TyKind::Fn(params, ret) => {
+                params.iter().all(|&t| self.is_concrete(t)) && self.is_concrete(*ret)
+            }
+            TyKind::Struct(_, args) => args.iter().all(|&t| self.is_concrete(t)),
+        }
     }
 }
