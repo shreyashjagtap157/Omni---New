@@ -398,7 +398,7 @@ impl<'a> FnMirBuilder<'a> {
             }
             unsupported => {
                 Err(format!("Unsupported AST expression form for MIR lowering: {:?}", unsupported))
-            },
+            }
         }
     }
 }
@@ -451,7 +451,10 @@ mod tests {
         };
 
         let res = ctx.lower_monomorphized_program(&prog);
-        assert!(res.is_err(), "Program with unresolved type parameters must fail closed at MIR lowering gate");
+        assert!(
+            res.is_err(),
+            "Program with unresolved type parameters must fail closed at MIR lowering gate"
+        );
         assert!(res.unwrap_err().contains("unresolved type parameters"));
     }
 
@@ -475,7 +478,10 @@ mod tests {
         };
 
         let res = ctx.lower_monomorphized_program(&prog);
-        assert!(res.is_err(), "Program with undischarged trait bounds must fail closed at MIR lowering gate");
+        assert!(
+            res.is_err(),
+            "Program with undischarged trait bounds must fail closed at MIR lowering gate"
+        );
         assert!(res.unwrap_err().contains("unresolved trait bounds"));
     }
 
@@ -570,14 +576,13 @@ mod tests {
 
         let mir = ctx.lower_monomorphized_program(&prog).expect("comparison should lower");
         let function = &mir.functions[0];
-        let result_local = function.body.local_decls
+        let result_local = function
+            .body
+            .local_decls
             .iter()
             .find(|decl| decl.name.as_deref() == Some("_bin_tmp"))
             .expect("comparison temporary should exist");
-        assert_eq!(
-            result_local.ty,
-            function.body.local_decls[function.return_place].ty
-        );
+        assert_eq!(result_local.ty, function.body.local_decls[function.return_place].ty);
     }
 
     #[test]
