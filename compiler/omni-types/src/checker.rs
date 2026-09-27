@@ -334,10 +334,26 @@ impl TypeChecker {
                 inner_vars.insert(name.clone(), declared_ty);
                 self.infer_expr(body, env, &inner_vars)
             }
-            Expr::Binary { op: _, lhs, rhs } => {
+            Expr::Binary { op, lhs, rhs } => {
                 let l_ty = self.infer_expr(lhs, env, local_vars)?;
-                let _r_ty = self.infer_expr(rhs, env, local_vars)?;
-                Ok(l_ty)
+                let r_ty = self.infer_expr(rhs, env, local_vars)?;
+                if l_ty != r_ty {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(l_ty),
+                        found: self.tcx.mangle(r_ty),
+                    });
+                }
+
+                match op {
+                    crate::ast::BinOp::Eq
+                    | crate::ast::BinOp::Ne
+                    | crate::ast::BinOp::Lt
+                    | crate::ast::BinOp::Gt => Ok(self.tcx.intern(TyKind::Bool)),
+                    crate::ast::BinOp::Add
+                    | crate::ast::BinOp::Sub
+                    | crate::ast::BinOp::Mul
+                    | crate::ast::BinOp::Div => Ok(l_ty),
+                }
             }
             Expr::Unary { op: _, expr } => self.infer_expr(expr, env, local_vars),
             Expr::Field { expr, field: _ } => {
