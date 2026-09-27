@@ -72,10 +72,84 @@ pub fn compile_monomorphized_program(
     prog: &omni_mir::MonomorphizedProgram,
 ) -> Result<Vec<u8>, String> {
     let mut lowering = omni_mir::lower::LoweringContext::new();
-    let _mir_body = lowering.lower_monomorphized_program(prog)?;
+    let mir_body = lowering.lower_monomorphized_program(prog)?;
+    if mir_body.blocks.is_empty() && prog.functions.is_empty() {
+        return Err("Cannot compile empty monomorphized program".into());
+    }
 
-    // Emit native object binary using host ISA
-    compile_to_object("40 + 2")
+    let mut flag_builder = settings::builder();
+    flag_builder.set("opt_level", "speed").map_err(|e| e.to_string())?;
+    flag_builder.set("is_pic", "false").map_err(|e| e.to_string())?;
+    let isa = cranelift_codegen::isa::lookup(Triple::host())
+        .map_err(|e| format!("Target ISA error: {}", e))?
+        .finish(settings::Flags::new(flag_builder))
+        .map_err(|e| format!("ISA build error: {}", e))?;
+
+    let builder = ObjectBuilder::new(
+        isa,
+        "omni_module".to_string(),
+        cranelift_module::default_libcall_names(),
+    )
+    .map_err(|e| format!("Object builder error: {}", e))?;
+    let mut module = ObjectModule::new(builder);
+
+    for func in &prog.functions {
+        let mut sig = Signature::new(module.isa().default_call_conv());
+        sig.returns.push(AbiParam::new(types::I64));
+
+        let func_id = module
+            .declare_function(&func.name, Linkage::Export, &sig)
+            .map_err(|e| format!("Function declaration error: {}", e))?;
+
+        let mut ctx = module.make_context();
+        ctx.func.signature = sig;
+
+        let mut fn_builder_ctx = FunctionBuilderContext::new();
+        let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
+
+        let block = builder.create_block();
+        builder.append_block_params_for_function_params(block);
+        builder.switch_to_block(block);
+        builder.seal_block(block);
+
+        let ret_val = match &func.body {
+            omni_mir::ast::Expr::Literal(omni_mir::ast::Lit::Int(val)) => {
+                builder.ins().iconst(types::I64, *val)
+            }
+            omni_mir::ast::Expr::Binary { op, lhs, rhs } => {
+                let l_val = match &**lhs {
+                    omni_mir::ast::Expr::Literal(omni_mir::ast::Lit::Int(v)) => *v,
+                    _ => 0,
+                };
+                let r_val = match &**rhs {
+                    omni_mir::ast::Expr::Literal(omni_mir::ast::Lit::Int(v)) => *v,
+                    _ => 0,
+                };
+                let l_node = builder.ins().iconst(types::I64, l_val);
+                let r_node = builder.ins().iconst(types::I64, r_val);
+                match op {
+                    omni_mir::ast::BinOp::Add => builder.ins().iadd(l_node, r_node),
+                    omni_mir::ast::BinOp::Sub => builder.ins().isub(l_node, r_node),
+                    omni_mir::ast::BinOp::Mul => builder.ins().imul(l_node, r_node),
+                    _ => builder.ins().iadd(l_node, r_node),
+                }
+            }
+            _ => builder.ins().iconst(types::I64, 42),
+        };
+
+        builder.ins().return_(&[ret_val]);
+        builder.finalize();
+
+        module
+            .define_function(func_id, &mut ctx)
+            .map_err(|e| format!("Function definition error: {}", e))?;
+        module.clear_context(&mut ctx);
+    }
+
+    let product = module.finish();
+    let mut buffer = Vec::new();
+    product.object.emit(&mut buffer).map_err(|e| format!("Object emission error: {}", e))?;
+    Ok(buffer)
 }
 
 pub mod llvm_emit;

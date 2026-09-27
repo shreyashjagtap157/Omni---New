@@ -26,8 +26,23 @@ impl LoweringContext {
         // Enforce concrete semantic gate before MIR generation
         prog.assert_concrete_for_mir()?;
 
-        // Construct MIR representation for specialized functions
-        Ok(self.body.clone())
+        let mut blocks = IndexVec::new();
+        let mut local_decls = IndexVec::new();
+
+        for (i, func) in prog.functions.iter().enumerate() {
+            let mut stmts = Vec::new();
+            let p = crate::ir::Place { local: crate::ir::Local::from_u32(i as u32) };
+            stmts.push(crate::ir::Statement::Assign(p, crate::ir::Rvalue::Use(crate::ir::Operand::Constant)));
+
+            blocks.push(crate::ir::BlockData {
+                statements: stmts,
+                terminator: Some(crate::ir::Terminator::Return),
+            });
+        }
+
+        let body = Body { blocks, local_decls };
+        self.body = body.clone();
+        Ok(body)
     }
 
     pub fn lower_snippet(&mut self, source: &str) -> Result<Body, String> {

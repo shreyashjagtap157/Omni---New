@@ -135,7 +135,8 @@ impl<'a> Monomorphizer<'a> {
 
         self.monomorphize_fn(&key, &subst_env)?;
 
-        let functions = self.cache.values().cloned().collect();
+        let mut functions: Vec<_> = self.cache.values().cloned().collect();
+        functions.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(MonomorphizedProgram { functions })
     }
 

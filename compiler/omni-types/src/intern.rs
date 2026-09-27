@@ -70,24 +70,24 @@ impl TyCtxt {
             TyKind::Byte => "u8".to_string(),
             TyKind::String => "String".to_string(),
             TyKind::Unit => "unit".to_string(),
-            TyKind::GenericParam(name) => format!("param_{name}"),
+            TyKind::GenericParam(name) => format!("param_{}_{name}", name.len()),
             TyKind::Tuple(tys) => {
                 let parts: Vec<String> = tys.iter().map(|&t| self.mangle(t)).collect();
-                format!("tuple_{}_end", parts.join("_"))
+                format!("tuple_{}_{}_end", tys.len(), parts.join("_"))
             }
             TyKind::Array(elem, len) => format!("arr_{len}_{}_end", self.mangle(*elem)),
             TyKind::Range(elem) => format!("range_{}_end", self.mangle(*elem)),
             TyKind::Fn(params, ret) => {
                 let p: Vec<String> = params.iter().map(|&t| self.mangle(t)).collect();
-                format!("fn_{}_ret_{}_end", p.join("_"), self.mangle(*ret))
+                format!("fn_{}_{}_ret_{}_end", params.len(), p.join("_"), self.mangle(*ret))
             }
             TyKind::Struct(name, args) => {
                 let a: Vec<String> = args.iter().map(|&t| self.mangle(t)).collect();
-                format!("struct_{}_{}_end", name, a.join("_"))
+                format!("struct_{}_{name}_{}_{}_end", name.len(), args.len(), a.join("_"))
             }
             TyKind::Enum(name, args) => {
                 let a: Vec<String> = args.iter().map(|&t| self.mangle(t)).collect();
-                format!("enum_{}_{}_end", name, a.join("_"))
+                format!("enum_{}_{name}_{}_{}_end", name.len(), args.len(), a.join("_"))
             }
             TyKind::Never => "never".to_string(),
             TyKind::Infer(id) => format!("var_{id}"),

@@ -17,6 +17,8 @@ pub enum TypeError {
     NonExhaustiveMatch { scrutinee_ty: String, missing: String },
     UnreachablePattern { arm_index: usize, detail: String },
     EffectViolation(String),
+    ArgumentCountMismatch { expected: usize, found: usize },
+    GenericArgumentCountMismatch { expected: usize, found: usize },
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
@@ -74,6 +76,10 @@ impl SubstEnv {
             TyKind::Struct(name, args) => {
                 let sub_args = args.into_iter().map(|a| self.substitute_ty(tcx, a)).collect();
                 tcx.intern(TyKind::Struct(name, sub_args))
+            }
+            TyKind::Enum(name, args) => {
+                let sub_args = args.into_iter().map(|a| self.substitute_ty(tcx, a)).collect();
+                tcx.intern(TyKind::Enum(name, sub_args))
             }
             _ => ty,
         }
@@ -224,6 +230,19 @@ impl TypeChecker {
             .cloned()
             .ok_or_else(|| TypeError::FunctionNotFound(fn_name.to_string()))?;
 
+        if explicit_generic_args.len() > fn_def.type_params.len() {
+            return Err(TypeError::GenericArgumentCountMismatch {
+                expected: fn_def.type_params.len(),
+                found: explicit_generic_args.len(),
+            });
+        }
+        if args.len() != fn_def.params.len() {
+            return Err(TypeError::ArgumentCountMismatch {
+                expected: fn_def.params.len(),
+                found: args.len(),
+            });
+        }
+
         let mut derived_subst = SubstEnv::new();
 
         // Bind explicit generic arguments if supplied or in active environment
@@ -318,6 +337,14 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+            (TyKind::Enum(e_name, e_args), TyKind::Enum(f_name, f_args))
+                if e_name == f_name && e_args.len() == f_args.len() =>
+            {
+                for (e, f) in e_args.into_iter().zip(f_args) {
+                    self.unify_types(e, f, subst)?;
+                }
+                Ok(())
+            }
             (_e, _f) if expected == found => Ok(()),
             _ => Err(TypeError::MismatchedTypes {
                 expected: self.tcx.mangle(expected),
@@ -394,12 +421,35 @@ impl TypeChecker {
             Expr::Match { expr, arms } => {
                 let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
 
+                for arm in arms {
+                    if let Some(guard_expr) = &arm.guard {
+                        let guard_ty = self.infer_expr(guard_expr, env, local_vars)?;
+                        let bool_ty = self.tcx.intern(TyKind::Bool);
+                        if guard_ty != bool_ty {
+                            return Err(TypeError::MismatchedTypes {
+                                expected: "bool".to_string(),
+                                found: self.tcx.mangle(guard_ty),
+                            });
+                        }
+                    }
+                }
+
                 // Enforce pattern usefulness and exhaustiveness analysis
                 let pat_checker = crate::pattern::PatternChecker::new(&self.tcx, &self.enum_defs);
                 pat_checker.check_match(scrutinee_ty, arms)?;
 
                 if let Some(first_arm) = arms.first() {
-                    self.infer_expr(&first_arm.body, env, local_vars)
+                    let first_ty = self.infer_expr(&first_arm.body, env, local_vars)?;
+                    for arm in &arms[1..] {
+                        let arm_ty = self.infer_expr(&arm.body, env, local_vars)?;
+                        if arm_ty != first_ty {
+                            return Err(TypeError::MismatchedTypes {
+                                expected: self.tcx.mangle(first_ty),
+                                found: self.tcx.mangle(arm_ty),
+                            });
+                        }
+                    }
+                    Ok(first_ty)
                 } else {
                     Ok(self.tcx.intern(TyKind::Unit))
                 }
