@@ -222,6 +222,7 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
             let binding_type = direct_type(first).map(type_spec_from_cst).transpose()?;
             let initializer = first
                 .children()
+                .rev()
                 .find(|n| {
                     matches!(
                         n.kind(),
