@@ -355,7 +355,20 @@ impl TypeChecker {
                     | crate::ast::BinOp::Div => Ok(l_ty),
                 }
             }
-            Expr::Unary { op: _, expr } => self.infer_expr(expr, env, local_vars),
+            Expr::Unary { op, expr } => {
+                let inner_ty = self.infer_expr(expr, env, local_vars)?;
+                let expected = match op {
+                    crate::ast::UnOp::Neg => self.tcx.intern(TyKind::Int),
+                    crate::ast::UnOp::Not => self.tcx.intern(TyKind::Bool),
+                };
+                if inner_ty != expected {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(expected),
+                        found: self.tcx.mangle(inner_ty),
+                    });
+                }
+                Ok(expected)
+            },
             Expr::Field { expr, field: _ } => {
                 let struct_ty = self.infer_expr(expr, env, local_vars)?;
                 if let TyKind::Struct(_, args) = self.tcx.get(struct_ty).clone() {
