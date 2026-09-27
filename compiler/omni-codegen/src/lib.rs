@@ -413,22 +413,30 @@ fn lower_rvalue_to_cl(
                 omni_mir::ir::BinOp::Sub => Ok(builder.ins().isub(l, r)),
                 omni_mir::ir::BinOp::Mul => Ok(builder.ins().imul(l, r)),
                 omni_mir::ir::BinOp::Div => Ok(builder.ins().sdiv(l, r)),
-                omni_mir::ir::BinOp::Eq => {
-                    Ok(builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::Equal, l, r))
-                }
-                omni_mir::ir::BinOp::Ne => {
-                    Ok(builder.ins().icmp(cranelift_codegen::ir::condcodes::IntCC::NotEqual, l, r))
-                }
-                omni_mir::ir::BinOp::Lt => Ok(builder.ins().icmp(
+                omni_mir::ir::BinOp::Eq => lower_int_comparison(
+                    builder,
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    l,
+                    r,
+                ),
+                omni_mir::ir::BinOp::Ne => lower_int_comparison(
+                    builder,
+                    cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+                    l,
+                    r,
+                ),
+                omni_mir::ir::BinOp::Lt => lower_int_comparison(
+                    builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
                     l,
                     r,
-                )),
-                omni_mir::ir::BinOp::Gt => Ok(builder.ins().icmp(
+                ),
+                omni_mir::ir::BinOp::Gt => lower_int_comparison(
+                    builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedGreaterThan,
                     l,
                     r,
-                )),
+                ),
                 omni_mir::ir::BinOp::Le => Ok(builder.ins().icmp(
                     cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual,
                     l,
@@ -445,10 +453,25 @@ fn lower_rvalue_to_cl(
             let val = lower_operand_to_cl(builder, operand, locals)?;
             match op {
                 omni_mir::ir::UnOp::Neg => Ok(builder.ins().ineg(val)),
-                omni_mir::ir::UnOp::Not => Ok(builder.ins().bnot(val)),
+                omni_mir::ir::UnOp::Not => {
+                    let one = builder.ins().iconst(types::I64, 1);
+                    Ok(builder.ins().bxor(val, one))
+                }
             }
         }
     }
+}
+
+fn lower_int_comparison(
+    builder: &mut FunctionBuilder,
+    condition: cranelift_codegen::ir::condcodes::IntCC,
+    lhs: cranelift_codegen::ir::Value,
+    rhs: cranelift_codegen::ir::Value,
+) -> Result<cranelift_codegen::ir::Value, String> {
+    let predicate = builder.ins().icmp(condition, lhs, rhs);
+    let one = builder.ins().iconst(types::I64, 1);
+    let zero = builder.ins().iconst(types::I64, 0);
+    Ok(builder.ins().select(predicate, one, zero))
 }
 
 pub mod llvm_emit;
