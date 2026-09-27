@@ -33,7 +33,9 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
             }
             "-O" | "--opt-level" => {
                 if let Some(val) = iter.next() {
-                    opt_level = val.parse().unwrap_or(0);
+                    opt_level = val
+                        .parse()
+                        .map_err(|_| format!("Invalid optimization level: {val}"))?;
                 } else {
                     return Err("Missing value for optimization level".into());
                 }
@@ -528,6 +530,19 @@ fn main() {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn rejects_invalid_optimization_level() {
+        let args = vec![
+            "omni-driver".to_string(),
+            "--native".to_string(),
+            "--opt-level".to_string(),
+            "not-a-number".to_string(),
+            "program.omni".to_string(),
+        ];
+        let error = parse_args(&args).expect_err("invalid optimization level must fail");
+        assert!(error.contains("Invalid optimization level"), "unexpected error: {error}");
+    }
 
     #[test]
     fn source_pipeline_executes_integer_call_semantics() {
