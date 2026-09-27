@@ -692,10 +692,7 @@ mod tests {
                     return_type: TypeSpec::Int,
                     effects: omni_effects::EffectRow::default(),
                     capabilities: vec![],
-                    body: Expr::Block(vec![
-                        Expr::Literal(Lit::Int(1)),
-                        Expr::Literal(Lit::Int(2)),
-                    ]),
+                    body: Expr::Block(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))]),
                 },
             ],
         };
@@ -727,5 +724,4 @@ mod tests {
             })
         }));
     }
-
 }
