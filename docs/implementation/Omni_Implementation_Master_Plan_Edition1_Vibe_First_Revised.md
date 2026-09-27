@@ -4013,7 +4013,11 @@ This section is the execution-level refinement of the comprehensive Master Plan.
 
 
 
-  - `pub enum Terminator { Goto(BasicBlock), Call { func: Operand, args: Vec<Operand>, target: BasicBlock, cleanup: Option<BasicBlock> }, Return }`
+  - `pub enum Terminator { Goto(BasicBlock), Call { func: Operand, args: Vec<Operand>, destination: Option<Place>, target: BasicBlock, cleanup: Option<BasicBlock> }, Return, Unreachable }`
+
+  - `Rvalue::UnaryOp` carries an explicit MIR unary operator (`Neg` or `Not`).
+
+  - Every materialized `LocalDecl` in the semantic MIR lowering path carries a concrete `Ty`; Unit-valued calls use `destination: None` rather than fabricating a value.
 
 
 
@@ -4078,7 +4082,9 @@ This section is the execution-level refinement of the comprehensive Master Plan.
 
 **`0.5.0.2`** **- Cranelift Lowering**
 
-- **Location:** `compiler/omni-codegen/src/cranelift.rs`.
+- **Location:** `compiler/omni-codegen/src/lib.rs`.
+
+- The prior standalone `compiler/omni-codegen/src/cranelift.rs` scaffold is not a production path and is removed once the MIR-driven backend is authoritative.
 
 
 
