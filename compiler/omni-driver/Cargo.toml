@@ -7,9 +7,9 @@ publish = false
 [lints]
 workspace = true
 
-# Orchestrator interface (0.0.0.9): the driver demonstrably uses only the
-# machine and codegen entry points. The remaining compiler tiers are reached
-# through those boundaries, never directly.
+# Orchestrator interface: the driver is permitted to invoke frontend,
+# semantic, monomorphization, MIR, verification, machine, and native backend
+# tiers directly. Lower compiler tiers never depend back on the driver.
 # Provenance (0.0.0.12): spec-infrastructure edges only (leaf-ward); the
 # evidence schema remains the single format authority.
 [dependencies]
