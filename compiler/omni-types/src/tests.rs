@@ -952,3 +952,24 @@ fn test_unary_operations_enforce_operand_types() {
     );
     assert!(matches!(bad_not, Err(TypeError::MismatchedTypes { .. })));
 }
+
+
+#[test]
+fn test_let_binding_rejects_initializer_type_mismatch() {
+    let mut checker = TypeChecker::new();
+    let env = SubstEnv::new();
+    let locals = HashMap::new();
+
+    let result = checker.infer_expr(
+        &Expr::Let {
+            name: "value".to_string(),
+            ty: Some(TypeSpec::Bool),
+            init: Box::new(Expr::Literal(Lit::Int(1))),
+            body: Box::new(Expr::Var("value".to_string())),
+        },
+        &env,
+        &locals,
+    );
+
+    assert!(matches!(result, Err(TypeError::MismatchedTypes { .. })));
+}
