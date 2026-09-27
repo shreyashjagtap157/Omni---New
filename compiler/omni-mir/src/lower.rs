@@ -184,9 +184,11 @@ impl<'a> FnMirBuilder<'a> {
         &mut self,
         expr: &omni_types::ast::Expr,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
-        let curr_block = self.current_block.ok_or_else(|| {
-            "MIR lowering error: expression evaluated after control flow terminated".to_string()
-        })?;
+        if self.current_block.is_none() {
+            return Err(
+                "MIR lowering error: expression evaluated after control flow terminated".to_string()
+            );
+        }
 
         match expr {
             omni_types::ast::Expr::Literal(lit) => {
@@ -234,6 +236,9 @@ impl<'a> FnMirBuilder<'a> {
                     | omni_types::ast::BinOp::Mul
                     | omni_types::ast::BinOp::Div => lhs_ty,
                 };
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: binary expression has no live continuation block".to_string()
+                })?;
                 let temp_local = self.new_temp(Some("_bin_tmp".to_string()), result_ty);
                 let place = crate::ir::Place { local: temp_local };
                 self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
@@ -267,6 +272,10 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
                     omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
                 };
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: unary expression has no live continuation block"
+                        .to_string()
+                })?;
                 let temp_local = self.new_temp(Some("_un_tmp".to_string()), inner_ty);
                 let place = crate::ir::Place { local: temp_local };
                 self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
@@ -294,6 +303,9 @@ impl<'a> FnMirBuilder<'a> {
                 let saved_scope = self.scope.clone();
                 let var_local = self.new_temp(Some(name.clone()), var_ty);
                 let place = crate::ir::Place { local: var_local };
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: let binding has no live continuation block".to_string()
+                })?;
                 self.blocks[curr_block]
                     .statements
                     .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(init_op)));
@@ -339,6 +351,9 @@ impl<'a> FnMirBuilder<'a> {
                     arg_ops.push(arg_op);
                 }
 
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: call has no live continuation block".to_string()
+                })?;
                 let next_block = self.new_block();
                 let destination = if ret_ty == self.tcx.intern(TyKind::Unit) {
                     None
@@ -385,6 +400,9 @@ impl<'a> FnMirBuilder<'a> {
                     None
                 };
 
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: return has no live continuation block".to_string()
+                })?;
                 if let Some((operand, _)) = &ret_result {
                     let ret_p = crate::ir::Place { local: crate::ir::Local::from_usize(0) };
                     self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
