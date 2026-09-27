@@ -368,7 +368,7 @@ impl TypeChecker {
                     });
                 }
                 Ok(expected)
-            },
+            }
             Expr::Field { expr, field: _ } => {
                 let struct_ty = self.infer_expr(expr, env, local_vars)?;
                 if let TyKind::Struct(_, args) = self.tcx.get(struct_ty).clone() {
