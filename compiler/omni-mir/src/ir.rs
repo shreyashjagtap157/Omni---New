@@ -84,10 +84,11 @@ pub enum Terminator {
     /// Conditional branch based on an integer/boolean value.
     SwitchInt { discr: Operand, targets: Vec<(u64, BasicBlock)>, otherwise: BasicBlock },
     /// Invoke a function and branch based on success/unwind.
+    /// A None destination represents a Unit-returning call.
     Call {
         func: Operand,
         args: Vec<Operand>,
-        destination: Place,
+        destination: Option<Place>,
         target: BasicBlock,
         cleanup: Option<BasicBlock>,
     },
