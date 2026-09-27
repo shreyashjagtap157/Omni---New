@@ -953,7 +953,6 @@ fn test_unary_operations_enforce_operand_types() {
     assert!(matches!(bad_not, Err(TypeError::MismatchedTypes { .. })));
 }
 
-
 #[test]
 fn test_let_binding_rejects_initializer_type_mismatch() {
     let mut checker = TypeChecker::new();
