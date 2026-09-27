@@ -539,7 +539,10 @@ mod tests {
             "not-a-number".to_string(),
             "program.omni".to_string(),
         ];
-        let error = parse_args(&args).expect_err("invalid optimization level must fail");
+        let error = match parse_args(&args) {
+            Ok(_) => panic!("invalid optimization level must fail"),
+            Err(error) => error,
+        };
         assert!(error.contains("Invalid optimization level"), "unexpected error: {error}");
     }
 
