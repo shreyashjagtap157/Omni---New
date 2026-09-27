@@ -28,7 +28,7 @@ pub enum TyKind {
 
 /// The Type Context (Arena) responsible for interning types.
 /// It ensures two identical TyKinds map to the exact same Ty index.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TyCtxt {
     dedup: HashMap<TyKind, Ty>,
     arena: Vec<TyKind>,
