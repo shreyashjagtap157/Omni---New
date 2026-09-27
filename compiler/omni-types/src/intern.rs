@@ -21,6 +21,8 @@ pub enum TyKind {
     Range(Ty),
     Fn(Vec<Ty>, Ty),
     Struct(String, Vec<Ty>),
+    Enum(String, Vec<Ty>),
+    Never,
     Infer(u32),
 }
 
@@ -83,6 +85,11 @@ impl TyCtxt {
                 let a: Vec<String> = args.iter().map(|&t| self.mangle(t)).collect();
                 format!("struct_{}_{}_end", name, a.join("_"))
             }
+            TyKind::Enum(name, args) => {
+                let a: Vec<String> = args.iter().map(|&t| self.mangle(t)).collect();
+                format!("enum_{}_{}_end", name, a.join("_"))
+            }
+            TyKind::Never => "never".to_string(),
             TyKind::Infer(id) => format!("var_{id}"),
         }
     }
@@ -97,13 +104,16 @@ impl TyCtxt {
             | TyKind::Char
             | TyKind::Byte
             | TyKind::String
-            | TyKind::Unit => true,
+            | TyKind::Unit
+            | TyKind::Never => true,
             TyKind::Tuple(tys) => tys.iter().all(|&t| self.is_concrete(t)),
             TyKind::Array(elem, _) | TyKind::Range(elem) => self.is_concrete(*elem),
             TyKind::Fn(params, ret) => {
                 params.iter().all(|&t| self.is_concrete(t)) && self.is_concrete(*ret)
             }
-            TyKind::Struct(_, args) => args.iter().all(|&t| self.is_concrete(t)),
+            TyKind::Struct(_, args) | TyKind::Enum(_, args) => {
+                args.iter().all(|&t| self.is_concrete(t))
+            }
         }
     }
 }

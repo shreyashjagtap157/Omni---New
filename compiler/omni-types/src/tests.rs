@@ -245,7 +245,11 @@ fn test_generic_arguments_in_complex_nodes() {
             // Match arm
             Expr::Match {
                 expr: Box::new(Expr::Literal(Lit::Int(1))),
-                arms: vec![(Pattern::Wildcard, Expr::Var("val".to_string()))],
+                arms: vec![crate::ast::MatchArm {
+                    pattern: Pattern::Wildcard,
+                    guard: None,
+                    body: Expr::Var("val".to_string()),
+                }],
             },
             // Lambda
             Expr::Lambda {
@@ -372,4 +376,274 @@ fn test_mir_semantic_gate() {
     let gate_res = invalid_prog.assert_concrete_for_mir();
     assert!(gate_res.is_err());
     assert!(gate_res.unwrap_err().contains("unresolved type parameters"));
+}
+
+#[test]
+fn test_pattern_usefulness_and_exhaustiveness_bool_and_option() {
+    use crate::ast::{MatchArm, Pattern};
+
+    let mut checker = TypeChecker::new();
+    let bool_ty = checker.tcx.intern(TyKind::Bool);
+
+    // 1. Exhaustive bool match
+    let arms_bool_ok = vec![
+        MatchArm {
+            pattern: Pattern::Lit(Lit::Bool(true)),
+            guard: None,
+            body: Expr::Literal(Lit::Int(1)),
+        },
+        MatchArm {
+            pattern: Pattern::Lit(Lit::Bool(false)),
+            guard: None,
+            body: Expr::Literal(Lit::Int(0)),
+        },
+    ];
+    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+        .check_match(bool_ty, &arms_bool_ok)
+        .is_ok());
+
+    // 2. Non-exhaustive bool match (missing false)
+    let arms_bool_missing = vec![MatchArm {
+        pattern: Pattern::Lit(Lit::Bool(true)),
+        guard: None,
+        body: Expr::Literal(Lit::Int(1)),
+    }];
+    let res = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+        .check_match(bool_ty, &arms_bool_missing);
+    assert!(res.is_err());
+    match res.unwrap_err() {
+        TypeError::NonExhaustiveMatch { missing, .. } => assert_eq!(missing, "false"),
+        other => panic!("Expected NonExhaustiveMatch, got {:?}", other),
+    }
+
+    // 3. Unreachable arm in bool match
+    let arms_bool_unreachable = vec![
+        MatchArm { pattern: Pattern::Wildcard, guard: None, body: Expr::Literal(Lit::Int(1)) },
+        MatchArm {
+            pattern: Pattern::Lit(Lit::Bool(true)),
+            guard: None,
+            body: Expr::Literal(Lit::Int(0)),
+        },
+    ];
+    let res_unreach = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+        .check_match(bool_ty, &arms_bool_unreachable);
+    assert!(res_unreach.is_err());
+    match res_unreach.unwrap_err() {
+        TypeError::UnreachablePattern { arm_index, .. } => assert_eq!(arm_index, 1),
+        other => panic!("Expected UnreachablePattern, got {:?}", other),
+    }
+
+    // 4. Option[Int] match
+    let int_ty = checker.tcx.intern(TyKind::Int);
+    let opt_int_ty = checker.tcx.intern(TyKind::Enum("Option".to_string(), vec![int_ty]));
+    let arms_opt_ok = vec![
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Option".to_string(),
+                variant: "Some".to_string(),
+                subpatterns: vec![Pattern::Wildcard],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(1)),
+        },
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Option".to_string(),
+                variant: "None".to_string(),
+                subpatterns: vec![],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(0)),
+        },
+    ];
+    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+        .check_match(opt_int_ty, &arms_opt_ok)
+        .is_ok());
+}
+
+#[test]
+fn test_pattern_guards_do_not_prove_unconditional_exhaustiveness() {
+    use crate::ast::{MatchArm, Pattern};
+
+    let mut checker = TypeChecker::new();
+    let bool_ty = checker.tcx.intern(TyKind::Bool);
+    let pat_checker = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs);
+
+    // Guarded true arm does NOT prove unconditional coverage of true
+    let guarded_arms = vec![
+        MatchArm {
+            pattern: Pattern::Lit(Lit::Bool(true)),
+            guard: Some(Expr::Literal(Lit::Bool(true))),
+            body: Expr::Literal(Lit::Int(1)),
+        },
+        MatchArm {
+            pattern: Pattern::Lit(Lit::Bool(false)),
+            guard: None,
+            body: Expr::Literal(Lit::Int(0)),
+        },
+    ];
+
+    let res = pat_checker.check_match(bool_ty, &guarded_arms);
+    assert!(res.is_err(), "Guarded arms must not prove unconditional exhaustiveness");
+}
+
+#[test]
+fn test_pattern_never_type_handling() {
+    use crate::ast::{MatchArm, Pattern};
+
+    let mut checker = TypeChecker::new();
+    let never_ty = checker.tcx.intern(TyKind::Never);
+    let pat_checker = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs);
+
+    // Never type has 0 inhabitants, empty or Never pattern match is exhaustive
+    let arms =
+        vec![MatchArm { pattern: Pattern::Never, guard: None, body: Expr::Literal(Lit::Int(0)) }];
+    assert!(pat_checker.check_match(never_ty, &arms).is_ok());
+
+    let empty_arms: Vec<MatchArm> = vec![];
+    assert!(pat_checker.check_match(never_ty, &empty_arms).is_ok());
+}
+
+#[test]
+fn test_pattern_result_and_nested_and_generic_adts() {
+    use crate::ast::{EnumDef, EnumVariantDef, MatchArm, Pattern, TypeSpec};
+
+    let mut checker = TypeChecker::new();
+    let int_ty = checker.tcx.intern(TyKind::Int);
+    let str_ty = checker.tcx.intern(TyKind::String);
+
+    // Result[Int, String]
+    let res_ty = checker.tcx.intern(TyKind::Enum("Result".to_string(), vec![int_ty, str_ty]));
+
+    // Exhaustive Result match: Ok(x), Err(e)
+    let arms_res_ok = vec![
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Result".to_string(),
+                variant: "Ok".to_string(),
+                subpatterns: vec![Pattern::Binding("x".to_string())],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(1)),
+        },
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Result".to_string(),
+                variant: "Err".to_string(),
+                subpatterns: vec![Pattern::Binding("e".to_string())],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(0)),
+        },
+    ];
+    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+        .check_match(res_ty, &arms_res_ok)
+        .is_ok());
+
+    // Non-exhaustive Result match (missing Err)
+    let arms_res_err = vec![MatchArm {
+        pattern: Pattern::Variant {
+            enum_name: "Result".to_string(),
+            variant: "Ok".to_string(),
+            subpatterns: vec![Pattern::Binding("x".to_string())],
+        },
+        guard: None,
+        body: Expr::Literal(Lit::Int(1)),
+    }];
+    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+        .check_match(res_ty, &arms_res_err)
+        .is_err());
+
+    // Nested pattern: Option[Result[Int, String]]
+    // Arms: Some(Ok(x)), Some(Err(e)), None
+    let opt_res_ty = checker.tcx.intern(TyKind::Enum("Option".to_string(), vec![res_ty]));
+    let arms_nested = vec![
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Option".to_string(),
+                variant: "Some".to_string(),
+                subpatterns: vec![Pattern::Variant {
+                    enum_name: "Result".to_string(),
+                    variant: "Ok".to_string(),
+                    subpatterns: vec![Pattern::Wildcard],
+                }],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(1)),
+        },
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Option".to_string(),
+                variant: "Some".to_string(),
+                subpatterns: vec![Pattern::Variant {
+                    enum_name: "Result".to_string(),
+                    variant: "Err".to_string(),
+                    subpatterns: vec![Pattern::Wildcard],
+                }],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(2)),
+        },
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Option".to_string(),
+                variant: "None".to_string(),
+                subpatterns: vec![],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(0)),
+        },
+    ];
+    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+        .check_match(opt_res_ty, &arms_nested)
+        .is_ok());
+
+    // Custom Generic ADT: Tree[T] = Leaf(T) | Node(Tree[T], Tree[T])
+    checker.register_enum(EnumDef {
+        name: "Tree".to_string(),
+        type_params: vec!["T".to_string()],
+        variants: vec![
+            EnumVariantDef {
+                name: "Leaf".to_string(),
+                payload: vec![TypeSpec::GenericParam("T".to_string())],
+            },
+            EnumVariantDef {
+                name: "Node".to_string(),
+                payload: vec![
+                    TypeSpec::Enum(
+                        "Tree".to_string(),
+                        vec![TypeSpec::GenericParam("T".to_string())],
+                    ),
+                    TypeSpec::Enum(
+                        "Tree".to_string(),
+                        vec![TypeSpec::GenericParam("T".to_string())],
+                    ),
+                ],
+            },
+        ],
+    });
+
+    let tree_int_ty = checker.tcx.intern(TyKind::Enum("Tree".to_string(), vec![int_ty]));
+    let arms_tree = vec![
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Tree".to_string(),
+                variant: "Leaf".to_string(),
+                subpatterns: vec![Pattern::Wildcard],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(1)),
+        },
+        MatchArm {
+            pattern: Pattern::Variant {
+                enum_name: "Tree".to_string(),
+                variant: "Node".to_string(),
+                subpatterns: vec![Pattern::Wildcard, Pattern::Wildcard],
+            },
+            guard: None,
+            body: Expr::Literal(Lit::Int(2)),
+        },
+    ];
+    let pat_checker_tree = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs);
+    assert!(pat_checker_tree.check_match(tree_int_ty, &arms_tree).is_ok());
 }

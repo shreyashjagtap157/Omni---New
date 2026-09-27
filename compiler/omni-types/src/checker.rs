@@ -13,6 +13,8 @@ pub enum TypeError {
     VariableNotFound(String),
     SolverFailure(String),
     TraitObligationUnsatisfied(String),
+    NonExhaustiveMatch { scrutinee_ty: String, missing: String },
+    UnreachablePattern { arm_index: usize, detail: String },
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
@@ -107,6 +109,7 @@ pub struct TypeChecker {
     pub tcx: TyCtxt,
     pub solver: Solver,
     pub fn_defs: HashMap<String, GenericFnDef>,
+    pub enum_defs: HashMap<String, crate::ast::EnumDef>,
     pub trait_checker: Option<TraitObligationChecker>,
 }
 
@@ -122,6 +125,7 @@ impl TypeChecker {
             tcx: TyCtxt::new(),
             solver: Solver::new(),
             fn_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
             trait_checker: None,
         }
     }
@@ -132,6 +136,10 @@ impl TypeChecker {
 
     pub fn register_fn(&mut self, fn_def: GenericFnDef) {
         self.fn_defs.insert(fn_def.name.clone(), fn_def);
+    }
+
+    pub fn register_enum(&mut self, enum_def: crate::ast::EnumDef) {
+        self.enum_defs.insert(enum_def.name.clone(), enum_def);
     }
 
     /// Lowers a `TypeSpec` into an interned `Ty` under a given `SubstEnv`.
@@ -174,6 +182,12 @@ impl TypeChecker {
                     arg_specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
                 self.tcx.intern(TyKind::Struct(name.clone(), arg_tys))
             }
+            TypeSpec::Enum(name, arg_specs) => {
+                let arg_tys: Vec<Ty> =
+                    arg_specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
+                self.tcx.intern(TyKind::Enum(name.clone(), arg_tys))
+            }
+            TypeSpec::Never => self.tcx.intern(TyKind::Never),
             TypeSpec::Known(ty) => *ty,
         }
     }
@@ -363,9 +377,14 @@ impl TypeChecker {
                 Ok(self.tcx.intern(TyKind::Range(elem_ty)))
             }
             Expr::Match { expr, arms } => {
-                let _scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
-                if let Some((_, arm_expr)) = arms.first() {
-                    self.infer_expr(arm_expr, env, local_vars)
+                let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
+
+                // Enforce pattern usefulness and exhaustiveness analysis
+                let pat_checker = crate::pattern::PatternChecker::new(&self.tcx, &self.enum_defs);
+                pat_checker.check_match(scrutinee_ty, arms)?;
+
+                if let Some(first_arm) = arms.first() {
+                    self.infer_expr(&first_arm.body, env, local_vars)
                 } else {
                     Ok(self.tcx.intern(TyKind::Unit))
                 }

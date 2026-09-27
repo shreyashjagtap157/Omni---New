@@ -16,11 +16,13 @@ pub enum TypeSpec {
     Range(Box<TypeSpec>),
     Fn(Vec<TypeSpec>, Box<TypeSpec>),
     Struct(String, Vec<TypeSpec>),
+    Enum(String, Vec<TypeSpec>),
+    Never,
     Known(Ty),
 }
 
 /// Literals supported in AST expressions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Lit {
     Int(i64),
     Float(u64),
@@ -50,12 +52,33 @@ pub enum UnOp {
     Not,
 }
 
+/// Range boundaries for pattern matching.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PatternRangeBoundary {
+    Inclusive(Lit),
+    Exclusive(Lit),
+}
+
 /// Patterns used in match arms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pattern {
     Wildcard,
     Binding(String),
     Lit(Lit),
+    Tuple(Vec<Pattern>),
+    Struct { name: String, fields: Vec<(String, Pattern)> },
+    Variant { enum_name: String, variant: String, subpatterns: Vec<Pattern> },
+    Range { start: PatternRangeBoundary, end: PatternRangeBoundary },
+    Or(Vec<Pattern>),
+    Never,
+}
+
+/// Match arm carrying pattern, optional guard expression, and body expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub guard: Option<Expr>,
+    pub body: Expr,
 }
 
 /// AST expression representation covering expressions required for monomorphization.
@@ -72,7 +95,7 @@ pub enum Expr {
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
     Range { start: Box<Expr>, end: Box<Expr> },
-    Match { expr: Box<Expr>, arms: Vec<(Pattern, Expr)> },
+    Match { expr: Box<Expr>, arms: Vec<MatchArm> },
     Lambda { params: Vec<(String, TypeSpec)>, body: Box<Expr> },
     Interpolation(Vec<Expr>),
     Assign { target: Box<Expr>, value: Box<Expr> },
@@ -113,6 +136,21 @@ pub struct ImplDef {
     pub conditions: Vec<(String, TraitBound)>,
     pub methods: Vec<(String, Expr)>,
     pub is_local: bool,
+}
+
+/// Enum variant payload definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumVariantDef {
+    pub name: String,
+    pub payload: Vec<TypeSpec>,
+}
+
+/// ADT Enum definition (e.g. Option[T], Result[T, E], or custom user enums).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumDef {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub variants: Vec<EnumVariantDef>,
 }
 
 /// Generic function definition.

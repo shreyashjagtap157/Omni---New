@@ -68,8 +68,11 @@ impl MonomorphizedProgram {
             }
             Expr::Match { expr, arms } => {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
-                for (_, arm_expr) in arms {
-                    Self::verify_expr_concrete(arm_expr, enclosing_fn)?;
+                for arm in arms {
+                    if let Some(g) = &arm.guard {
+                        Self::verify_expr_concrete(g, enclosing_fn)?;
+                    }
+                    Self::verify_expr_concrete(&arm.body, enclosing_fn)?;
                 }
                 Ok(())
             }
@@ -284,9 +287,18 @@ impl<'a> Monomorphizer<'a> {
             Expr::Match { expr, arms } => {
                 let mono_expr = self.monomorphize_expr(expr, env, local_vars)?;
                 let mut mono_arms = Vec::new();
-                for (pat, arm_body) in arms {
-                    let mono_arm = self.monomorphize_expr(arm_body, env, local_vars)?;
-                    mono_arms.push((pat.clone(), mono_arm));
+                for arm in arms {
+                    let mono_guard = if let Some(g) = &arm.guard {
+                        Some(self.monomorphize_expr(g, env, local_vars)?)
+                    } else {
+                        None
+                    };
+                    let mono_body = self.monomorphize_expr(&arm.body, env, local_vars)?;
+                    mono_arms.push(crate::ast::MatchArm {
+                        pattern: arm.pattern.clone(),
+                        guard: mono_guard,
+                        body: mono_body,
+                    });
                 }
                 Ok(Expr::Match { expr: Box::new(mono_expr), arms: mono_arms })
             }
@@ -359,6 +371,11 @@ impl<'a> Monomorphizer<'a> {
                 name.clone(),
                 args.iter().map(|a| self.substitute_type_spec(a, env)).collect(),
             ),
+            TypeSpec::Enum(name, args) => TypeSpec::Enum(
+                name.clone(),
+                args.iter().map(|a| self.substitute_type_spec(a, env)).collect(),
+            ),
+            TypeSpec::Never => TypeSpec::Never,
             other => other.clone(),
         }
     }
@@ -373,6 +390,7 @@ impl<'a> Monomorphizer<'a> {
             TyKind::Byte => TypeSpec::Byte,
             TyKind::String => TypeSpec::String,
             TyKind::Unit => TypeSpec::Unit,
+            TyKind::Never => TypeSpec::Never,
             TyKind::GenericParam(name) => TypeSpec::GenericParam(name.clone()),
             TyKind::Tuple(tys) => {
                 TypeSpec::Tuple(tys.iter().map(|&t| self.ty_to_type_spec(t)).collect())
@@ -386,6 +404,10 @@ impl<'a> Monomorphizer<'a> {
                 Box::new(self.ty_to_type_spec(*ret)),
             ),
             TyKind::Struct(name, args) => TypeSpec::Struct(
+                name.clone(),
+                args.iter().map(|&a| self.ty_to_type_spec(a)).collect(),
+            ),
+            TyKind::Enum(name, args) => TypeSpec::Enum(
                 name.clone(),
                 args.iter().map(|&a| self.ty_to_type_spec(a)).collect(),
             ),

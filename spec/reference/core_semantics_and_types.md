@@ -215,3 +215,56 @@ Before AST/HIR is lowered to Mid-Level IR (`omni-mir`), the compilation unit mus
 4. Inference variables must be fully resolved to concrete types.
 Any violation halts compilation before code generation.
 
+---
+
+## 7. Pattern Typing, Usefulness, and Exhaustive Matching Engine
+
+Omni Edition 1 enforces compile-time pattern usefulness and exhaustiveness analysis using a formalized Maranget pattern matrix reduction engine (`omni-types::pattern::PatternChecker`).
+
+### 7.1 Scrutinee-Directed Pattern Typing
+- Every pattern matching expression `match scrutinee { arm_1, ..., arm_n }` requires a well-typed scrutinee expression yielding a concrete type `S`.
+- Pattern forms are type-checked directly against `S`:
+  1. **Wildcard (`_`) and Binding (`x`):** Assigns type `S` to the bound pattern variable in the arm's scope.
+  2. **Literal (`Lit`):** Enforces that the literal pattern type equals `S` (e.g. `Int`, `Bool`, `String`).
+  3. **Tuple (`Tuple(pats)`):** Requires `S` to be `TyKind::Tuple(elem_tys)` with matching arity; element subpatterns are type-checked against `elem_tys`.
+  4. **Struct (`Struct { fields, .. }`):** Requires `S` to be `TyKind::Struct(name, field_tys)`; field subpatterns are type-checked against corresponding struct field types.
+  5. **Enum Variant (`Variant { enum_name, variant, subpatterns }`):** Requires `S` to be `TyKind::Enum(enum_name, type_args)`. Subpatterns are typed against generic-substituted variant payload types derived via `SubstEnv`.
+  6. **Bounded Range (`Range { start, end }`):** Valid for scalar types (`Int`, `Byte`, `Char`).
+  7. **Or-Pattern (`P1 | P2`):** Requires both `P1` and `P2` to type-check against `S` and introduce identical variable binding signatures.
+  8. **Never (`!`):** Valid for scrutinee type `S = TyKind::Never` (uninhabited type).
+
+### 7.2 Maranget Matrix Usefulness Algorithm
+A pattern row `v` is **useful** with respect to a matrix `M` of previously accepted patterns if there exists a value of type `S` matched by `v` but not matched by any row in `M`.
+- **Matrix Reduction (Specialization):**
+  - When the top constructor `c` of `v` is known, `M` and `v` are specialized against `c` (`specialize_matrix` / `specialize_vector`), reducing subpattern columns.
+  - When `v` starts with a Wildcard/Binding:
+    - If the head constructor set of `S` is finite and complete in `M`, usefulness is evaluated recursively across all constructors `c ∈ constructors(S)`.
+    - If the constructor set is incomplete or infinite (`Int`, `String`), reduction falls back to the default matrix (`default_matrix`).
+
+### 7.3 Guard Semantics & Unconditional Coverage
+- **Guarded Arms (`MatchArm { pattern, guard: Some(expr), .. }`):**
+  - A guarded arm is checked for usefulness against `M`.
+  - **Critical Invariant:** If useful, a guarded arm is executed when its guard evaluates to `true`, but it **does not** contribute to matrix reduction for subsequent arms. Unguarded matrix `M` does not retain guarded rows during exhaustiveness determination.
+- **Unconditional Arms (`guard: None`):**
+  - Contributes to `M` upon passing usefulness analysis.
+
+### 7.4 Exhaustiveness and Witnesses
+- A match expression is **exhaustive** if every possible inhabitant of `S` is covered by at least one unguarded arm in `M`.
+- **Exhaustiveness Test:** The engine tests if a synthetic wildcard row `[_]` is useful against `M`. If useful, the match is non-exhaustive and a witness string is generated (`missing_witness`).
+- **Deterministic Diagnostics:**
+  - `TypeError::NonExhaustiveMatch { scrutinee_ty, missing }`: Emitted when `[_]` is useful.
+  - `TypeError::UnreachablePattern { arm_index, detail }`: Emitted when an arm row `v_i` is not useful relative to `M_{i-1}`.
+
+### 7.5 Uninhabited Type (`Never`) Matching
+- The `Never` type (`!`) has 0 inhabitants.
+- An empty match expression `match never_val {}` or an arm `! => ...` on `scrutinee_ty = TyKind::Never` is **inherently exhaustive**.
+- Wildcard rows against `TyKind::Never` yield `is_exhaustive = true` regardless of arm count.
+
+### 7.6 Lowering & Verification Invariants
+Every `Match` expression passing type-checking and lowering to MIR satisfies:
+1. Scrutinee expression is well-typed with a concrete substituted type.
+2. Every arm is useful (no `UnreachablePattern`).
+3. Pattern arms unconditionally cover 100% of scrutinee type inhabitants (no `NonExhaustiveMatch`).
+4. All pattern bindings are registered in the arm local scope with concrete types.
+
+

@@ -420,6 +420,12 @@ impl TraitSystem {
                     args.iter().map(|t| self.type_spec_to_mangled(t, tcx)).collect();
                 format!("struct_{}_{}_end", name, a.join("_"))
             }
+            TypeSpec::Enum(name, args) => {
+                let a: Vec<String> =
+                    args.iter().map(|t| self.type_spec_to_mangled(t, tcx)).collect();
+                format!("enum_{}_{}_end", name, a.join("_"))
+            }
+            TypeSpec::Never => "never".to_string(),
         }
     }
 }

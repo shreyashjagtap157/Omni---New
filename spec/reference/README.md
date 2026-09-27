@@ -41,4 +41,5 @@ The Omni language repository strictly isolates normative specification artifacts
    - SLG resolution engine for positive (`T: Trait`) and negative (`T: !Trait`) obligations.
    - Generic substitution (`SubstEnv`) and concrete trait obligation solving pipeline.
    - Strict concrete semantic gate before MIR lowering (`assert_concrete_for_mir`).
+   - Pattern usefulness and exhaustiveness engine (`omni-types::pattern::PatternChecker`), Maranget matrix reduction, guards, ranges, Option, Result, Never type (`!`), and deterministic unreachable/non-exhaustive diagnostics.
 
