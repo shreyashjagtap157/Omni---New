@@ -153,9 +153,11 @@ failures; exactly one profile (`stage0`); unknown features fail as unknown, neve
 authorities with resolvability checks; no mappings are curated yet, and none are fabricated.
 Manifest predicate-set integrity (presence, string elements, disjointness) is enforced by the
 loader helper and re-checked on every `omni-conform` run. A dev-dependency integration test proves
-the chain canon → loader → predicates against the live manifest (14 allowed + 8 forbidden);
-production compiler wiring awaits 0.0.1.x consumers, with `compiler → stage0` documented as the
-future query edge (infra stays edge-free today, so topology is unchanged).
+the chain canon → loader → predicates against the live manifest (14 allowed + 8 forbidden).
+The native driver integration now reaches the frontend, semantic checking, monomorphization, typed
+MIR, MIR verification, and Cranelift object emission through explicit compiler-tier dependencies.
+This remains implementation progress only: the 0.0.0.13 gate is still fail-closed until the
+complete qualification sequence succeeds.
 
 ## 0.0.0.13 gate closure (pre-sign-off; no gate declared)
 
