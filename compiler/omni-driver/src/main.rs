@@ -1,12 +1,12 @@
 //! Omni Compiler Driver CLI Entry Point
 //! Fully featured argument parser supporting input files, optimization levels, and output targets.
 
+use omni_types::ast::{BinOp, Expr, GenericFnDef, Lit, TypeSpec, UnOp};
+use omni_types::checker::SubstEnv;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use omni_types::ast::{BinOp, Expr, GenericFnDef, Lit, TypeSpec, UnOp};
-use omni_types::checker::SubstEnv;
 
 pub struct Args {
     pub input_file: Option<PathBuf>,
@@ -135,10 +135,7 @@ fn semantic_functions_from_cst(
             )?;
 
         let mut params = Vec::new();
-        for param in params_node
-            .children()
-            .filter(|n| n.kind() == omni_syntax::SyntaxKind::Param)
-        {
+        for param in params_node.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::Param) {
             let param_name = direct_name(param).ok_or_else(|| {
                 format!("Semantic frontend error: parameter in '{}' has no name", name)
             })?;
