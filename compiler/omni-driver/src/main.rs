@@ -123,7 +123,7 @@ fn semantic_functions_from_cst(
     let mut names = HashSet::new();
 
     for node in root.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::FnDef) {
-        let name = direct_name(node)
+        let name = direct_name(&node)
             .ok_or_else(|| "Semantic frontend error: function is missing a name".to_string())?;
         if !names.insert(name.clone()) {
             return Err(format!("Semantic frontend error: duplicate function '{}'", name));
@@ -136,10 +136,10 @@ fn semantic_functions_from_cst(
 
         let mut params = Vec::new();
         for param in params_node.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::Param) {
-            let param_name = direct_name(param).ok_or_else(|| {
+            let param_name = direct_name(&param).ok_or_else(|| {
                 format!("Semantic frontend error: parameter in '{}' has no name", name)
             })?;
-            let param_type = direct_type(param).ok_or_else(|| {
+            let param_type = direct_type(&param).ok_or_else(|| {
                 format!("Semantic frontend error: parameter '{}' has no type", param_name)
             })?;
             params.push((param_name, type_spec_from_cst(param_type)?));
@@ -219,6 +219,8 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
             let binding_type = direct_type(first).map(type_spec_from_cst).transpose()?;
             let initializer = first
                 .children()
+                .collect::<Vec<_>>()
+                .into_iter()
                 .rev()
                 .find(|n| {
                     matches!(
