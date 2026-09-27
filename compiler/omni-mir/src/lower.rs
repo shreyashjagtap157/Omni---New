@@ -610,18 +610,8 @@ mod tests {
             .expect("comparison temporary should exist");
         assert_eq!(
             result_local.ty,
-            Some(ctx_test_bool_ty(&function.body.local_decls))
+            function.body.local_decls[function.return_place].ty
         );
-    }
-
-    fn ctx_test_bool_ty(
-        decls: &IndexVec<crate::ir::Local, crate::ir::LocalDecl>,
-    ) -> omni_types::intern::Ty {
-        decls
-            .iter()
-            .filter_map(|decl| decl.ty)
-            .last()
-            .expect("typed local declaration")
     }
 
     #[test]
