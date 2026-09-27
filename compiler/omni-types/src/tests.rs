@@ -422,7 +422,7 @@ fn test_pattern_usefulness_and_exhaustiveness_bool_and_option() {
             body: Expr::Literal(Lit::Int(0)),
         },
     ];
-    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+    assert!(crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs)
         .check_match(bool_ty, &arms_bool_ok)
         .is_ok());
 
@@ -432,7 +432,7 @@ fn test_pattern_usefulness_and_exhaustiveness_bool_and_option() {
         guard: None,
         body: Expr::Literal(Lit::Int(1)),
     }];
-    let res = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+    let res = crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs)
         .check_match(bool_ty, &arms_bool_missing);
     assert!(res.is_err());
     match res.unwrap_err() {
@@ -449,7 +449,7 @@ fn test_pattern_usefulness_and_exhaustiveness_bool_and_option() {
             body: Expr::Literal(Lit::Int(0)),
         },
     ];
-    let res_unreach = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+    let res_unreach = crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs)
         .check_match(bool_ty, &arms_bool_unreachable);
     assert!(res_unreach.is_err());
     match res_unreach.unwrap_err() {
@@ -480,7 +480,7 @@ fn test_pattern_usefulness_and_exhaustiveness_bool_and_option() {
             body: Expr::Literal(Lit::Int(0)),
         },
     ];
-    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+    assert!(crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs)
         .check_match(opt_int_ty, &arms_opt_ok)
         .is_ok());
 }
@@ -491,7 +491,7 @@ fn test_pattern_guards_do_not_prove_unconditional_exhaustiveness() {
 
     let mut checker = TypeChecker::new();
     let bool_ty = checker.tcx.intern(TyKind::Bool);
-    let pat_checker = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs);
+    let mut pat_checker = crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs);
 
     // Guarded true arm does NOT prove unconditional coverage of true
     let guarded_arms = vec![
@@ -517,7 +517,7 @@ fn test_pattern_never_type_handling() {
 
     let mut checker = TypeChecker::new();
     let never_ty = checker.tcx.intern(TyKind::Never);
-    let pat_checker = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs);
+    let mut pat_checker = crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs);
 
     // Never type has 0 inhabitants, empty or Never pattern match is exhaustive
     let arms =
@@ -560,7 +560,7 @@ fn test_pattern_result_and_nested_and_generic_adts() {
             body: Expr::Literal(Lit::Int(0)),
         },
     ];
-    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+    assert!(crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs)
         .check_match(res_ty, &arms_res_ok)
         .is_ok());
 
@@ -574,7 +574,7 @@ fn test_pattern_result_and_nested_and_generic_adts() {
         guard: None,
         body: Expr::Literal(Lit::Int(1)),
     }];
-    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+    assert!(crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs)
         .check_match(res_ty, &arms_res_err)
         .is_err());
 
@@ -618,7 +618,7 @@ fn test_pattern_result_and_nested_and_generic_adts() {
             body: Expr::Literal(Lit::Int(0)),
         },
     ];
-    assert!(crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs)
+    assert!(crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs)
         .check_match(opt_res_ty, &arms_nested)
         .is_ok());
 
@@ -668,7 +668,7 @@ fn test_pattern_result_and_nested_and_generic_adts() {
             body: Expr::Literal(Lit::Int(2)),
         },
     ];
-    let pat_checker_tree = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs);
+    let mut pat_checker_tree = crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs);
     assert!(pat_checker_tree.check_match(tree_int_ty, &arms_tree).is_ok());
 }
 

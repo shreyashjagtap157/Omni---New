@@ -154,52 +154,7 @@ impl TypeChecker {
 
     /// Lowers a `TypeSpec` into an interned `Ty` under a given `SubstEnv`.
     pub fn lower_type_spec(&mut self, spec: &TypeSpec, env: &SubstEnv) -> Ty {
-        match spec {
-            TypeSpec::Int => self.tcx.intern(TyKind::Int),
-            TypeSpec::Float => self.tcx.intern(TyKind::Float),
-            TypeSpec::Bool => self.tcx.intern(TyKind::Bool),
-            TypeSpec::Char => self.tcx.intern(TyKind::Char),
-            TypeSpec::Byte => self.tcx.intern(TyKind::Byte),
-            TypeSpec::String => self.tcx.intern(TyKind::String),
-            TypeSpec::Unit => self.tcx.intern(TyKind::Unit),
-            TypeSpec::GenericParam(name) => {
-                if let Some(concrete) = env.get(name) {
-                    concrete
-                } else {
-                    self.tcx.intern(TyKind::GenericParam(name.clone()))
-                }
-            }
-            TypeSpec::Tuple(specs) => {
-                let tys: Vec<Ty> = specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
-                self.tcx.intern(TyKind::Tuple(tys))
-            }
-            TypeSpec::Array(elem_spec, len) => {
-                let elem_ty = self.lower_type_spec(elem_spec, env);
-                self.tcx.intern(TyKind::Array(elem_ty, *len))
-            }
-            TypeSpec::Range(elem_spec) => {
-                let elem_ty = self.lower_type_spec(elem_spec, env);
-                self.tcx.intern(TyKind::Range(elem_ty))
-            }
-            TypeSpec::Fn(param_specs, ret_spec) => {
-                let param_tys: Vec<Ty> =
-                    param_specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
-                let ret_ty = self.lower_type_spec(ret_spec, env);
-                self.tcx.intern(TyKind::Fn(param_tys, ret_ty))
-            }
-            TypeSpec::Struct(name, arg_specs) => {
-                let arg_tys: Vec<Ty> =
-                    arg_specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
-                self.tcx.intern(TyKind::Struct(name.clone(), arg_tys))
-            }
-            TypeSpec::Enum(name, arg_specs) => {
-                let arg_tys: Vec<Ty> =
-                    arg_specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
-                self.tcx.intern(TyKind::Enum(name.clone(), arg_tys))
-            }
-            TypeSpec::Never => self.tcx.intern(TyKind::Never),
-            TypeSpec::Known(ty) => *ty,
-        }
+        self.tcx.lower_type_spec(spec, env)
     }
 
     /// Infers the type of a literal expression.
@@ -435,7 +390,8 @@ impl TypeChecker {
                 }
 
                 // Enforce pattern usefulness and exhaustiveness analysis
-                let pat_checker = crate::pattern::PatternChecker::new(&self.tcx, &self.enum_defs);
+                let mut pat_checker =
+                    crate::pattern::PatternChecker::new(&mut self.tcx, &self.enum_defs);
                 pat_checker.check_match(scrutinee_ty, arms)?;
 
                 if let Some(first_arm) = arms.first() {

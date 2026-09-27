@@ -42,18 +42,18 @@ pub struct MatchAnalysisResult {
 }
 
 pub struct PatternChecker<'a> {
-    pub tcx: &'a TyCtxt,
+    pub tcx: &'a mut TyCtxt,
     pub enum_defs: &'a HashMap<String, EnumDef>,
 }
 
 impl<'a> PatternChecker<'a> {
-    pub fn new(tcx: &'a TyCtxt, enum_defs: &'a HashMap<String, EnumDef>) -> Self {
+    pub fn new(tcx: &'a mut TyCtxt, enum_defs: &'a HashMap<String, EnumDef>) -> Self {
         Self { tcx, enum_defs }
     }
 
     /// Primary entry point: validates usefulness of all arms and exhaustiveness of the pattern matrix.
     pub fn check_match(
-        &self,
+        &mut self,
         scrutinee_ty: Ty,
         arms: &[MatchArm],
     ) -> Result<MatchAnalysisResult, TypeError> {
@@ -117,7 +117,7 @@ impl<'a> PatternChecker<'a> {
     }
 
     /// Evaluates whether `vector` is useful given `matrix` under types `tys`.
-    fn is_useful(&self, matrix: &[PatternRow], vector: &PatternRow, tys: Vec<Ty>) -> bool {
+    fn is_useful(&mut self, matrix: &[PatternRow], vector: &PatternRow, tys: Vec<Ty>) -> bool {
         if vector.pats.is_empty() {
             return matrix.is_empty();
         }
@@ -264,7 +264,12 @@ impl<'a> PatternChecker<'a> {
         constructors.iter().all(|c| seen.contains(c))
     }
 
-    fn specialize_matrix(&self, c: &Constructor, matrix: &[PatternRow], ty: Ty) -> Vec<PatternRow> {
+    fn specialize_matrix(
+        &mut self,
+        c: &Constructor,
+        matrix: &[PatternRow],
+        ty: Ty,
+    ) -> Vec<PatternRow> {
         let mut result = Vec::new();
         for row in matrix {
             if row.pats.is_empty() {
@@ -294,7 +299,7 @@ impl<'a> PatternChecker<'a> {
         result
     }
 
-    fn specialize_vector(&self, c: &Constructor, vector: &PatternRow, ty: Ty) -> PatternRow {
+    fn specialize_vector(&mut self, c: &Constructor, vector: &PatternRow, ty: Ty) -> PatternRow {
         if vector.pats.is_empty() {
             return vector.clone();
         }
@@ -311,7 +316,7 @@ impl<'a> PatternChecker<'a> {
         PatternRow { pats: sub_pats, guard: vector.guard }
     }
 
-    fn specialize_types(&self, c: &Constructor, tys: &[Ty], first_ty: Ty) -> Vec<Ty> {
+    fn specialize_types(&mut self, c: &Constructor, tys: &[Ty], first_ty: Ty) -> Vec<Ty> {
         let mut result = Vec::new();
         let payload_tys = self.constructor_payload_types(c, first_ty);
         result.extend(payload_tys);
@@ -345,25 +350,24 @@ impl<'a> PatternChecker<'a> {
         }
     }
 
-    fn constructor_payload_types(&self, c: &Constructor, ty: Ty) -> Vec<Ty> {
+    fn constructor_payload_types(&mut self, c: &Constructor, ty: Ty) -> Vec<Ty> {
         match c {
             Constructor::Single => match self.tcx.get(ty) {
                 TyKind::Tuple(tys) | TyKind::Struct(_, tys) => tys.clone(),
                 _ => vec![],
             },
-            Constructor::Variant { name, .. } => match self.tcx.get(ty) {
+            Constructor::Variant { name, .. } => match self.tcx.get(ty).clone() {
                 TyKind::Enum(enum_name, type_args) => {
-                    if let Some(def) = self.enum_defs.get(enum_name) {
+                    if let Some(def) = self.enum_defs.get(&enum_name).cloned() {
                         if let Some(var) = def.variants.iter().find(|v| &v.name == name) {
                             let mut subst = crate::checker::SubstEnv::new();
-                            for (param, &arg) in def.type_params.iter().zip(type_args) {
+                            for (param, &arg) in def.type_params.iter().zip(&type_args) {
                                 subst.insert(param.clone(), arg);
                             }
-                            let mut dummy_checker = crate::checker::TypeChecker::new();
                             return var
                                 .payload
                                 .iter()
-                                .map(|spec| dummy_checker.lower_type_spec(spec, &subst))
+                                .map(|spec| self.tcx.lower_type_spec(spec, &subst))
                                 .collect();
                         }
                     }

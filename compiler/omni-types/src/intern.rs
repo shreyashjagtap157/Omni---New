@@ -116,4 +116,58 @@ impl TyCtxt {
             }
         }
     }
+
+    /// Lowers a declarative TypeSpec into an interned Ty handle using self.
+    pub fn lower_type_spec(
+        &mut self,
+        spec: &crate::ast::TypeSpec,
+        env: &crate::checker::SubstEnv,
+    ) -> Ty {
+        match spec {
+            crate::ast::TypeSpec::Int => self.intern(TyKind::Int),
+            crate::ast::TypeSpec::Float => self.intern(TyKind::Float),
+            crate::ast::TypeSpec::Bool => self.intern(TyKind::Bool),
+            crate::ast::TypeSpec::Char => self.intern(TyKind::Char),
+            crate::ast::TypeSpec::Byte => self.intern(TyKind::Byte),
+            crate::ast::TypeSpec::String => self.intern(TyKind::String),
+            crate::ast::TypeSpec::Unit => self.intern(TyKind::Unit),
+            crate::ast::TypeSpec::GenericParam(name) => {
+                if let Some(concrete) = env.get(name) {
+                    concrete
+                } else {
+                    self.intern(TyKind::GenericParam(name.clone()))
+                }
+            }
+            crate::ast::TypeSpec::Tuple(specs) => {
+                let tys: Vec<Ty> = specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
+                self.intern(TyKind::Tuple(tys))
+            }
+            crate::ast::TypeSpec::Array(elem_spec, len) => {
+                let elem_ty = self.lower_type_spec(elem_spec, env);
+                self.intern(TyKind::Array(elem_ty, *len))
+            }
+            crate::ast::TypeSpec::Range(elem_spec) => {
+                let elem_ty = self.lower_type_spec(elem_spec, env);
+                self.intern(TyKind::Range(elem_ty))
+            }
+            crate::ast::TypeSpec::Fn(param_specs, ret_spec) => {
+                let param_tys: Vec<Ty> =
+                    param_specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
+                let ret_ty = self.lower_type_spec(ret_spec, env);
+                self.intern(TyKind::Fn(param_tys, ret_ty))
+            }
+            crate::ast::TypeSpec::Struct(name, arg_specs) => {
+                let arg_tys: Vec<Ty> =
+                    arg_specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
+                self.intern(TyKind::Struct(name.clone(), arg_tys))
+            }
+            crate::ast::TypeSpec::Enum(name, arg_specs) => {
+                let arg_tys: Vec<Ty> =
+                    arg_specs.iter().map(|s| self.lower_type_spec(s, env)).collect();
+                self.intern(TyKind::Enum(name.clone(), arg_tys))
+            }
+            crate::ast::TypeSpec::Never => self.intern(TyKind::Never),
+            crate::ast::TypeSpec::Known(ty) => *ty,
+        }
+    }
 }

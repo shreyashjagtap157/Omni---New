@@ -29,10 +29,14 @@ impl LoweringContext {
         let mut blocks = IndexVec::new();
         let mut local_decls = IndexVec::new();
 
-        for (i, func) in prog.functions.iter().enumerate() {
+        for (i, _func) in prog.functions.iter().enumerate() {
             let mut stmts = Vec::new();
-            let p = crate::ir::Place { local: crate::ir::Local::from_u32(i as u32) };
-            stmts.push(crate::ir::Statement::Assign(p, crate::ir::Rvalue::Use(crate::ir::Operand::Constant)));
+            local_decls.push(crate::ir::LocalDecl {});
+            let p = crate::ir::Place { local: crate::ir::Local::from_usize(i) };
+            stmts.push(crate::ir::Statement::Assign(
+                p,
+                crate::ir::Rvalue::Use(crate::ir::Operand::Constant),
+            ));
 
             blocks.push(crate::ir::BlockData {
                 statements: stmts,
