@@ -13,12 +13,7 @@ pub struct LoweringContext {
 
 impl LoweringContext {
     pub fn new() -> Self {
-        Self {
-            body: Body {
-                blocks: IndexVec::new(),
-                local_decls: IndexVec::new(),
-            },
-        }
+        Self { body: Body { blocks: IndexVec::new(), local_decls: IndexVec::new() } }
     }
 
     /// Lowers a concrete MonomorphizedProgram into typed MIR.
@@ -58,18 +53,14 @@ impl LoweringContext {
             let mut scope = HashMap::new();
 
             let ret_ty = tcx.lower_type_spec(&func.return_type, &subst);
-            let return_place = local_decls.push(crate::ir::LocalDecl {
-                name: Some("_return".to_string()),
-                ty: Some(ret_ty),
-            });
+            let return_place = local_decls
+                .push(crate::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(ret_ty) });
 
             let mut param_locals = Vec::with_capacity(func.params.len());
             for (p_name, p_type) in &func.params {
                 let p_ty = tcx.lower_type_spec(p_type, &subst);
-                let p_local = local_decls.push(crate::ir::LocalDecl {
-                    name: Some(p_name.clone()),
-                    ty: Some(p_ty),
-                });
+                let p_local = local_decls
+                    .push(crate::ir::LocalDecl { name: Some(p_name.clone()), ty: Some(p_ty) });
                 param_locals.push(p_local);
                 scope.insert(p_name.clone(), p_local);
             }
@@ -165,15 +156,11 @@ struct FnMirBuilder<'a> {
 
 impl<'a> FnMirBuilder<'a> {
     fn new_block(&mut self) -> crate::ir::BasicBlock {
-        self.blocks.push(crate::ir::BlockData {
-            statements: Vec::new(),
-            terminator: None,
-        })
+        self.blocks.push(crate::ir::BlockData { statements: Vec::new(), terminator: None })
     }
 
     fn new_temp(&mut self, name: Option<String>, ty: Ty) -> crate::ir::Local {
-        self.local_decls
-            .push(crate::ir::LocalDecl { name, ty: Some(ty) })
+        self.local_decls.push(crate::ir::LocalDecl { name, ty: Some(ty) })
     }
 
     fn local_ty(&self, local: crate::ir::Local) -> Result<Ty, String> {
@@ -204,22 +191,15 @@ impl<'a> FnMirBuilder<'a> {
         match expr {
             omni_types::ast::Expr::Literal(lit) => {
                 let ty = self.literal_ty(lit);
-                Ok(Some((
-                    crate::ir::Operand::Constant(crate::ir::Constant::Lit(lit.clone())),
-                    ty,
-                )))
+                Ok(Some((crate::ir::Operand::Constant(crate::ir::Constant::Lit(lit.clone())), ty)))
             }
             omni_types::ast::Expr::Var(name) => {
-                let local = self
-                    .scope
-                    .get(name)
-                    .copied()
-                    .ok_or_else(|| format!("MIR lowering error: undefined variable '{}'", name))?;
+                let local =
+                    self.scope.get(name).copied().ok_or_else(|| {
+                        format!("MIR lowering error: undefined variable '{}'", name)
+                    })?;
                 let ty = self.local_ty(local)?;
-                Ok(Some((
-                    crate::ir::Operand::Copy(crate::ir::Place { local }),
-                    ty,
-                )))
+                Ok(Some((crate::ir::Operand::Copy(crate::ir::Place { local }), ty)))
             }
             omni_types::ast::Expr::Binary { op, lhs, rhs } => {
                 let (lhs_op, lhs_ty) = self
@@ -296,12 +276,10 @@ impl<'a> FnMirBuilder<'a> {
                 Ok(Some((crate::ir::Operand::Copy(place), inner_ty)))
             }
             omni_types::ast::Expr::Let { name, ty, init, body } => {
-                let (init_op, init_ty) = self
-                    .lower_expr(init)?
-                    .ok_or_else(|| {
-                        "MIR lowering error: Unit-valued let initializers are not materialized"
-                            .to_string()
-                    })?;
+                let (init_op, init_ty) = self.lower_expr(init)?.ok_or_else(|| {
+                    "MIR lowering error: Unit-valued let initializers are not materialized"
+                        .to_string()
+                })?;
                 let var_ty = if let Some(spec) = ty {
                     self.tcx.lower_type_spec(spec, self.subst)
                 } else {
@@ -316,10 +294,9 @@ impl<'a> FnMirBuilder<'a> {
                 let saved_scope = self.scope.clone();
                 let var_local = self.new_temp(Some(name.clone()), var_ty);
                 let place = crate::ir::Place { local: var_local };
-                self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
-                    place,
-                    crate::ir::Rvalue::Use(init_op),
-                ));
+                self.blocks[curr_block]
+                    .statements
+                    .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(init_op)));
                 self.scope.insert(name.clone(), var_local);
                 let result = self.lower_expr(body);
                 self.scope = saved_scope;
@@ -332,11 +309,7 @@ impl<'a> FnMirBuilder<'a> {
                 }
                 Ok(last)
             }
-            omni_types::ast::Expr::Call {
-                func,
-                generic_args: _,
-                args,
-            } => {
+            omni_types::ast::Expr::Call { func, generic_args: _, args } => {
                 let (param_tys, ret_ty) = self.fn_sigs.get(func).cloned().ok_or_else(|| {
                     format!(
                         "MIR lowering error: call target '{}' is not present in monomorphized program",
@@ -354,9 +327,9 @@ impl<'a> FnMirBuilder<'a> {
 
                 let mut arg_ops = Vec::with_capacity(args.len());
                 for (arg, expected_ty) in args.iter().zip(param_tys.iter()) {
-                    let (arg_op, arg_ty) = self
-                        .lower_expr(arg)?
-                        .ok_or_else(|| "MIR lowering error: Unit-valued call argument".to_string())?;
+                    let (arg_op, arg_ty) = self.lower_expr(arg)?.ok_or_else(|| {
+                        "MIR lowering error: Unit-valued call argument".to_string()
+                    })?;
                     if arg_ty != *expected_ty {
                         return Err(format!(
                             "MIR lowering error in call '{}': expected argument type {:?}, found {:?}",
@@ -413,9 +386,7 @@ impl<'a> FnMirBuilder<'a> {
                 };
 
                 if let Some((operand, _)) = &ret_result {
-                    let ret_p = crate::ir::Place {
-                        local: crate::ir::Local::from_usize(0),
-                    };
+                    let ret_p = crate::ir::Place { local: crate::ir::Local::from_usize(0) };
                     self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
                         ret_p,
                         crate::ir::Rvalue::Use(operand.clone()),
@@ -425,10 +396,9 @@ impl<'a> FnMirBuilder<'a> {
                 self.current_block = None;
                 Ok(ret_result)
             }
-            unsupported => Err(format!(
-                "Unsupported AST expression form for MIR lowering: {:?}",
-                unsupported
-            )),
+            unsupported => {
+                Err(format!("Unsupported AST expression form for MIR lowering: {:?}", unsupported))
+            },
         }
     }
 }
@@ -571,11 +541,7 @@ mod tests {
         let prog = MonomorphizedProgram { functions: vec![callee, caller] };
 
         let res = ctx.lower_monomorphized_program(&prog).unwrap();
-        let caller_mir = res
-            .functions
-            .iter()
-            .find(|f| f.name == "main_spec")
-            .unwrap();
+        let caller_mir = res.functions.iter().find(|f| f.name == "main_spec").unwrap();
         assert!(matches!(
             caller_mir.body.blocks[0].terminator,
             Some(crate::ir::Terminator::Call { destination: Some(_), .. })
@@ -666,10 +632,7 @@ mod tests {
                 return_type: TypeSpec::Int,
                 effects: omni_effects::EffectRow::default(),
                 capabilities: vec![],
-                body: Expr::Lambda {
-                    params: vec![],
-                    body: Box::new(Expr::Literal(Lit::Int(1))),
-                },
+                body: Expr::Lambda { params: vec![], body: Box::new(Expr::Literal(Lit::Int(1))) },
             }],
         };
 
