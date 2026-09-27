@@ -185,9 +185,8 @@ impl<'a> FnMirBuilder<'a> {
         expr: &omni_types::ast::Expr,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         if self.current_block.is_none() {
-            return Err(
-                "MIR lowering error: expression evaluated after control flow terminated".to_string(),
-            );
+            return Err("MIR lowering error: expression evaluated after control flow terminated"
+                .to_string());
         }
 
         match expr {
