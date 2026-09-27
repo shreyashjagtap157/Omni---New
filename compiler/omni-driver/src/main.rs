@@ -174,6 +174,10 @@ fn semantic_functions_from_cst(
 }
 
 fn direct_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
+    if node.kind() == omni_syntax::SyntaxKind::NameRef {
+        let name = node.text().to_string().trim().to_string();
+        return (!name.is_empty()).then_some(name);
+    }
     node.children()
         .find(|n| n.kind() == omni_syntax::SyntaxKind::NameRef)
         .map(|n| n.text().to_string().trim().to_string())
