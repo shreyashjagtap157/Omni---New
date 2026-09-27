@@ -36,3 +36,9 @@ The Omni language repository strictly isolates normative specification artifacts
    - Static type system: primitives, tuples, arrays, ranges, function signatures, user structs, and generic parameterization.
    - Type inference, unification solver, and constraint satisfaction.
    - Type-directed multi-instantiation monomorphization contracts.
+   - Unified TraitSystem: declarations, required methods, fatal registration diagnostics, and supertraits.
+   - Strict coherence four-quadrant matrix and orphan rule validation (`trait.is_local || target_ty.is_local`).
+   - SLG resolution engine for positive (`T: Trait`) and negative (`T: !Trait`) obligations.
+   - Generic substitution (`SubstEnv`) and concrete trait obligation solving pipeline.
+   - Strict concrete semantic gate before MIR lowering (`assert_concrete_for_mir`).
+

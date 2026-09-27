@@ -6,3 +6,6 @@ pub mod lower;
 pub mod continuation;
 
 pub mod concurrency;
+
+pub use omni_types::ast;
+pub use omni_types::monomorph::MonomorphizedProgram;

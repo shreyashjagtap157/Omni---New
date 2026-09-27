@@ -761,4 +761,179 @@ mod tests {
             "Mutation test: un-implemented trait obligation MUST fail closed, never succeed"
         );
     }
+
+    #[test]
+    fn test_conformance_nested_generic_trait_obligations() {
+        use omni_types::ast::{Expr, GenericFnDef, Lit};
+
+        let mut ts = TraitSystem::new();
+        let mut checker = TypeChecker::new();
+
+        ts.register_trait(TraitDef {
+            name: "Display".to_string(),
+            supertraits: vec![],
+            methods: vec![],
+            is_local: true,
+        })
+        .unwrap();
+
+        // Implement Display for String (only)
+        ts.solver.add_fact("Display", "String");
+
+        let ts_arc = Arc::new(ts);
+        ts_arc.attach_to_checker(&mut checker);
+
+        // inner[T: Display](x: T) -> T
+        checker.register_fn(GenericFnDef {
+            name: "inner".to_string(),
+            type_params: vec!["T".to_string()],
+            bounds: vec![("T".to_string(), TraitBound::Positive("Display".to_string()))],
+            params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
+            return_type: TypeSpec::GenericParam("T".to_string()),
+            body: Expr::Var("x".to_string()),
+        });
+
+        // outer[T: Display](x: T) -> T calls inner[T](x)
+        checker.register_fn(GenericFnDef {
+            name: "outer".to_string(),
+            type_params: vec!["T".to_string()],
+            bounds: vec![("T".to_string(), TraitBound::Positive("Display".to_string()))],
+            params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
+            return_type: TypeSpec::GenericParam("T".to_string()),
+            body: Expr::Call {
+                func: "inner".to_string(),
+                generic_args: vec![TypeSpec::GenericParam("T".to_string())],
+                args: vec![Expr::Var("x".to_string())],
+            },
+        });
+
+        let mut mono = omni_types::Monomorphizer::new(&mut checker);
+
+        // 1. Specialize outer with concrete String: String implements Display -> SUCCESS
+        let prog_res = mono.monomorphize_entry(
+            "outer",
+            &[],
+            &[Expr::Literal(Lit::String("hello".to_string()))],
+        );
+        assert!(prog_res.is_ok(), "Expected outer[String] to succeed and satisfy inner[String]");
+        let prog = prog_res.unwrap();
+        assert!(prog.assert_concrete_for_mir().is_ok());
+
+        // 2. Try calling outer with Int (42): Int does NOT implement Display -> FAILS CLOSED
+        let fail_res = mono.monomorphize_entry("outer", &[], &[Expr::Literal(Lit::Int(42))]);
+        assert!(fail_res.is_err(), "Expected outer[Int] to fail closed on Display obligation");
+    }
+
+    #[test]
+    fn test_conformance_supertrait_transitive_satisfaction() {
+        let mut ts = TraitSystem::new();
+        let mut checker = TypeChecker::new();
+
+        // Trait Base
+        ts.register_trait(TraitDef {
+            name: "Base".to_string(),
+            supertraits: vec![],
+            methods: vec![],
+            is_local: true,
+        })
+        .unwrap();
+
+        // Trait Derived : Base
+        ts.register_trait(TraitDef {
+            name: "Derived".to_string(),
+            supertraits: vec!["Base".to_string()],
+            methods: vec![],
+            is_local: true,
+        })
+        .unwrap();
+
+        // Implement Derived for i64
+        let tcx = TyCtxt::new();
+        ts.register_impl(
+            ImplDef {
+                trait_name: "Derived".to_string(),
+                target_ty: TypeSpec::Int,
+                conditions: vec![],
+                methods: vec![],
+                is_local: true,
+            },
+            &tcx,
+        )
+        .unwrap();
+
+        let ts_arc = Arc::new(ts);
+        ts_arc.attach_to_checker(&mut checker);
+
+        // Function requiring Base bound
+        checker.register_fn(omni_types::ast::GenericFnDef {
+            name: "require_base".to_string(),
+            type_params: vec!["T".to_string()],
+            bounds: vec![("T".to_string(), TraitBound::Positive("Base".to_string()))],
+            params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
+            return_type: TypeSpec::GenericParam("T".to_string()),
+            body: omni_types::ast::Expr::Var("x".to_string()),
+        });
+
+        let env = SubstEnv::new();
+        let local_vars = HashMap::new();
+
+        // Int satisfies Base transitively through supertrait Derived
+        let res = checker.infer_call(
+            "require_base",
+            &[],
+            &[omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(10))],
+            &env,
+            &local_vars,
+        );
+        assert!(
+            res.is_ok(),
+            "Transitive supertrait requirement Base must be satisfied by Derived impl"
+        );
+    }
+
+    #[test]
+    fn test_conformance_negative_bound_rejection() {
+        let mut ts = TraitSystem::new();
+        let mut checker = TypeChecker::new();
+
+        ts.register_trait(TraitDef {
+            name: "ThreadSafe".to_string(),
+            supertraits: vec![],
+            methods: vec![],
+            is_local: true,
+        })
+        .unwrap();
+
+        // i64 is marked ThreadSafe
+        ts.solver.add_fact("ThreadSafe", "i64");
+
+        let ts_arc = Arc::new(ts);
+        ts_arc.attach_to_checker(&mut checker);
+
+        // Function requiring !ThreadSafe
+        checker.register_fn(omni_types::ast::GenericFnDef {
+            name: "require_thread_local".to_string(),
+            type_params: vec!["T".to_string()],
+            bounds: vec![("T".to_string(), TraitBound::Negative("ThreadSafe".to_string()))],
+            params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
+            return_type: TypeSpec::GenericParam("T".to_string()),
+            body: omni_types::ast::Expr::Var("x".to_string()),
+        });
+
+        let env = SubstEnv::new();
+        let local_vars = HashMap::new();
+
+        // Calling with i64 must fail because i64 is positive ThreadSafe
+        let res = checker.infer_call(
+            "require_thread_local",
+            &[],
+            &[omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(100))],
+            &env,
+            &local_vars,
+        );
+        assert!(
+            res.is_err(),
+            "Type satisfying positive trait must conflict with negative trait bound"
+        );
+    }
 }

@@ -489,6 +489,7 @@ name = "omni-mir"
 version = "0.0.0"
 dependencies = [
  "index_vec",
+ "omni-types",
 ]
 
 [[package]]
