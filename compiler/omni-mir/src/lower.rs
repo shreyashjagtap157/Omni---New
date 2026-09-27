@@ -186,7 +186,7 @@ impl<'a> FnMirBuilder<'a> {
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         if self.current_block.is_none() {
             return Err(
-                "MIR lowering error: expression evaluated after control flow terminated".to_string()
+                "MIR lowering error: expression evaluated after control flow terminated".to_string(),
             );
         }
 
@@ -237,7 +237,8 @@ impl<'a> FnMirBuilder<'a> {
                     | omni_types::ast::BinOp::Div => lhs_ty,
                 };
                 let curr_block = self.current_block.ok_or_else(|| {
-                    "MIR lowering error: binary expression has no live continuation block".to_string()
+                    "MIR lowering error: binary expression has no live continuation block"
+                        .to_string()
                 })?;
                 let temp_local = self.new_temp(Some("_bin_tmp".to_string()), result_ty);
                 let place = crate::ir::Place { local: temp_local };
