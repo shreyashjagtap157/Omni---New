@@ -244,18 +244,45 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::BinOp::Lt => crate::ir::BinOp::Lt,
                     omni_types::ast::BinOp::Gt => crate::ir::BinOp::Gt,
                 };
-                let temp_local = self.new_temp(Some("_bin_tmp".to_string()), lhs_ty);
+                let result_ty = match op {
+                    omni_types::ast::BinOp::Eq
+                    | omni_types::ast::BinOp::Ne
+                    | omni_types::ast::BinOp::Lt
+                    | omni_types::ast::BinOp::Gt => self.tcx.intern(TyKind::Bool),
+                    omni_types::ast::BinOp::Add
+                    | omni_types::ast::BinOp::Sub
+                    | omni_types::ast::BinOp::Mul
+                    | omni_types::ast::BinOp::Div => lhs_ty,
+                };
+                let temp_local = self.new_temp(Some("_bin_tmp".to_string()), result_ty);
                 let place = crate::ir::Place { local: temp_local };
                 self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
                     place,
                     crate::ir::Rvalue::BinaryOp(mir_op, lhs_op, rhs_op),
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), lhs_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
             }
             omni_types::ast::Expr::Unary { op, expr } => {
                 let (inner_op, inner_ty) = self
                     .lower_expr(expr)?
                     .ok_or_else(|| "MIR lowering error: unary operand is Unit".to_string())?;
+                let bool_ty = self.tcx.intern(TyKind::Bool);
+                let int_ty = self.tcx.intern(TyKind::Int);
+                match op {
+                    omni_types::ast::UnOp::Neg if inner_ty != int_ty => {
+                        return Err(format!(
+                            "MIR lowering error: unary '-' requires Int, found {:?}",
+                            inner_ty
+                        ));
+                    }
+                    omni_types::ast::UnOp::Not if inner_ty != bool_ty => {
+                        return Err(format!(
+                            "MIR lowering error: unary '!' requires Bool, found {:?}",
+                            inner_ty
+                        ));
+                    }
+                    _ => {}
+                }
                 let mir_op = match op {
                     omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
                     omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
