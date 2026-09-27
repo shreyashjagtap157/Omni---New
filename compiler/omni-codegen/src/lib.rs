@@ -66,6 +66,20 @@ pub fn compile_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     Ok(buffer)
 }
 
+fn native_abi_type(spec: &omni_mir::ast::TypeSpec) -> Result<Option<cranelift_codegen::ir::Type>, String> {
+    match spec {
+        omni_mir::ast::TypeSpec::Unit => Ok(None),
+        omni_mir::ast::TypeSpec::Int
+        | omni_mir::ast::TypeSpec::Bool
+        | omni_mir::ast::TypeSpec::Byte
+        | omni_mir::ast::TypeSpec::Char => Ok(Some(types::I64)),
+        other => Err(format!(
+            "Codegen error: native backend does not yet support ABI type {:?}",
+            other
+        )),
+    }
+}
+
 /// Compiles a fully qualified, concrete `MonomorphizedProgram` to a native object file.
 /// Enforces MIR lowering semantic gate (`assert_concrete_for_mir`) and `MirVerifier` before native emission.
 pub fn compile_monomorphized_program(
@@ -98,29 +112,71 @@ pub fn compile_monomorphized_program(
     .map_err(|e| format!("Object builder error: {}", e))?;
     let mut module = ObjectModule::new(builder);
 
+    let mut function_ids = std::collections::HashMap::new();
+
+    // Predeclare every concrete MIR function with the same ABI signature before emitting
+    // any body, so calls can only reference already-qualified declarations.
     for mir_func in &mir_prog.functions {
-        let mut sig = Signature::new(module.isa().default_call_conv());
-
-        // Match return signature derived from MirFunction return type
-        let ret_type = match &mir_func.return_type {
-            omni_mir::ast::TypeSpec::Unit => None,
-            _ => Some(types::I64),
-        };
-
-        if let Some(rt) = ret_type {
-            sig.returns.push(AbiParam::new(rt));
+        let source_def = prog
+            .functions
+            .iter()
+            .find(|f| f.name == mir_func.name)
+            .ok_or_else(|| {
+                format!("Codegen error: missing source function '{}'", mir_func.name)
+            })?;
+        if mir_func.params.len() != source_def.params.len() {
+            return Err(format!(
+                "Codegen error: MIR/source parameter count mismatch for '{}'",
+                mir_func.name
+            ));
         }
 
-        // Add parameters to Cranelift signature
-        for _ in &mir_func.params {
-            sig.params.push(AbiParam::new(types::I64));
+        let mut sig = Signature::new(module.isa().default_call_conv());
+        if let Some(ret_ty) = native_abi_type(&source_def.return_type)? {
+            sig.returns.push(AbiParam::new(ret_ty));
+        }
+        for (_, param_spec) in &source_def.params {
+            let param_ty = native_abi_type(param_spec)?.ok_or_else(|| {
+                format!(
+                    "Codegen error: Unit parameter is not representable in native ABI for '{}'",
+                    source_def.name
+                )
+            })?;
+            sig.params.push(AbiParam::new(param_ty));
         }
 
         let func_id = module
             .declare_function(&mir_func.name, Linkage::Export, &sig)
             .map_err(|e| format!("Function declaration error: {}", e))?;
+        function_ids.insert(mir_func.name.clone(), func_id);
+    }
+
+    for mir_func in &mir_prog.functions {
+        let source_def = prog
+            .functions
+            .iter()
+            .find(|f| f.name == mir_func.name)
+            .ok_or_else(|| {
+                format!("Codegen error: missing source function '{}'", mir_func.name)
+            })?;
+        let func_id = *function_ids
+            .get(&mir_func.name)
+            .ok_or_else(|| format!("Codegen error: function '{}' was not predeclared", mir_func.name))?;
 
         let mut ctx = module.make_context();
+        let mut sig = Signature::new(module.isa().default_call_conv());
+        if let Some(ret_ty) = native_abi_type(&source_def.return_type)? {
+            sig.returns.push(AbiParam::new(ret_ty));
+        }
+        for (_, param_spec) in &source_def.params {
+            let param_ty = native_abi_type(param_spec)?.ok_or_else(|| {
+                format!(
+                    "Codegen error: Unit parameter is not representable in native ABI for '{}'",
+                    source_def.name
+                )
+            })?;
+            sig.params.push(AbiParam::new(param_ty));
+        }
         ctx.func.signature = sig;
 
         let mut fn_builder_ctx = FunctionBuilderContext::new();
@@ -132,18 +188,27 @@ pub fn compile_monomorphized_program(
             cl_blocks.insert(b_idx, cl_b);
         }
 
-        let entry_cl_block = cl_blocks[&0];
+        let entry_cl_block = *cl_blocks
+            .get(&0)
+            .ok_or_else(|| format!("Codegen error: function '{}' has no entry block", mir_func.name))?;
         builder.append_block_params_for_function_params(entry_cl_block);
         builder.switch_to_block(entry_cl_block);
 
         let mut locals_map = std::collections::HashMap::new();
         for (p_idx, &param_local) in mir_func.params.iter().enumerate() {
-            let cl_val = builder.block_params(entry_cl_block)[p_idx];
+            let cl_val = builder.block_params(entry_cl_block).get(p_idx).copied().ok_or_else(|| {
+                format!(
+                    "Codegen error: function '{}' has no Cranelift parameter for MIR parameter {}",
+                    mir_func.name, p_idx
+                )
+            })?;
             locals_map.insert(param_local, cl_val);
         }
 
         for (b_idx, mir_block) in mir_func.body.blocks.iter().enumerate() {
-            let cl_b = cl_blocks[&b_idx];
+            let cl_b = *cl_blocks
+                .get(&b_idx)
+                .ok_or_else(|| format!("Codegen error: missing Cranelift block {}", b_idx))?;
             if b_idx != 0 {
                 builder.switch_to_block(cl_b);
             }
@@ -158,69 +223,133 @@ pub fn compile_monomorphized_program(
                 }
             }
 
-            if let Some(term) = &mir_block.terminator {
-                match term {
-                    omni_mir::ir::Terminator::Return => {
-                        if ret_type.is_some() {
-                            let ret_val = locals_map
-                                .get(&mir_func.return_place)
-                                .copied()
-                                .ok_or_else(|| {
-                                    format!(
-                                        "Codegen error: Return place {:?} was not assigned in function '{}'",
-                                        mir_func.return_place, mir_func.name
-                                    )
-                                })?;
-                            builder.ins().return_(&[ret_val]);
-                        } else {
-                            builder.ins().return_(&[]);
+            let term = mir_block.terminator.as_ref().ok_or_else(|| {
+                format!(
+                    "Codegen error: MIR block {:?} in '{}' is unterminated",
+                    b_idx, mir_func.name
+                )
+            })?;
+
+            match term {
+                omni_mir::ir::Terminator::Return => {
+                    if native_abi_type(&source_def.return_type)?.is_some() {
+                        let ret_val = locals_map
+                            .get(&mir_func.return_place)
+                            .copied()
+                            .ok_or_else(|| {
+                                format!(
+                                    "Codegen error: Return place {:?} was not assigned in function '{}'",
+                                    mir_func.return_place, mir_func.name
+                                )
+                            })?;
+                        builder.ins().return_(&[ret_val]);
+                    } else {
+                        builder.ins().return_(&[]);
+                    }
+                }
+                omni_mir::ir::Terminator::Goto(target) => {
+                    let target_cl = *cl_blocks
+                        .get(&target.index())
+                        .ok_or_else(|| format!("Codegen error: undefined goto target {:?}", target))?;
+                    builder.ins().jump(target_cl, &[]);
+                }
+                omni_mir::ir::Terminator::SwitchInt { discr, targets, otherwise } => {
+                    let discr_val = lower_operand_to_cl(&mut builder, discr, &locals_map)?;
+                    let otherwise_cl = *cl_blocks
+                        .get(&otherwise.index())
+                        .ok_or_else(|| format!("Codegen error: undefined switch target {:?}", otherwise))?;
+                    let mut switch = cranelift_frontend::Switch::new();
+                    for (val, t_block) in targets {
+                        let target_cl = *cl_blocks
+                            .get(&t_block.index())
+                            .ok_or_else(|| format!("Codegen error: undefined switch target {:?}", t_block))?;
+                        switch.set_entry(u128::from(*val), target_cl);
+                    }
+                    switch.emit(&mut builder, discr_val, otherwise_cl);
+                }
+                omni_mir::ir::Terminator::Call {
+                    func,
+                    args,
+                    destination,
+                    target,
+                    cleanup: _,
+                } => {
+                    let fn_name = match func {
+                        omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(name)) => name,
+                        _ => {
+                            return Err(
+                                "Indirect function calls not yet supported in Cranelift emission".into()
+                            )
+                        }
+                    };
+                    let source_callee = prog
+                        .functions
+                        .iter()
+                        .find(|f| f.name == *fn_name)
+                        .ok_or_else(|| format!("Codegen error: call target '{}' not found", fn_name))?;
+                    if args.len() != source_callee.params.len() {
+                        return Err(format!(
+                            "Codegen error: call '{}' expected {} arguments, found {}",
+                            fn_name,
+                            source_callee.params.len(),
+                            args.len()
+                        ));
+                    }
+
+                    let mut call_args = Vec::with_capacity(args.len());
+                    for (arg, (_, param_spec)) in args.iter().zip(source_callee.params.iter()) {
+                        let value = lower_operand_to_cl(&mut builder, arg, &locals_map)?;
+                        let expected = native_abi_type(param_spec)?.ok_or_else(|| {
+                            format!(
+                                "Codegen error: Unit argument is not representable in native ABI for '{}'",
+                                source_callee.name
+                            )
+                        })?;
+                        if builder.func.dfg.value_type(value) != expected {
+                            return Err(format!(
+                                "Codegen error: call '{}' argument ABI type mismatch: expected {:?}, found {:?}",
+                                fn_name,
+                                expected,
+                                builder.func.dfg.value_type(value)
+                            ));
+                        }
+                        call_args.push(value);
+                    }
+
+                    let callee_id = *function_ids
+                        .get(fn_name)
+                        .ok_or_else(|| format!("Codegen error: callee '{}' was not predeclared", fn_name))?;
+                    let local_callee = module.declare_func_in_func(callee_id, builder.func);
+                    let call_inst = builder.ins().call(local_callee, &call_args);
+                    let results = builder.inst_results(call_inst);
+
+                    match destination {
+                        Some(destination) => {
+                            if results.len() != 1 {
+                                return Err(format!(
+                                    "Codegen error: call '{}' has no return value but MIR requests destination {:?}",
+                                    fn_name, destination
+                                ));
+                            }
+                            locals_map.insert(destination.local, results[0]);
+                        }
+                        None => {
+                            if !results.is_empty() {
+                                return Err(format!(
+                                    "Codegen error: call '{}' returns a value but MIR has no destination",
+                                    fn_name
+                                ));
+                            }
                         }
                     }
-                    omni_mir::ir::Terminator::Goto(target) => {
-                        let target_cl = cl_blocks[&target.index()];
-                        builder.ins().jump(target_cl, &[]);
-                    }
-                    omni_mir::ir::Terminator::SwitchInt { discr, targets, otherwise } => {
-                        let discr_val = lower_operand_to_cl(&mut builder, discr, &locals_map)?;
-                        let otherwise_cl = cl_blocks[&otherwise.index()];
-                        let mut switch = cranelift_frontend::Switch::new();
-                        for (val, t_block) in targets {
-                            switch.set_entry(u128::from(*val), cl_blocks[&t_block.index()]);
-                        }
-                        switch.emit(&mut builder, discr_val, otherwise_cl);
-                    }
-                    omni_mir::ir::Terminator::Call { func, args, destination, target, .. } => {
-                        let mut call_args = Vec::new();
-                        for arg in args {
-                            call_args.push(lower_operand_to_cl(&mut builder, arg, &locals_map)?);
-                        }
-                        let fn_name = match func {
-                            omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(
-                                name,
-                            )) => name,
-                            _ => return Err(
-                                "Indirect function calls not yet supported in Cranelift emission"
-                                    .into(),
-                            ),
-                        };
-                        let mut callee_sig = Signature::new(module.isa().default_call_conv());
-                        callee_sig.returns.push(AbiParam::new(types::I64));
-                        for _ in &call_args {
-                            callee_sig.params.push(AbiParam::new(types::I64));
-                        }
-                        let callee_id = module
-                            .declare_function(fn_name, Linkage::Export, &callee_sig)
-                            .map_err(|e| format!("Callee declaration error: {}", e))?;
-                        let local_callee = module.declare_func_in_func(callee_id, builder.func);
-                        let call_inst = builder.ins().call(local_callee, &call_args);
-                        let res_val = builder.inst_results(call_inst)[0];
-                        locals_map.insert(destination.local, res_val);
-                        let target_cl = cl_blocks[&target.index()];
-                        builder.ins().jump(target_cl, &[]);
-                    }
-                    omni_mir::ir::Terminator::Unreachable => {
-                        builder.ins().trap(cranelift_codegen::ir::TrapCode::UnreachableCodeReached);
-                    }
+
+                    let target_cl = *cl_blocks
+                        .get(&target.index())
+                        .ok_or_else(|| format!("Codegen error: undefined call target {:?}", target))?;
+                    builder.ins().jump(target_cl, &[]);
+                }
+                omni_mir::ir::Terminator::Unreachable => {
+                    builder.ins().trap(cranelift_codegen::ir::TrapCode::UnreachableCodeReached);
                 }
             }
 
