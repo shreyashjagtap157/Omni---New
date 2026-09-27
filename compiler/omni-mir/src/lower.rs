@@ -665,6 +665,67 @@ mod tests {
     }
 
     #[test]
+    fn test_call_result_let_binding_lands_in_continuation_block() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![
+                GenericFnDef {
+                    name: "inc".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Return(Some(Box::new(Expr::Binary {
+                        op: omni_types::ast::BinOp::Add,
+                        lhs: Box::new(Expr::Var("x".to_string())),
+                        rhs: Box::new(Expr::Literal(Lit::Int(1))),
+                    }))),
+                },
+                GenericFnDef {
+                    name: "main".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Let {
+                        name: "value".to_string(),
+                        ty: None,
+                        init: Box::new(Expr::Call {
+                            func: "inc".to_string(),
+                            generic_args: vec![],
+                            args: vec![Expr::Literal(Lit::Int(41))],
+                        }),
+                        body: Box::new(Expr::Return(Some(Box::new(Expr::Var(
+                            "value".to_string(),
+                        ))))),
+                    },
+                },
+            ],
+        };
+
+        let mir = ctx
+            .lower_monomorphized_program(&program)
+            .expect("call result must lower to a continuation block");
+        let main = mir.functions.iter().find(|f| f.name == "main").expect("main MIR");
+        assert!(main.body.blocks.len() >= 2);
+        assert!(main.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::Use(crate::ir::Operand::Copy(_))
+                    )
+                )
+            })
+        }));
+    }
+
+    #[test]
     fn test_mir_lowering_materializes_literal_var_unary_and_block() {
         let mut ctx = LoweringContext::new();
         let program = MonomorphizedProgram {
