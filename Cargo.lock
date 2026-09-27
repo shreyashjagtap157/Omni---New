@@ -416,6 +416,7 @@ dependencies = [
  "cranelift-object",
  "index_vec",
  "object",
+ "omni-effects",
  "omni-mir",
  "omni-verify",
  "target-lexicon",
