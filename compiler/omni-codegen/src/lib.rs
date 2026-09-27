@@ -473,7 +473,7 @@ mod tests {
                 return_type: ast::TypeSpec::Unit,
                 effects: Default::default(),
                 capabilities: vec![],
-                body: ast::Expr::Literal(ast::Lit::Int(42)),
+                body: ast::Expr::Block(vec![]),
             }],
         };
 
@@ -484,6 +484,78 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn test_compile_monomorphized_program_int_return_and_call() {
+        let callee = ast::GenericFnDef {
+            name: "inc".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![("x".to_string(), ast::TypeSpec::Int)],
+            return_type: ast::TypeSpec::Int,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Binary {
+                op: ast::BinOp::Add,
+                lhs: Box::new(ast::Expr::Var("x".to_string())),
+                rhs: Box::new(ast::Expr::Literal(ast::Lit::Int(1))),
+            },
+        };
+        let caller = ast::GenericFnDef {
+            name: "main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Int,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Call {
+                func: "inc".to_string(),
+                generic_args: vec![],
+                args: vec![ast::Expr::Literal(ast::Lit::Int(41))],
+            },
+        };
+
+        let bytes = compile_monomorphized_program(&MonomorphizedProgram {
+            functions: vec![callee, caller],
+        })
+        .expect("typed MIR with a concrete call must compile");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn test_compile_monomorphized_program_unit_call_has_no_result() {
+        let callee = ast::GenericFnDef {
+            name: "touch".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Unit,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Block(vec![]),
+        };
+        let caller = ast::GenericFnDef {
+            name: "main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Unit,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Call {
+                func: "touch".to_string(),
+                generic_args: vec![],
+                args: vec![],
+            },
+        };
+
+        let bytes = compile_monomorphized_program(&MonomorphizedProgram {
+            functions: vec![callee, caller],
+        })
+        .expect("Unit call must compile without fabricating a result");
+        assert!(!bytes.is_empty());
+    }
+
     fn test_compile_monomorphized_program_fails_on_unresolved_generic() {
         let prog = MonomorphizedProgram {
             functions: vec![ast::GenericFnDef {
