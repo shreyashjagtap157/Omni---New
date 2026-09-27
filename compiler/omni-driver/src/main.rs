@@ -33,9 +33,8 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
             }
             "-O" | "--opt-level" => {
                 if let Some(val) = iter.next() {
-                    opt_level = val
-                        .parse()
-                        .map_err(|_| format!("Invalid optimization level: {val}"))?;
+                    opt_level =
+                        val.parse().map_err(|_| format!("Invalid optimization level: {val}"))?;
                 } else {
                     return Err("Missing value for optimization level".into());
                 }
