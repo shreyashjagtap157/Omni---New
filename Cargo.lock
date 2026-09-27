@@ -416,6 +416,7 @@ dependencies = [
  "cranelift-object",
  "index_vec",
  "object",
+ "omni-effects",
  "omni-mir",
  "omni-verify",
  "target-lexicon",
@@ -439,9 +440,14 @@ version = "0.0.0"
 dependencies = [
  "omni-canon",
  "omni-codegen",
+ "omni-effects",
  "omni-evidence",
  "omni-machine",
+ "omni-names",
+ "omni-parse",
  "omni-registry",
+ "omni-syntax",
+ "omni-types",
  "serde_json",
 ]
 

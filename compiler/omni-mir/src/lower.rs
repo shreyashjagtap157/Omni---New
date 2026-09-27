@@ -184,9 +184,10 @@ impl<'a> FnMirBuilder<'a> {
         &mut self,
         expr: &omni_types::ast::Expr,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
-        let curr_block = self.current_block.ok_or_else(|| {
-            "MIR lowering error: expression evaluated after control flow terminated".to_string()
-        })?;
+        if self.current_block.is_none() {
+            return Err("MIR lowering error: expression evaluated after control flow terminated"
+                .to_string());
+        }
 
         match expr {
             omni_types::ast::Expr::Literal(lit) => {
@@ -234,6 +235,10 @@ impl<'a> FnMirBuilder<'a> {
                     | omni_types::ast::BinOp::Mul
                     | omni_types::ast::BinOp::Div => lhs_ty,
                 };
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: binary expression has no live continuation block"
+                        .to_string()
+                })?;
                 let temp_local = self.new_temp(Some("_bin_tmp".to_string()), result_ty);
                 let place = crate::ir::Place { local: temp_local };
                 self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
@@ -267,6 +272,10 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
                     omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
                 };
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: unary expression has no live continuation block"
+                        .to_string()
+                })?;
                 let temp_local = self.new_temp(Some("_un_tmp".to_string()), inner_ty);
                 let place = crate::ir::Place { local: temp_local };
                 self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
@@ -294,6 +303,9 @@ impl<'a> FnMirBuilder<'a> {
                 let saved_scope = self.scope.clone();
                 let var_local = self.new_temp(Some(name.clone()), var_ty);
                 let place = crate::ir::Place { local: var_local };
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: let binding has no live continuation block".to_string()
+                })?;
                 self.blocks[curr_block]
                     .statements
                     .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(init_op)));
@@ -339,6 +351,9 @@ impl<'a> FnMirBuilder<'a> {
                     arg_ops.push(arg_op);
                 }
 
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: call has no live continuation block".to_string()
+                })?;
                 let next_block = self.new_block();
                 let destination = if ret_ty == self.tcx.intern(TyKind::Unit) {
                     None
@@ -385,6 +400,9 @@ impl<'a> FnMirBuilder<'a> {
                     None
                 };
 
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: return has no live continuation block".to_string()
+                })?;
                 if let Some((operand, _)) = &ret_result {
                     let ret_p = crate::ir::Place { local: crate::ir::Local::from_usize(0) };
                     self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
@@ -644,5 +662,145 @@ mod tests {
         let res = ctx.lower_monomorphized_program(&prog);
         assert!(res.is_err(), "Unsupported AST expressions must fail lowering explicitly");
         assert!(res.unwrap_err().contains("Unsupported AST expression form"));
+    }
+
+    #[test]
+    fn test_call_result_let_binding_lands_in_continuation_block() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![
+                GenericFnDef {
+                    name: "inc".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Return(Some(Box::new(Expr::Binary {
+                        op: omni_types::ast::BinOp::Add,
+                        lhs: Box::new(Expr::Var("x".to_string())),
+                        rhs: Box::new(Expr::Literal(Lit::Int(1))),
+                    }))),
+                },
+                GenericFnDef {
+                    name: "main".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Let {
+                        name: "value".to_string(),
+                        ty: None,
+                        init: Box::new(Expr::Call {
+                            func: "inc".to_string(),
+                            generic_args: vec![],
+                            args: vec![Expr::Literal(Lit::Int(41))],
+                        }),
+                        body: Box::new(Expr::Return(Some(Box::new(Expr::Var(
+                            "value".to_string(),
+                        ))))),
+                    },
+                },
+            ],
+        };
+
+        let mir = ctx
+            .lower_monomorphized_program(&program)
+            .expect("call result must lower to a continuation block");
+        let main = mir.functions.iter().find(|f| f.name == "main").expect("main MIR");
+        assert!(main.body.blocks.len() >= 2);
+        assert!(main.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::Use(crate::ir::Operand::Copy(_))
+                    )
+                )
+            })
+        }));
+    }
+
+    #[test]
+    fn test_mir_lowering_materializes_literal_var_unary_and_block() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![
+                GenericFnDef {
+                    name: "literal".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Literal(Lit::Int(7)),
+                },
+                GenericFnDef {
+                    name: "identity".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Var("x".to_string()),
+                },
+                GenericFnDef {
+                    name: "negate".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Unary {
+                        op: omni_types::ast::UnOp::Neg,
+                        expr: Box::new(Expr::Var("x".to_string())),
+                    },
+                },
+                GenericFnDef {
+                    name: "block_value".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Block(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))]),
+                },
+            ],
+        };
+
+        let mir = ctx.lower_monomorphized_program(&program).expect("expression corpus must lower");
+        assert_eq!(mir.functions.len(), 4);
+        for function in &mir.functions {
+            assert!(
+                function.body.blocks.iter().any(|block| !block.statements.is_empty()),
+                "function '{}' must materialize at least one MIR statement",
+                function.name
+            );
+            assert!(
+                function.body.local_decls.iter().all(|decl| decl.ty.is_some()),
+                "function '{}' must type every MIR local",
+                function.name
+            );
+        }
+        let negate = mir.functions.iter().find(|f| f.name == "negate").unwrap();
+        assert!(negate.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::UnaryOp(crate::ir::UnOp::Neg, _)
+                    )
+                )
+            })
+        }));
     }
 }

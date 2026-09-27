@@ -330,6 +330,12 @@ impl TypeChecker {
                 let init_ty = self.infer_expr(init, env, local_vars)?;
                 let declared_ty =
                     if let Some(spec) = ty { self.lower_type_spec(spec, env) } else { init_ty };
+                if declared_ty != init_ty {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(declared_ty),
+                        found: self.tcx.mangle(init_ty),
+                    });
+                }
                 let mut inner_vars = local_vars.clone();
                 inner_vars.insert(name.clone(), declared_ty);
                 self.infer_expr(body, env, &inner_vars)
@@ -355,7 +361,20 @@ impl TypeChecker {
                     | crate::ast::BinOp::Div => Ok(l_ty),
                 }
             }
-            Expr::Unary { op: _, expr } => self.infer_expr(expr, env, local_vars),
+            Expr::Unary { op, expr } => {
+                let inner_ty = self.infer_expr(expr, env, local_vars)?;
+                let expected = match op {
+                    crate::ast::UnOp::Neg => self.tcx.intern(TyKind::Int),
+                    crate::ast::UnOp::Not => self.tcx.intern(TyKind::Bool),
+                };
+                if inner_ty != expected {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(expected),
+                        found: self.tcx.mangle(inner_ty),
+                    });
+                }
+                Ok(expected)
+            }
             Expr::Field { expr, field: _ } => {
                 let struct_ty = self.infer_expr(expr, env, local_vars)?;
                 if let TyKind::Struct(_, args) = self.tcx.get(struct_ty).clone() {
