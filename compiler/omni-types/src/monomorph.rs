@@ -12,7 +12,8 @@ pub struct MonomorphizedProgram {
 
 impl MonomorphizedProgram {
     /// Strict semantic gate before MIR: verifies that all monomorphized functions
-    /// have 0 type parameters, 0 unsatisfied bounds, and contain no unresolved generic calls.
+    /// have 0 type parameters, 0 unsatisfied bounds, no unresolved generic calls,
+    /// and no unresolved effect row variables.
     pub fn assert_concrete_for_mir(&self) -> Result<(), String> {
         for func in &self.functions {
             if !func.type_params.is_empty() {
@@ -25,6 +26,13 @@ impl MonomorphizedProgram {
                 return Err(format!(
                     "MIR semantic gate violation: function `{}` has unresolved trait bounds",
                     func.name
+                ));
+            }
+            // Effect gate: no unresolved effect row variables
+            if let Some(var) = func.effects.tail_var() {
+                return Err(format!(
+                    "MIR semantic gate violation: function `{}` has unresolved effect row variable `{}`",
+                    func.name, var
                 ));
             }
             Self::verify_expr_concrete(&func.body, &func.name)?;
@@ -122,7 +130,7 @@ impl<'a> Monomorphizer<'a> {
     ) -> Result<MonomorphizedProgram, TypeError> {
         let env = SubstEnv::new();
         let local_vars = HashMap::new();
-        let (_, key, subst_env) =
+        let (_, key, subst_env, _callee_effects) =
             self.checker.infer_call(fn_name, explicit_args, arg_exprs, &env, &local_vars)?;
 
         self.monomorphize_fn(&key, &subst_env)?;
@@ -181,6 +189,8 @@ impl<'a> Monomorphizer<'a> {
             bounds: vec![],
             params: spec_params,
             return_type: spec_ret,
+            effects: fn_def.effects.clone(),
+            capabilities: fn_def.capabilities.clone(),
             body: spec_body,
         };
 
@@ -213,7 +223,7 @@ impl<'a> Monomorphizer<'a> {
                 }
 
                 // 3. Perform type inference / handoff for call target
-                let (_, nested_key, nested_env) = self.checker.infer_call(
+                let (_, nested_key, nested_env, _nested_effects) = self.checker.infer_call(
                     func,
                     &sub_generic_args,
                     &mono_args,

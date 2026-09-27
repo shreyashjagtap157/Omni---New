@@ -98,6 +98,8 @@ mod tests {
                 bounds: vec![],
                 params: vec![],
                 return_type: ast::TypeSpec::Unit,
+                effects: Default::default(),
+                capabilities: vec![],
                 body: ast::Expr::Literal(ast::Lit::Int(42)),
             }],
         };
@@ -117,6 +119,8 @@ mod tests {
                 bounds: vec![],
                 params: vec![],
                 return_type: ast::TypeSpec::Unit,
+                effects: Default::default(),
+                capabilities: vec![],
                 body: ast::Expr::Literal(ast::Lit::Int(42)),
             }],
         };

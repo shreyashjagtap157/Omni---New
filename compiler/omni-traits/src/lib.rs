@@ -462,6 +462,8 @@ mod tests {
                 params: vec![],
                 return_type: TypeSpec::String,
                 has_default: false,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
             }],
             is_local: true,
         };
@@ -594,6 +596,8 @@ mod tests {
             bounds: vec![("T".to_string(), TraitBound::Positive("Printable".to_string()))],
             params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
             return_type: TypeSpec::GenericParam("T".to_string()),
+            effects: omni_effects::EffectRow::default(),
+            capabilities: vec![],
             body: Expr::Var("x".to_string()),
         });
 
@@ -748,6 +752,8 @@ mod tests {
             bounds: vec![("T".to_string(), TraitBound::Positive("Serializable".to_string()))],
             params: vec![("item".to_string(), TypeSpec::GenericParam("T".to_string()))],
             return_type: TypeSpec::GenericParam("T".to_string()),
+            effects: omni_effects::EffectRow::default(),
+            capabilities: vec![],
             body: omni_types::ast::Expr::Var("item".to_string()),
         });
 
@@ -796,6 +802,8 @@ mod tests {
             bounds: vec![("T".to_string(), TraitBound::Positive("Display".to_string()))],
             params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
             return_type: TypeSpec::GenericParam("T".to_string()),
+            effects: omni_effects::EffectRow::default(),
+            capabilities: vec![],
             body: Expr::Var("x".to_string()),
         });
 
@@ -806,6 +814,8 @@ mod tests {
             bounds: vec![("T".to_string(), TraitBound::Positive("Display".to_string()))],
             params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
             return_type: TypeSpec::GenericParam("T".to_string()),
+            effects: omni_effects::EffectRow::default(),
+            capabilities: vec![],
             body: Expr::Call {
                 func: "inner".to_string(),
                 generic_args: vec![TypeSpec::GenericParam("T".to_string())],
@@ -877,6 +887,8 @@ mod tests {
             bounds: vec![("T".to_string(), TraitBound::Positive("Base".to_string()))],
             params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
             return_type: TypeSpec::GenericParam("T".to_string()),
+            effects: omni_effects::EffectRow::default(),
+            capabilities: vec![],
             body: omni_types::ast::Expr::Var("x".to_string()),
         });
 
@@ -923,6 +935,8 @@ mod tests {
             bounds: vec![("T".to_string(), TraitBound::Negative("ThreadSafe".to_string()))],
             params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
             return_type: TypeSpec::GenericParam("T".to_string()),
+            effects: omni_effects::EffectRow::default(),
+            capabilities: vec![],
             body: omni_types::ast::Expr::Var("x".to_string()),
         });
 

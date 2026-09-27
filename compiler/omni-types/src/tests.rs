@@ -15,6 +15,8 @@ fn setup_checker() -> TypeChecker {
         bounds: vec![],
         params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
         return_type: TypeSpec::GenericParam("T".to_string()),
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Return(Some(Box::new(Expr::Var("x".to_string())))),
     });
 
@@ -25,6 +27,8 @@ fn setup_checker() -> TypeChecker {
         bounds: vec![],
         params: vec![("val".to_string(), TypeSpec::GenericParam("T".to_string()))],
         return_type: TypeSpec::GenericParam("T".to_string()),
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Return(Some(Box::new(Expr::Var("val".to_string())))),
     });
 
@@ -35,6 +39,8 @@ fn setup_checker() -> TypeChecker {
         bounds: vec![],
         params: vec![("arg".to_string(), TypeSpec::GenericParam("T".to_string()))],
         return_type: TypeSpec::GenericParam("T".to_string()),
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Return(Some(Box::new(Expr::Call {
             func: "inner".to_string(),
             generic_args: vec![TypeSpec::GenericParam("T".to_string())],
@@ -49,6 +55,8 @@ fn setup_checker() -> TypeChecker {
         bounds: vec![],
         params: vec![("n".to_string(), TypeSpec::GenericParam("T".to_string()))],
         return_type: TypeSpec::GenericParam("T".to_string()),
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Return(Some(Box::new(Expr::Call {
             func: "recursive_fn".to_string(),
             generic_args: vec![TypeSpec::GenericParam("T".to_string())],
@@ -63,6 +71,8 @@ fn setup_checker() -> TypeChecker {
         bounds: vec![],
         params: vec![],
         return_type: TypeSpec::GenericParam("T".to_string()),
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Return(None),
     });
 
@@ -80,6 +90,8 @@ fn test_multi_instantiation_same_generic_function() {
         bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Block(vec![
             Expr::Let {
                 name: "a".to_string(),
@@ -139,6 +151,8 @@ fn test_nested_generic_calls() {
         bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Call {
             func: "outer".to_string(),
             generic_args: vec![],
@@ -175,6 +189,8 @@ fn test_generic_recursion() {
         bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Call {
             func: "recursive_fn".to_string(),
             generic_args: vec![],
@@ -212,6 +228,8 @@ fn test_generic_arguments_in_complex_nodes() {
             ),
         ],
         return_type: TypeSpec::GenericParam("T".to_string()),
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Block(vec![
             // Field projection
             Expr::Let {
@@ -274,6 +292,8 @@ fn test_generic_arguments_in_complex_nodes() {
         bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Call {
             func: "complex_fn".to_string(),
             generic_args: vec![],
@@ -308,6 +328,8 @@ fn test_unresolved_substitution_negative_case() {
         bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
+        effects: omni_effects::EffectRow::default(),
+        capabilities: vec![],
         body: Expr::Call { func: "unconstrained".to_string(), generic_args: vec![], args: vec![] },
     });
 
@@ -329,7 +351,7 @@ fn test_mutation_revert_behavior_fails_test() {
     // Confirm that mono cannot return a single fallback "i64" when a String substitution is required
     let env = SubstEnv::new();
     let local_vars = HashMap::new();
-    let (_, key, subst) = checker
+    let (_, key, subst, _effects) = checker
         .infer_call(
             "identity",
             &[],
@@ -370,6 +392,8 @@ fn test_mir_semantic_gate() {
             bounds: vec![],
             params: vec![],
             return_type: TypeSpec::Unit,
+            effects: omni_effects::EffectRow::default(),
+            capabilities: vec![],
             body: Expr::Literal(Lit::Int(0)),
         }],
     };
@@ -646,4 +670,214 @@ fn test_pattern_result_and_nested_and_generic_adts() {
     ];
     let pat_checker_tree = crate::pattern::PatternChecker::new(&checker.tcx, &checker.enum_defs);
     assert!(pat_checker_tree.check_match(tree_int_ty, &arms_tree).is_ok());
+}
+
+#[test]
+fn test_effect_capability_semantic_model_slice() {
+    use omni_effects::{Capability, CapabilityContext, Effect, EffectRow};
+
+    let mut checker = TypeChecker::new();
+    checker.cap_context.grant(Capability::FileSystem);
+    checker.register_fn(GenericFnDef {
+        name: "read_file".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![("path".to_string(), TypeSpec::String)],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Literal(Lit::String("file_data".to_string())),
+    });
+
+    // 1. Pure function calling effectful function -> FAIL (unhandled effect)
+    let pure_fn = GenericFnDef {
+        name: "pure_caller".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::pure(),
+        capabilities: vec![],
+        body: Expr::Call {
+            func: "read_file".to_string(),
+            generic_args: vec![],
+            args: vec![Expr::Literal(Lit::String("test.txt".to_string()))],
+        },
+    };
+    checker.register_fn(pure_fn.clone());
+    let res = checker.check_fn_effects(&pure_fn);
+    assert!(res.is_err(), "Pure function calling effectful call must fail");
+    match res.unwrap_err() {
+        TypeError::EffectViolation(msg) => assert!(msg.contains("unhandled effect")),
+        other => panic!("Expected EffectViolation, got {:?}", other),
+    }
+
+    // 2. Missing capability FAIL (caller has !{IO} declared, but cap_context lacks FileSystem capability)
+    checker.cap_context = CapabilityContext::new();
+    let effectful_fn_no_cap = GenericFnDef {
+        name: "effectful_no_cap".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![],
+        body: Expr::Call {
+            func: "read_file".to_string(),
+            generic_args: vec![],
+            args: vec![Expr::Literal(Lit::String("test.txt".to_string()))],
+        },
+    };
+    checker.register_fn(effectful_fn_no_cap.clone());
+    let res = checker.check_fn_effects(&effectful_fn_no_cap);
+    assert!(res.is_err(), "Call requiring capability missing in context must fail");
+    match res.unwrap_err() {
+        TypeError::EffectViolation(msg) => assert!(msg.contains("missing capability")),
+        other => panic!("Expected EffectViolation for missing capability, got {:?}", other),
+    }
+
+    // 3. Unrelated capability does NOT satisfy effect/capability requirement
+    checker.cap_context = CapabilityContext::with_capabilities(vec![Capability::NetworkConnect]);
+    let res_unrelated = checker.check_fn_effects(&effectful_fn_no_cap);
+    assert!(
+        res_unrelated.is_err(),
+        "Unrelated capability (NetworkConnect) must not satisfy FileSystem requirement"
+    );
+
+    // Grant correct capability to context
+    checker.cap_context.grant(Capability::FileSystem);
+
+    // 4. Effectful caller with declared !{IO} and granted Capability::FileSystem -> PASS
+    let valid_effectful_fn = GenericFnDef {
+        name: "valid_effectful".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Call {
+            func: "read_file".to_string(),
+            generic_args: vec![],
+            args: vec![Expr::Literal(Lit::String("test.txt".to_string()))],
+        },
+    };
+    checker.register_fn(valid_effectful_fn.clone());
+    assert!(checker.check_fn_effects(&valid_effectful_fn).is_ok());
+
+    // 5. Nested generic effectful call in pure caller -> FAIL
+    checker.register_fn(GenericFnDef {
+        name: "generic_read".to_string(),
+        type_params: vec!["T".to_string()],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Call {
+            func: "read_file".to_string(),
+            generic_args: vec![],
+            args: vec![Expr::Literal(Lit::String("test.txt".to_string()))],
+        },
+    });
+    let pure_generic_caller = GenericFnDef {
+        name: "pure_generic_caller".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::pure(),
+        capabilities: vec![],
+        body: Expr::Call {
+            func: "generic_read".to_string(),
+            generic_args: vec![TypeSpec::Int],
+            args: vec![],
+        },
+    };
+    checker.register_fn(pure_generic_caller.clone());
+    assert!(checker.check_fn_effects(&pure_generic_caller).is_err());
+
+    // 6. Effect inside match arm in pure caller -> FAIL
+    let pure_match_caller = GenericFnDef {
+        name: "pure_match_caller".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::pure(),
+        capabilities: vec![],
+        body: Expr::Match {
+            expr: Box::new(Expr::Literal(Lit::Bool(true))),
+            arms: vec![
+                MatchArm {
+                    pattern: Pattern::Lit(Lit::Bool(true)),
+                    guard: None,
+                    body: Expr::Call {
+                        func: "read_file".to_string(),
+                        generic_args: vec![],
+                        args: vec![Expr::Literal(Lit::String("a.txt".to_string()))],
+                    },
+                },
+                MatchArm {
+                    pattern: Pattern::Lit(Lit::Bool(false)),
+                    guard: None,
+                    body: Expr::Literal(Lit::String("default".to_string())),
+                },
+            ],
+        },
+    };
+    checker.register_fn(pure_match_caller.clone());
+    assert!(checker.check_fn_effects(&pure_match_caller).is_err());
+
+    // 7. Handled effect PASS under discharge rule
+    let row_with_io = EffectRow::closed(vec![Effect::IO, Effect::State]);
+    let discharged_row = row_with_io.discharge(&Effect::IO);
+    assert!(!discharged_row.contains(&Effect::IO));
+    assert!(discharged_row.contains(&Effect::State));
+
+    // 8. Integrated case: generic substitution + trait obligation + effect obligation + capability obligation
+    checker.trait_checker = Some(std::sync::Arc::new(|bounds, _subst, _tcx| {
+        for (_param, bound) in bounds {
+            if let TraitBound::Positive(name) = bound {
+                if name != "Display" {
+                    return Err(format!("Unsatisfied trait bound `{name}`"));
+                }
+            }
+        }
+        Ok(())
+    }));
+
+    let integrated_fn = GenericFnDef {
+        name: "integrated_target".to_string(),
+        type_params: vec!["T".to_string()],
+        bounds: vec![("T".to_string(), TraitBound::Positive("Display".to_string()))],
+        params: vec![("item".to_string(), TypeSpec::GenericParam("T".to_string()))],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Call {
+            func: "read_file".to_string(),
+            generic_args: vec![],
+            args: vec![Expr::Literal(Lit::String("data.txt".to_string()))],
+        },
+    };
+    checker.register_fn(integrated_fn);
+
+    let integrated_caller = GenericFnDef {
+        name: "integrated_caller".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Call {
+            func: "integrated_target".to_string(),
+            generic_args: vec![TypeSpec::Int],
+            args: vec![Expr::Literal(Lit::Int(42))],
+        },
+    };
+    checker.register_fn(integrated_caller.clone());
+
+    assert!(checker.check_fn_effects(&integrated_caller).is_ok());
 }

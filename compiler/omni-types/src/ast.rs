@@ -1,4 +1,5 @@
 use crate::intern::Ty;
+use omni_effects::{Capability, EffectRow};
 
 /// Declarative type representation used in generic AST definitions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +118,8 @@ pub struct MethodSig {
     pub params: Vec<(String, TypeSpec)>,
     pub return_type: TypeSpec,
     pub has_default: bool,
+    pub effects: EffectRow,
+    pub capabilities: Vec<Capability>,
 }
 
 /// A trait definition.
@@ -161,5 +164,7 @@ pub struct GenericFnDef {
     pub bounds: Vec<(String, TraitBound)>,
     pub params: Vec<(String, TypeSpec)>,
     pub return_type: TypeSpec,
+    pub effects: EffectRow,
+    pub capabilities: Vec<Capability>,
     pub body: Expr,
 }

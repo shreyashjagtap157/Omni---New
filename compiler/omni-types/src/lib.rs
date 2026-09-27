@@ -19,3 +19,5 @@ pub use intern::{Ty, TyCtxt, TyKind};
 pub use monomorph::{MonomorphizedProgram, Monomorphizer};
 pub use pattern::{Constructor, MatchAnalysisResult, PatternChecker};
 pub use solver::{Solver, TyVar, TyVarValue};
+
+pub use omni_effects;

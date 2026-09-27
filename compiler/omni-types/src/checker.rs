@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::ast::{Expr, GenericFnDef, Lit, TypeSpec};
 use crate::intern::{Ty, TyCtxt, TyKind};
 use crate::solver::Solver;
+use omni_effects::{CapabilityContext, EffectRow};
 
 /// Errors encountered during type checking and substitution resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,6 +16,7 @@ pub enum TypeError {
     TraitObligationUnsatisfied(String),
     NonExhaustiveMatch { scrutinee_ty: String, missing: String },
     UnreachablePattern { arm_index: usize, detail: String },
+    EffectViolation(String),
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
@@ -111,6 +113,7 @@ pub struct TypeChecker {
     pub fn_defs: HashMap<String, GenericFnDef>,
     pub enum_defs: HashMap<String, crate::ast::EnumDef>,
     pub trait_checker: Option<TraitObligationChecker>,
+    pub cap_context: CapabilityContext,
 }
 
 impl Default for TypeChecker {
@@ -127,6 +130,7 @@ impl TypeChecker {
             fn_defs: HashMap::new(),
             enum_defs: HashMap::new(),
             trait_checker: None,
+            cap_context: CapabilityContext::new(),
         }
     }
 
@@ -205,6 +209,7 @@ impl TypeChecker {
     }
 
     /// Performs type inference for a call site and derives authoritative generic substitutions.
+    /// Returns (return_type, specialization_key, subst_env, callee_effects).
     pub fn infer_call(
         &mut self,
         fn_name: &str,
@@ -212,7 +217,7 @@ impl TypeChecker {
         args: &[Expr],
         env: &SubstEnv,
         local_vars: &HashMap<String, Ty>,
-    ) -> Result<(Ty, SpecializationKey, SubstEnv), TypeError> {
+    ) -> Result<(Ty, SpecializationKey, SubstEnv, EffectRow), TypeError> {
         let fn_def = self
             .fn_defs
             .get(fn_name)
@@ -261,10 +266,19 @@ impl TypeChecker {
             }
         }
 
+        // Verify capability requirements at call site
+        let missing = self.cap_context.missing(&fn_def.capabilities);
+        if let Some(first_missing) = missing.into_iter().next() {
+            return Err(TypeError::EffectViolation(format!(
+                "missing capability `{first_missing}` required to call `{fn_name}`"
+            )));
+        }
+
         let ret_ty = self.lower_type_spec(&fn_def.return_type, &derived_subst);
         let key = SpecializationKey { fn_name: fn_name.to_string(), type_args: key_args };
+        let callee_effects = fn_def.effects.clone();
 
-        Ok((ret_ty, key, derived_subst))
+        Ok((ret_ty, key, derived_subst, callee_effects))
     }
 
     fn unify_types(
@@ -326,7 +340,8 @@ impl TypeChecker {
                 .copied()
                 .ok_or_else(|| TypeError::VariableNotFound(name.clone())),
             Expr::Call { func, generic_args, args } => {
-                let (ret_ty, _, _) = self.infer_call(func, generic_args, args, env, local_vars)?;
+                let (ret_ty, _, _, _) =
+                    self.infer_call(func, generic_args, args, env, local_vars)?;
                 Ok(ret_ty)
             }
             Expr::Let { name, ty, init, body } => {
@@ -422,5 +437,116 @@ impl TypeChecker {
                 }
             }
         }
+    }
+
+    /// Infer compositional effect row produced by an expression.
+    pub fn infer_expr_effects(
+        &mut self,
+        expr: &Expr,
+        env: &SubstEnv,
+        local_vars: &HashMap<String, Ty>,
+    ) -> Result<EffectRow, TypeError> {
+        match expr {
+            Expr::Literal(_) | Expr::Var(_) => Ok(EffectRow::pure()),
+            Expr::Call { func, generic_args, args } => {
+                let mut effects = EffectRow::pure();
+                for arg in args {
+                    let arg_eff = self.infer_expr_effects(arg, env, local_vars)?;
+                    effects = effects.union(&arg_eff);
+                }
+                let (_, _, _, callee_effects) =
+                    self.infer_call(func, generic_args, args, env, local_vars)?;
+                Ok(effects.union(&callee_effects))
+            }
+            Expr::Let { init, body, .. } => {
+                let init_eff = self.infer_expr_effects(init, env, local_vars)?;
+                let body_eff = self.infer_expr_effects(body, env, local_vars)?;
+                Ok(init_eff.union(&body_eff))
+            }
+            Expr::Binary { lhs, rhs, .. } => {
+                let l_eff = self.infer_expr_effects(lhs, env, local_vars)?;
+                let r_eff = self.infer_expr_effects(rhs, env, local_vars)?;
+                Ok(l_eff.union(&r_eff))
+            }
+            Expr::Unary { expr, .. } | Expr::Field { expr, .. } => {
+                self.infer_expr_effects(expr, env, local_vars)
+            }
+            Expr::Index { expr, index } => {
+                let e_eff = self.infer_expr_effects(expr, env, local_vars)?;
+                let i_eff = self.infer_expr_effects(index, env, local_vars)?;
+                Ok(e_eff.union(&i_eff))
+            }
+            Expr::Tuple(elems) | Expr::Array(elems) => {
+                let mut eff = EffectRow::pure();
+                for elem in elems {
+                    eff = eff.union(&self.infer_expr_effects(elem, env, local_vars)?);
+                }
+                Ok(eff)
+            }
+            Expr::Range { start, end } => {
+                let s_eff = self.infer_expr_effects(start, env, local_vars)?;
+                let e_eff = self.infer_expr_effects(end, env, local_vars)?;
+                Ok(s_eff.union(&e_eff))
+            }
+            Expr::Match { expr, arms } => {
+                let mut eff = self.infer_expr_effects(expr, env, local_vars)?;
+                for arm in arms {
+                    if let Some(g) = &arm.guard {
+                        eff = eff.union(&self.infer_expr_effects(g, env, local_vars)?);
+                    }
+                    eff = eff.union(&self.infer_expr_effects(&arm.body, env, local_vars)?);
+                }
+                Ok(eff)
+            }
+            Expr::Lambda { body, .. } => self.infer_expr_effects(body, env, local_vars),
+            Expr::Interpolation(parts) => {
+                let mut eff = EffectRow::pure();
+                for p in parts {
+                    eff = eff.union(&self.infer_expr_effects(p, env, local_vars)?);
+                }
+                Ok(eff)
+            }
+            Expr::Assign { target, value } => {
+                let t_eff = self.infer_expr_effects(target, env, local_vars)?;
+                let v_eff = self.infer_expr_effects(value, env, local_vars)?;
+                Ok(t_eff.union(&v_eff))
+            }
+            Expr::Block(stmts) => {
+                let mut eff = EffectRow::pure();
+                for stmt in stmts {
+                    eff = eff.union(&self.infer_expr_effects(stmt, env, local_vars)?);
+                }
+                Ok(eff)
+            }
+            Expr::Return(opt_expr) => {
+                if let Some(e) = opt_expr {
+                    self.infer_expr_effects(e, env, local_vars)
+                } else {
+                    Ok(EffectRow::pure())
+                }
+            }
+        }
+    }
+
+    /// Check function effect obligations against declared effect row and capabilities.
+    pub fn check_fn_effects(&mut self, fn_def: &GenericFnDef) -> Result<EffectRow, TypeError> {
+        let env = SubstEnv::new();
+        let mut local_vars = HashMap::new();
+        for (p_name, p_spec) in &fn_def.params {
+            let p_ty = self.lower_type_spec(p_spec, &env);
+            local_vars.insert(p_name.clone(), p_ty);
+        }
+        let body_effects = self.infer_expr_effects(&fn_def.body, &env, &local_vars)?;
+
+        omni_effects::check_effect_obligations(
+            &body_effects,
+            &fn_def.effects,
+            &fn_def.capabilities,
+            &self.cap_context,
+            &fn_def.name,
+        )
+        .map_err(|e| TypeError::EffectViolation(e.to_string()))?;
+
+        Ok(body_effects)
     }
 }

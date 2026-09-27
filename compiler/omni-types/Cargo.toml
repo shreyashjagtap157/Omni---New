@@ -9,3 +9,4 @@ workspace = true
 
 [dependencies]
 ena = "0.14"
+omni-effects = { path = "../omni-effects" }

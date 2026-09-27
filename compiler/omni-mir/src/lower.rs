@@ -64,6 +64,8 @@ mod tests {
                 bounds: vec![],
                 params: vec![],
                 return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
                 body: Expr::Literal(Lit::Int(42)),
             }],
         };
@@ -82,6 +84,8 @@ mod tests {
                 bounds: vec![],
                 params: vec![],
                 return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
                 body: Expr::Literal(Lit::Int(42)),
             }],
         };
@@ -107,6 +111,8 @@ mod tests {
                 )],
                 params: vec![],
                 return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
                 body: Expr::Literal(Lit::Int(42)),
             }],
         };
