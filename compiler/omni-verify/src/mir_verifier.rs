@@ -73,7 +73,7 @@ impl MirVerifier {
             return Err(MirVerificationError::EmptyFunctionBody { func: fn_name.clone() });
         }
 
-        // Validate return place index exists
+        // Validate return place index exists and is typed
         if func.return_place.index() >= func.body.local_decls.len() {
             return Err(MirVerificationError::InvalidReturnPlace {
                 func: fn_name.clone(),
@@ -81,10 +81,19 @@ impl MirVerifier {
                 actual: func.return_place,
             });
         }
+        if func.body.local_decls[func.return_place].ty.is_none() {
+            return Err(MirVerificationError::InvalidReturnPlace {
+                func: fn_name.clone(),
+                expected: func.return_place,
+                actual: func.return_place,
+            });
+        }
 
-        // Validate parameter locals exist in local_decls
+        // Validate parameter locals exist and are typed
         for (idx, &param_local) in func.params.iter().enumerate() {
-            if param_local.index() >= func.body.local_decls.len() {
+            if param_local.index() >= func.body.local_decls.len()
+                || func.body.local_decls[param_local].ty.is_none()
+            {
                 return Err(MirVerificationError::InvalidParamLocal {
                     func: fn_name.clone(),
                     param_index: idx,
@@ -112,7 +121,7 @@ impl MirVerifier {
                                 Self::check_operand(fn_name, op1, num_locals)?;
                                 Self::check_operand(fn_name, op2, num_locals)?;
                             }
-                            omni_mir::ir::Rvalue::UnaryOp(op) => {
+                            omni_mir::ir::Rvalue::UnaryOp(_, op) => {
                                 Self::check_operand(fn_name, op, num_locals)?
                             }
                         }
@@ -201,9 +210,12 @@ mod tests {
 
     #[test]
     fn test_verifier_passes_valid_mir() {
+        let dummy_ty = omni_mir::ast::TypeSpec::Int;
         let mut local_decls = IndexVec::new();
-        let ret_l = local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: None });
-        let param_l = local_decls.push(LocalDecl { name: Some("x".to_string()), ty: None });
+        let ret_l = local_decls
+            .push(LocalDecl { name: Some("_return".to_string()), ty: Some(omni_mir::Ty(1)) });
+        let param_l =
+            local_decls.push(LocalDecl { name: Some("x".to_string()), ty: Some(omni_mir::Ty(1)) });
 
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
@@ -219,7 +231,7 @@ mod tests {
                 name: "identity".to_string(),
                 params: vec![param_l],
                 return_place: ret_l,
-                return_type: omni_mir::ast::TypeSpec::Int,
+                return_type: dummy_ty,
                 body: Body { blocks, local_decls },
             }],
         };
@@ -230,7 +242,8 @@ mod tests {
     #[test]
     fn test_verifier_fails_on_undefined_local() {
         let mut local_decls = IndexVec::new();
-        let ret_l = local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: None });
+        let ret_l = local_decls
+            .push(LocalDecl { name: Some("_return".to_string()), ty: Some(omni_mir::Ty(1)) });
         let invalid_l = Local::from_usize(99);
 
         let mut blocks = IndexVec::new();
@@ -260,7 +273,8 @@ mod tests {
     #[test]
     fn test_verifier_fails_on_undefined_block() {
         let mut local_decls = IndexVec::new();
-        let ret_l = local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: None });
+        let ret_l = local_decls
+            .push(LocalDecl { name: Some("_return".to_string()), ty: Some(omni_mir::Ty(1)) });
         let invalid_bb = BasicBlock::from_usize(10);
 
         let mut blocks = IndexVec::new();

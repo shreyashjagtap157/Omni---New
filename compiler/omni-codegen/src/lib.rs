@@ -165,7 +165,12 @@ pub fn compile_monomorphized_program(
                             let ret_val = locals_map
                                 .get(&mir_func.return_place)
                                 .copied()
-                                .unwrap_or_else(|| builder.ins().iconst(types::I64, 0));
+                                .ok_or_else(|| {
+                                    format!(
+                                        "Codegen error: Return place {:?} was not assigned in function '{}'",
+                                        mir_func.return_place, mir_func.name
+                                    )
+                                })?;
                             builder.ins().return_(&[ret_val]);
                         } else {
                             builder.ins().return_(&[]);
@@ -307,9 +312,12 @@ fn lower_rvalue_to_cl(
                 )),
             }
         }
-        omni_mir::ir::Rvalue::UnaryOp(op) => {
-            let val = lower_operand_to_cl(builder, op, locals)?;
-            Ok(builder.ins().ineg(val))
+        omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
+            let val = lower_operand_to_cl(builder, operand, locals)?;
+            match op {
+                omni_mir::ir::UnOp::Neg => Ok(builder.ins().ineg(val)),
+                omni_mir::ir::UnOp::Not => Ok(builder.ins().bnot(val)),
+            }
         }
     }
 }

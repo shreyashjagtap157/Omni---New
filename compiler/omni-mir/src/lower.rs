@@ -166,13 +166,17 @@ impl<'a> FnMirBuilder<'a> {
                 ));
                 Ok(crate::ir::Operand::Copy(place))
             }
-            omni_types::ast::Expr::Unary { op: _, expr } => {
+            omni_types::ast::Expr::Unary { op, expr } => {
                 let inner_op = self.lower_expr(expr)?;
+                let mir_op = match op {
+                    omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
+                    omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
+                };
                 let temp_local = self.new_temp(Some("_un_tmp".to_string()), None);
                 let place = crate::ir::Place { local: temp_local };
                 self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
                     place,
-                    crate::ir::Rvalue::UnaryOp(inner_op),
+                    crate::ir::Rvalue::UnaryOp(mir_op, inner_op),
                 ));
                 Ok(crate::ir::Operand::Copy(place))
             }

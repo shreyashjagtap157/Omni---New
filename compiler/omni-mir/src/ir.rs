@@ -43,6 +43,13 @@ pub struct LocalDecl {
     pub ty: Option<Ty>,
 }
 
+/// Unary operations supported in MIR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnOp {
+    Neg,
+    Not,
+}
+
 /// Binary arithmetic and logical operations supported in MIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
@@ -103,7 +110,7 @@ pub struct Place {
 pub enum Rvalue {
     Use(Operand),
     BinaryOp(BinOp, Operand, Operand),
-    UnaryOp(Operand),
+    UnaryOp(UnOp, Operand),
 }
 
 /// A literal scalar value in MIR.
