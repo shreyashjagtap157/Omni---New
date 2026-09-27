@@ -61,12 +61,7 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     if !parsed.is_ok() {
         return Err(format!(
             "Parse error: {}",
-            parsed
-                .diagnostics
-                .iter()
-                .map(|d| d.message.as_str())
-                .collect::<Vec<_>>()
-                .join("; ")
+            parsed.diagnostics.iter().map(|d| d.message.as_str()).collect::<Vec<_>>().join("; ")
         ));
     }
 
@@ -134,10 +129,10 @@ fn semantic_functions_from_cst(
             return Err(format!("Semantic frontend error: duplicate function '{}'", name));
         }
 
-        let params_node = node
-            .children()
-            .find(|n| n.kind() == omni_syntax::SyntaxKind::ParamList)
-            .ok_or_else(|| format!("Semantic frontend error: function '{}' has no parameter list", name))?;
+        let params_node =
+            node.children().find(|n| n.kind() == omni_syntax::SyntaxKind::ParamList).ok_or_else(
+                || format!("Semantic frontend error: function '{}' has no parameter list", name),
+            )?;
 
         let mut params = Vec::new();
         for param in params_node
@@ -148,10 +143,7 @@ fn semantic_functions_from_cst(
                 format!("Semantic frontend error: parameter in '{}' has no name", name)
             })?;
             let param_type = direct_type(param).ok_or_else(|| {
-                format!(
-                    "Semantic frontend error: parameter '{}' has no type",
-                    param_name
-                )
+                format!("Semantic frontend error: parameter '{}' has no type", param_name)
             })?;
             params.push((param_name, type_spec_from_cst(param_type)?));
         }
@@ -207,10 +199,7 @@ fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String>
         "str" | "String" => Ok(TypeSpec::String),
         "unit" | "Unit" => Ok(TypeSpec::Unit),
         "never" | "Never" => Ok(TypeSpec::Never),
-        other => Err(format!(
-            "Semantic frontend error: unsupported type spelling '{}'",
-            other
-        )),
+        other => Err(format!("Semantic frontend error: unsupported type spelling '{}'", other)),
     }
 }
 
@@ -219,9 +208,7 @@ fn expr_from_block(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
     block_statements_to_expr(&statements)
 }
 
-fn block_statements_to_expr(
-    statements: &[omni_syntax::SyntaxNode],
-) -> Result<Expr, String> {
+fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Expr, String> {
     if statements.is_empty() {
         return Ok(Expr::Block(Vec::new()));
     }
@@ -232,9 +219,7 @@ fn block_statements_to_expr(
             let binding_name = direct_name(first).ok_or_else(|| {
                 "Semantic frontend error: let statement is missing a binding name".to_string()
             })?;
-            let binding_type = direct_type(first)
-                .map(type_spec_from_cst)
-                .transpose()?;
+            let binding_type = direct_type(first).map(type_spec_from_cst).transpose()?;
             let initializer = first
                 .children()
                 .find(|n| {
@@ -284,10 +269,7 @@ fn block_statements_to_expr(
                 }
             }
         }
-        other => Err(format!(
-            "Semantic frontend error: unsupported block statement {:?}",
-            other
-        )),
+        other => Err(format!("Semantic frontend error: unsupported block statement {:?}", other)),
     }
 }
 
@@ -303,9 +285,9 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             Ok(Expr::Return(value.map(Box::new)))
         }
         omni_syntax::SyntaxKind::LiteralExpr => {
-            let token = node.first_token().ok_or_else(|| {
-                "Semantic frontend error: literal node has no token".to_string()
-            })?;
+            let token = node
+                .first_token()
+                .ok_or_else(|| "Semantic frontend error: literal node has no token".to_string())?;
             Ok(Expr::Literal(lit_from_text(token.text())?))
         }
         omni_syntax::SyntaxKind::NameRef => {
@@ -326,7 +308,9 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .filter_map(|e| e.into_token())
                 .find(|t| t.kind() == omni_syntax::SyntaxKind::Punct)
                 .map(|t| t.text().to_string())
-                .ok_or_else(|| "Semantic frontend error: binary expression has no operator".to_string())?;
+                .ok_or_else(|| {
+                    "Semantic frontend error: binary expression has no operator".to_string()
+                })?;
             Ok(Expr::Binary {
                 op: bin_op_from_text(&op)?,
                 lhs: Box::new(expr_from_node(&child_nodes[0])?),
@@ -334,21 +318,15 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             })
         }
         omni_syntax::SyntaxKind::UnaryExpr => {
-            let first_token = node
-                .first_token()
-                .ok_or_else(|| "Semantic frontend error: unary expression has no token".to_string())?;
+            let first_token = node.first_token().ok_or_else(|| {
+                "Semantic frontend error: unary expression has no token".to_string()
+            })?;
             let operand = node.children().next().ok_or_else(|| {
                 "Semantic frontend error: unary expression has no operand".to_string()
             })?;
             match first_token.text() {
-                "-" => Ok(Expr::Unary {
-                    op: UnOp::Neg,
-                    expr: Box::new(expr_from_node(&operand)?),
-                }),
-                "!" => Ok(Expr::Unary {
-                    op: UnOp::Not,
-                    expr: Box::new(expr_from_node(&operand)?),
-                }),
+                "-" => Ok(Expr::Unary { op: UnOp::Neg, expr: Box::new(expr_from_node(&operand)?) }),
+                "!" => Ok(Expr::Unary { op: UnOp::Not, expr: Box::new(expr_from_node(&operand)?) }),
                 "(" => expr_from_node(&operand),
                 other => Err(format!(
                     "Semantic frontend error: unsupported unary punctuation '{}'",
@@ -365,21 +343,11 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 "Semantic frontend error: only direct named calls are supported by the current native backend"
                     .to_string()
             })?;
-            let args = child_nodes
-                .iter()
-                .skip(1)
-                .map(expr_from_node)
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(Expr::Call {
-                func,
-                generic_args: Vec::new(),
-                args,
-            })
+            let args =
+                child_nodes.iter().skip(1).map(expr_from_node).collect::<Result<Vec<_>, _>>()?;
+            Ok(Expr::Call { func, generic_args: Vec::new(), args })
         }
-        other => Err(format!(
-            "Semantic frontend error: unsupported expression node {:?}",
-            other
-        )),
+        other => Err(format!("Semantic frontend error: unsupported expression node {:?}", other)),
     }
 }
 
@@ -404,10 +372,7 @@ fn lit_from_text(text: &str) -> Result<Lit, String> {
             "\'" => b'\'',
             value if value.len() == 1 => value.as_bytes()[0],
             _ => {
-                return Err(format!(
-                    "Semantic frontend error: unsupported byte literal '{}'",
-                    text
-                ))
+                return Err(format!("Semantic frontend error: unsupported byte literal '{}'", text))
             }
         };
         return Ok(Lit::Byte(byte));
@@ -423,10 +388,7 @@ fn lit_from_text(text: &str) -> Result<Lit, String> {
             "\'" => '\'',
             value if value.chars().count() == 1 => value.chars().next().unwrap(),
             _ => {
-                return Err(format!(
-                    "Semantic frontend error: unsupported char literal '{}'",
-                    text
-                ))
+                return Err(format!("Semantic frontend error: unsupported char literal '{}'", text))
             }
         };
         return Ok(Lit::Char(ch));
@@ -439,10 +401,7 @@ fn lit_from_text(text: &str) -> Result<Lit, String> {
         return Ok(Lit::Float(value.to_bits()));
     }
 
-    Err(format!(
-        "Semantic frontend error: unsupported literal spelling '{}'",
-        text
-    ))
+    Err(format!("Semantic frontend error: unsupported literal spelling '{}'", text))
 }
 
 fn parse_int_literal(text: &str) -> Result<i64, String> {
@@ -469,10 +428,7 @@ fn bin_op_from_text(text: &str) -> Result<BinOp, String> {
         "!=" => Ok(BinOp::Ne),
         "<" => Ok(BinOp::Lt),
         ">" => Ok(BinOp::Gt),
-        other => Err(format!(
-            "Semantic frontend error: unsupported binary operator '{}'",
-            other
-        )),
+        other => Err(format!("Semantic frontend error: unsupported binary operator '{}'", other)),
     }
 }
 
