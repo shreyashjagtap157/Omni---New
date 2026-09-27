@@ -5,8 +5,6 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-
 use omni_types::ast::{BinOp, Expr, GenericFnDef, Lit, TypeSpec, UnOp};
 use omni_types::checker::SubstEnv;
 
@@ -567,5 +565,83 @@ fn main() {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn source_pipeline_executes_integer_call_semantics() {
+        let source = "fn inc(x: i64) -> i64 { return x + 1; } fn main() -> i64 { let value = inc(41); return value; }";
+        let object = compile_source_to_object(source).expect("native compilation");
+        let dir = std::env::temp_dir();
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let stem = format!(
+            "omni-driver-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let object_path = dir.join(format!("{stem}.o"));
+        let executable_path = dir.join(&stem);
+        fs::write(&object_path, object).expect("write object");
+
+        let status = std::process::Command::new("cc")
+            .arg(&object_path)
+            .arg("-o")
+            .arg(&executable_path)
+            .status()
+            .expect("system C linker is required for native E2E");
+        assert!(status.success(), "link failed with status {status}");
+
+        let run_status = std::process::Command::new(&executable_path)
+            .status()
+            .expect("linked native executable must run");
+        assert_eq!(run_status.code(), Some(42));
+
+        fs::remove_file(&object_path).ok();
+        fs::remove_file(&executable_path).ok();
+    }
+
+    #[test]
+    fn source_pipeline_executes_boolean_comparison_and_not() {
+        let source = "fn main() -> bool { return !(1 == 2); }";
+        let object = compile_source_to_object(source).expect("native boolean compilation");
+        let dir = std::env::temp_dir();
+        static SEQ: AtomicU64 = AtomicU64::new(100);
+        let stem = format!(
+            "omni-driver-bool-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let object_path = dir.join(format!("{stem}.o"));
+        let executable_path = dir.join(&stem);
+        fs::write(&object_path, object).expect("write object");
+
+        let status = std::process::Command::new("cc")
+            .arg(&object_path)
+            .arg("-o")
+            .arg(&executable_path)
+            .status()
+            .expect("system C linker is required for native E2E");
+        assert!(status.success(), "link failed with status {status}");
+
+        let run_status = std::process::Command::new(&executable_path)
+            .status()
+            .expect("linked native executable must run");
+        assert_eq!(run_status.code(), Some(1));
+
+        fs::remove_file(&object_path).ok();
+        fs::remove_file(&executable_path).ok();
+    }
+
+    #[test]
+    fn invalid_unary_source_fails_during_semantic_checking() {
+        let source = "fn main() -> i64 { return !1; }";
+        let error = compile_source_to_object(source).expect_err("integer logical-not must fail");
+        assert!(error.contains("Type error"), "unexpected error: {error}");
     }
 }
