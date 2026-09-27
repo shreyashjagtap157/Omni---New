@@ -150,7 +150,9 @@ impl MirVerifier {
                     for arg in args {
                         Self::check_operand(fn_name, arg, num_locals)?;
                     }
-                    Self::check_place(fn_name, destination, num_locals)?;
+                    if let Some(destination) = destination {
+                        Self::check_place(fn_name, destination, num_locals)?;
+                    }
                     Self::check_block(fn_name, *target, num_blocks)?;
                     if let Some(c_block) = cleanup {
                         Self::check_block(fn_name, *c_block, num_blocks)?;
