@@ -718,7 +718,7 @@ mod tests {
                     statement,
                     crate::ir::Statement::Assign(
                         _,
-                        crate::ir::Rvalue::UnaryOp(omni_types::ast::UnOp::Neg, _)
+                        crate::ir::Rvalue::UnaryOp(crate::ir::UnOp::Neg, _)
                     )
                 )
             })
