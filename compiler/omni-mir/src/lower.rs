@@ -645,4 +645,87 @@ mod tests {
         assert!(res.is_err(), "Unsupported AST expressions must fail lowering explicitly");
         assert!(res.unwrap_err().contains("Unsupported AST expression form"));
     }
+
+    #[test]
+    fn test_mir_lowering_materializes_literal_var_unary_and_block() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![
+                GenericFnDef {
+                    name: "literal".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Literal(Lit::Int(7)),
+                },
+                GenericFnDef {
+                    name: "identity".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Var("x".to_string()),
+                },
+                GenericFnDef {
+                    name: "negate".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Unary {
+                        op: omni_types::ast::UnOp::Neg,
+                        expr: Box::new(Expr::Var("x".to_string())),
+                    },
+                },
+                GenericFnDef {
+                    name: "block_value".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Block(vec![
+                        Expr::Literal(Lit::Int(1)),
+                        Expr::Literal(Lit::Int(2)),
+                    ]),
+                },
+            ],
+        };
+
+        let mir = ctx.lower_monomorphized_program(&program).expect("expression corpus must lower");
+        assert_eq!(mir.functions.len(), 4);
+        for function in &mir.functions {
+            assert!(
+                function.body.blocks.iter().any(|block| !block.statements.is_empty()),
+                "function '{}' must materialize at least one MIR statement",
+                function.name
+            );
+            assert!(
+                function.body.local_decls.iter().all(|decl| decl.ty.is_some()),
+                "function '{}' must type every MIR local",
+                function.name
+            );
+        }
+        let negate = mir.functions.iter().find(|f| f.name == "negate").unwrap();
+        assert!(negate.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::UnaryOp(omni_types::ast::UnOp::Neg, _)
+                    )
+                )
+            })
+        }));
+    }
+
 }
