@@ -9,8 +9,11 @@ pub mod solver;
 #[cfg(test)]
 mod tests;
 
-pub use ast::{BinOp, Expr, GenericFnDef, Lit, Pattern, TypeSpec, UnOp};
-pub use checker::{SpecializationKey, SubstEnv, TypeChecker, TypeError};
+pub use ast::{
+    BinOp, Expr, GenericFnDef, ImplDef, Lit, MethodSig, Pattern, TraitBound, TraitDef, TypeSpec,
+    UnOp,
+};
+pub use checker::{SpecializationKey, SubstEnv, TraitObligationChecker, TypeChecker, TypeError};
 pub use intern::{Ty, TyCtxt, TyKind};
 pub use monomorph::{MonomorphizedProgram, Monomorphizer};
 pub use solver::{Solver, TyVar, TyVarValue};

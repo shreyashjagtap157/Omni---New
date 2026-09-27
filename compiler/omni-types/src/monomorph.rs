@@ -10,6 +10,94 @@ pub struct MonomorphizedProgram {
     pub functions: Vec<GenericFnDef>,
 }
 
+impl MonomorphizedProgram {
+    /// Strict semantic gate before MIR: verifies that all monomorphized functions
+    /// have 0 type parameters, 0 unsatisfied bounds, and contain no unresolved generic calls.
+    pub fn assert_concrete_for_mir(&self) -> Result<(), String> {
+        for func in &self.functions {
+            if !func.type_params.is_empty() {
+                return Err(format!(
+                    "MIR semantic gate violation: function `{}` has unresolved type parameters: {:?}",
+                    func.name, func.type_params
+                ));
+            }
+            if !func.bounds.is_empty() {
+                return Err(format!(
+                    "MIR semantic gate violation: function `{}` has unresolved trait bounds",
+                    func.name
+                ));
+            }
+            Self::verify_expr_concrete(&func.body, &func.name)?;
+        }
+        Ok(())
+    }
+
+    fn verify_expr_concrete(expr: &Expr, enclosing_fn: &str) -> Result<(), String> {
+        match expr {
+            Expr::Call { func: _, generic_args, args } => {
+                if !generic_args.is_empty() {
+                    return Err(format!(
+                        "MIR semantic gate violation in `{enclosing_fn}`: call retains unresolved generic arguments"
+                    ));
+                }
+                for a in args {
+                    Self::verify_expr_concrete(a, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Let { init, body, .. } => {
+                Self::verify_expr_concrete(init, enclosing_fn)?;
+                Self::verify_expr_concrete(body, enclosing_fn)
+            }
+            Expr::Binary { lhs, rhs, .. } => {
+                Self::verify_expr_concrete(lhs, enclosing_fn)?;
+                Self::verify_expr_concrete(rhs, enclosing_fn)
+            }
+            Expr::Unary { expr, .. } => Self::verify_expr_concrete(expr, enclosing_fn),
+            Expr::Field { expr, .. } => Self::verify_expr_concrete(expr, enclosing_fn),
+            Expr::Index { expr, .. } => Self::verify_expr_concrete(expr, enclosing_fn),
+            Expr::Tuple(elems) | Expr::Array(elems) => {
+                for e in elems {
+                    Self::verify_expr_concrete(e, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Range { start, end } => {
+                Self::verify_expr_concrete(start, enclosing_fn)?;
+                Self::verify_expr_concrete(end, enclosing_fn)
+            }
+            Expr::Match { expr, arms } => {
+                Self::verify_expr_concrete(expr, enclosing_fn)?;
+                for (_, arm_expr) in arms {
+                    Self::verify_expr_concrete(arm_expr, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Lambda { body, .. } => Self::verify_expr_concrete(body, enclosing_fn),
+            Expr::Interpolation(parts) => {
+                for p in parts {
+                    Self::verify_expr_concrete(p, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Assign { value, .. } => Self::verify_expr_concrete(value, enclosing_fn),
+            Expr::Block(stmts) => {
+                for s in stmts {
+                    Self::verify_expr_concrete(s, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Return(opt_e) => {
+                if let Some(e) = opt_e {
+                    Self::verify_expr_concrete(e, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Literal(_) | Expr::Var(_) => Ok(()),
+        }
+    }
+}
+
 /// The Monomorphization Engine.
 pub struct Monomorphizer<'a> {
     pub checker: &'a mut TypeChecker,
@@ -87,6 +175,7 @@ impl<'a> Monomorphizer<'a> {
         let monomorphized_def = GenericFnDef {
             name: mangled_name.clone(),
             type_params: vec![],
+            bounds: vec![],
             params: spec_params,
             return_type: spec_ret,
             body: spec_body,

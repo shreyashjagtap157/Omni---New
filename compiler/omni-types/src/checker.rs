@@ -12,6 +12,7 @@ pub enum TypeError {
     FunctionNotFound(String),
     VariableNotFound(String),
     SolverFailure(String),
+    TraitObligationUnsatisfied(String),
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
@@ -93,11 +94,20 @@ impl SpecializationKey {
     }
 }
 
+use std::sync::Arc;
+
+pub type TraitObligationChecker = Arc<
+    dyn Fn(&[(String, crate::ast::TraitBound)], &SubstEnv, &TyCtxt) -> Result<(), String>
+        + Send
+        + Sync,
+>;
+
 /// The Type Checker is the authoritative source of truth for type inference and generic substitutions.
 pub struct TypeChecker {
     pub tcx: TyCtxt,
     pub solver: Solver,
     pub fn_defs: HashMap<String, GenericFnDef>,
+    pub trait_checker: Option<TraitObligationChecker>,
 }
 
 impl Default for TypeChecker {
@@ -108,7 +118,16 @@ impl Default for TypeChecker {
 
 impl TypeChecker {
     pub fn new() -> Self {
-        Self { tcx: TyCtxt::new(), solver: Solver::new(), fn_defs: HashMap::new() }
+        Self {
+            tcx: TyCtxt::new(),
+            solver: Solver::new(),
+            fn_defs: HashMap::new(),
+            trait_checker: None,
+        }
+    }
+
+    pub fn set_trait_checker(&mut self, checker: TraitObligationChecker) {
+        self.trait_checker = Some(checker);
     }
 
     pub fn register_fn(&mut self, fn_def: GenericFnDef) {
@@ -217,6 +236,14 @@ impl TypeChecker {
                 key_args.push(concrete_ty);
             } else {
                 return Err(TypeError::UnresolvedSubstitution(param_name.clone()));
+            }
+        }
+
+        // If trait bounds are specified on this function, verify them against concrete substitutions
+        if !fn_def.bounds.is_empty() {
+            if let Some(ref checker) = self.trait_checker {
+                checker(&fn_def.bounds, &derived_subst, &self.tcx)
+                    .map_err(TypeError::TraitObligationUnsatisfied)?;
             }
         }
 

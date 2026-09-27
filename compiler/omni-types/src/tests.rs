@@ -12,6 +12,7 @@ fn setup_checker() -> TypeChecker {
     checker.register_fn(GenericFnDef {
         name: "identity".to_string(),
         type_params: vec!["T".to_string()],
+        bounds: vec![],
         params: vec![("x".to_string(), TypeSpec::GenericParam("T".to_string()))],
         return_type: TypeSpec::GenericParam("T".to_string()),
         body: Expr::Return(Some(Box::new(Expr::Var("x".to_string())))),
@@ -21,6 +22,7 @@ fn setup_checker() -> TypeChecker {
     checker.register_fn(GenericFnDef {
         name: "inner".to_string(),
         type_params: vec!["T".to_string()],
+        bounds: vec![],
         params: vec![("val".to_string(), TypeSpec::GenericParam("T".to_string()))],
         return_type: TypeSpec::GenericParam("T".to_string()),
         body: Expr::Return(Some(Box::new(Expr::Var("val".to_string())))),
@@ -30,6 +32,7 @@ fn setup_checker() -> TypeChecker {
     checker.register_fn(GenericFnDef {
         name: "outer".to_string(),
         type_params: vec!["T".to_string()],
+        bounds: vec![],
         params: vec![("arg".to_string(), TypeSpec::GenericParam("T".to_string()))],
         return_type: TypeSpec::GenericParam("T".to_string()),
         body: Expr::Return(Some(Box::new(Expr::Call {
@@ -43,6 +46,7 @@ fn setup_checker() -> TypeChecker {
     checker.register_fn(GenericFnDef {
         name: "recursive_fn".to_string(),
         type_params: vec!["T".to_string()],
+        bounds: vec![],
         params: vec![("n".to_string(), TypeSpec::GenericParam("T".to_string()))],
         return_type: TypeSpec::GenericParam("T".to_string()),
         body: Expr::Return(Some(Box::new(Expr::Call {
@@ -56,6 +60,7 @@ fn setup_checker() -> TypeChecker {
     checker.register_fn(GenericFnDef {
         name: "unconstrained".to_string(),
         type_params: vec!["T".to_string()],
+        bounds: vec![],
         params: vec![],
         return_type: TypeSpec::GenericParam("T".to_string()),
         body: Expr::Return(None),
@@ -72,6 +77,7 @@ fn test_multi_instantiation_same_generic_function() {
     checker.register_fn(GenericFnDef {
         name: "main".to_string(),
         type_params: vec![],
+        bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
         body: Expr::Block(vec![
@@ -130,6 +136,7 @@ fn test_nested_generic_calls() {
     checker.register_fn(GenericFnDef {
         name: "test_driver".to_string(),
         type_params: vec![],
+        bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
         body: Expr::Call {
@@ -165,6 +172,7 @@ fn test_generic_recursion() {
     checker.register_fn(GenericFnDef {
         name: "driver_rec".to_string(),
         type_params: vec![],
+        bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
         body: Expr::Call {
@@ -191,6 +199,7 @@ fn test_generic_arguments_in_complex_nodes() {
     checker.register_fn(GenericFnDef {
         name: "complex_fn".to_string(),
         type_params: vec!["T".to_string()],
+        bounds: vec![],
         params: vec![
             ("val".to_string(), TypeSpec::GenericParam("T".to_string())),
             (
@@ -258,6 +267,7 @@ fn test_generic_arguments_in_complex_nodes() {
     checker.register_fn(GenericFnDef {
         name: "complex_driver".to_string(),
         type_params: vec![],
+        bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
         body: Expr::Call {
@@ -291,6 +301,7 @@ fn test_unresolved_substitution_negative_case() {
     checker.register_fn(GenericFnDef {
         name: "bad_driver".to_string(),
         type_params: vec![],
+        bounds: vec![],
         params: vec![],
         return_type: TypeSpec::Unit,
         body: Expr::Call { func: "unconstrained".to_string(), generic_args: vec![], args: vec![] },
@@ -333,4 +344,32 @@ fn test_mutation_revert_behavior_fails_test() {
         "Reverting to single assumption violates type-directed specialization contract"
     );
     assert_eq!(subst.get("T"), Some(checker.tcx.intern(TyKind::String)));
+}
+
+#[test]
+fn test_mir_semantic_gate() {
+    let mut checker = setup_checker();
+    let mut mono = Monomorphizer::new(&mut checker);
+
+    let prog = mono
+        .monomorphize_entry("identity", &[], &[Expr::Literal(Lit::String("hello".to_string()))])
+        .expect("monomorphize_entry");
+
+    // Must pass the concrete semantic gate
+    assert!(prog.assert_concrete_for_mir().is_ok());
+
+    // Construct an invalid program with an unresolved generic parameter and ensure it fails the gate
+    let invalid_prog = MonomorphizedProgram {
+        functions: vec![GenericFnDef {
+            name: "unspecialized".to_string(),
+            type_params: vec!["T".to_string()],
+            bounds: vec![],
+            params: vec![],
+            return_type: TypeSpec::Unit,
+            body: Expr::Literal(Lit::Int(0)),
+        }],
+    };
+    let gate_res = invalid_prog.assert_concrete_for_mir();
+    assert!(gate_res.is_err());
+    assert!(gate_res.unwrap_err().contains("unresolved type parameters"));
 }

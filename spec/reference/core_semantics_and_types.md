@@ -171,3 +171,47 @@ During monomorphization, generic types are substituted across all expression for
 ### 5.3 Deterministic Destruction
 - When an owned value's lifetime terminates, the compiler synthesizes a `Drop` terminator in the MIR basic block.
 - Resources are released deterministically in reverse declaration order.
+
+---
+
+## 6. Authoritative Trait System and Coherence
+
+Omni Edition 1 enforces a unified, type-directed trait system (`omni-traits`) that acts as the sole semantic authority for trait declarations, implementations, obligations, and coherence.
+
+### 6.1 Trait and Implementation Declarations
+- **Trait Definition (`TraitDef`):** Declares an interface containing required and provided methods, along with optional supertrait dependencies.
+- **Implementation Definition (`ImplDef`):** Implements a trait for a specific target type (`target_ty`), optionally constrained by generic predicates.
+- **Completeness Invariant:** An `impl` must supply definitions for all required methods lacking default implementations in the trait definition. Failure triggers deterministic diagnostic `MissingRequiredMethod`.
+
+### 6.2 Deterministic Registration Errors
+Registration of traits and implementations is strictly validated at compile time. The compiler halts with deterministic diagnostics upon encountering:
+1. `DuplicateTrait(name)`: Multiple trait declarations with the same nominal identifier.
+2. `UnknownTrait(name)`: Implementation targeting an undeclared trait.
+3. `DuplicateImpl(trait, target)`: Multiple identical implementation blocks for the same type.
+4. `MissingRequiredMethod(trait, method)`: Omitting required methods in an impl.
+5. `InvalidSupertrait(trait, supertrait)`: Undeclared supertrait dependency.
+6. `ConflictingImplementation(trait, target, reason)`: Overlapping implementation without disambiguating specialization.
+7. `CoherenceOrphanViolation(trait, target)`: Attempting to implement a foreign trait for a foreign type.
+8. `NegativeBoundConflict(trait, target)`: Violating an explicit negative bound (`!Trait`).
+
+### 6.3 Strict Coherence (Orphan Rules)
+To guarantee coherence across independently compiled modules, an `impl Trait for Type` is valid if and only if at least one of the following conditions holds:
+1. **Local Trait:** The trait is defined within the local compilation unit.
+2. **Local Type:** The target type is defined within the local compilation unit.
+
+An implementation of a foreign trait for a foreign type (`!is_local_trait && !is_local_type`) is strictly rejected with `CoherenceOrphanViolation`.
+
+### 6.4 SLG Resolution and Bound Satisfaction
+Trait obligations are resolved via Selective Linear Definite Clause (SLG) resolution with tabling and cycle detection:
+- **Positive Bounds (`T: Trait`):** Evaluated against registered facts, supertraits, and conditional implementation rules.
+- **Negative Bounds (`T: !Trait`):** Evaluated to ensure the target type does not satisfy `Trait` and matches explicit negative facts.
+- **SubstEnv Integration:** When a generic function `foo[T: Trait](x: T)` is instantiated, type inference derives the concrete `SubstEnv`. Trait obligations are resolved immediately against the concrete substituted types before specialization proceeds. If any obligation fails, `TypeError::TraitObligationUnsatisfied` is returned.
+
+### 6.5 Concrete Semantic Gate Before MIR
+Before AST/HIR is lowered to Mid-Level IR (`omni-mir`), the compilation unit must pass `assert_concrete_for_mir`:
+1. Every function must have zero unresolved generic type parameters (`type_params.is_empty()`).
+2. Every trait obligation must be fully satisfied and discharged (`bounds.is_empty()`).
+3. Every call expression must be specialized to a concrete function symbol without leftover `generic_args`.
+4. Inference variables must be fully resolved to concrete types.
+Any violation halts compilation before code generation.
+

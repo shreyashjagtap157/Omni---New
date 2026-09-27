@@ -80,11 +80,47 @@ pub enum Expr {
     Return(Option<Box<Expr>>),
 }
 
+/// Generic bound on a type parameter (positive or negative).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TraitBound {
+    Positive(String), // e.g. T: Debug
+    Negative(String), // e.g. T: !Debug
+}
+
+/// A method signature inside a trait or impl definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MethodSig {
+    pub name: String,
+    pub params: Vec<(String, TypeSpec)>,
+    pub return_type: TypeSpec,
+    pub has_default: bool,
+}
+
+/// A trait definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraitDef {
+    pub name: String,
+    pub supertraits: Vec<String>,
+    pub methods: Vec<MethodSig>,
+    pub is_local: bool,
+}
+
+/// A trait implementation block (`impl Trait for Type`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImplDef {
+    pub trait_name: String,
+    pub target_ty: TypeSpec,
+    pub conditions: Vec<(String, TraitBound)>,
+    pub methods: Vec<(String, Expr)>,
+    pub is_local: bool,
+}
+
 /// Generic function definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericFnDef {
     pub name: String,
     pub type_params: Vec<String>,
+    pub bounds: Vec<(String, TraitBound)>,
     pub params: Vec<(String, TypeSpec)>,
     pub return_type: TypeSpec,
     pub body: Expr,
