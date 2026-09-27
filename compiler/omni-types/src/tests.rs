@@ -882,3 +882,32 @@ fn test_effect_capability_semantic_model_slice() {
 
     assert!(checker.check_fn_effects(&integrated_caller).is_ok());
 }
+
+#[test]
+fn test_binary_comparison_infers_bool_and_rejects_mismatch() {
+    let mut checker = TypeChecker::new();
+    let env = SubstEnv::new();
+    let locals = HashMap::new();
+
+    let bool_ty = checker.infer_expr(
+        &Expr::Binary {
+            op: BinOp::Eq,
+            lhs: Box::new(Expr::Literal(Lit::Int(1))),
+            rhs: Box::new(Expr::Literal(Lit::Int(1))),
+        },
+        &env,
+        &locals,
+    ).expect("integer equality should type-check");
+    assert_eq!(bool_ty, checker.tcx.intern(TyKind::Bool));
+
+    let mismatch = checker.infer_expr(
+        &Expr::Binary {
+            op: BinOp::Eq,
+            lhs: Box::new(Expr::Literal(Lit::Int(1))),
+            rhs: Box::new(Expr::Literal(Lit::Bool(true))),
+        },
+        &env,
+        &locals,
+    );
+    assert!(matches!(mismatch, Err(TypeError::MismatchedTypes { .. })));
+}
