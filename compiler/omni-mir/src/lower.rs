@@ -583,6 +583,48 @@ mod tests {
     }
 
     #[test]
+    fn test_mir_lowering_comparison_produces_bool() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "cmp".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Bool,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Binary {
+                    op: omni_types::ast::BinOp::Eq,
+                    lhs: Box::new(Expr::Literal(Lit::Int(1))),
+                    rhs: Box::new(Expr::Literal(Lit::Int(1))),
+                },
+            }],
+        };
+
+        let mir = ctx.lower_monomorphized_program(&prog).expect("comparison should lower");
+        let function = &mir.functions[0];
+        let result_local = function.body.local_decls
+            .iter()
+            .find(|decl| decl.name.as_deref() == Some("_bin_tmp"))
+            .expect("comparison temporary should exist");
+        assert_eq!(
+            result_local.ty,
+            Some(ctx_test_bool_ty(&function.body.local_decls))
+        );
+    }
+
+    fn ctx_test_bool_ty(
+        decls: &IndexVec<crate::ir::Local, crate::ir::LocalDecl>,
+    ) -> omni_types::intern::Ty {
+        decls
+            .iter()
+            .filter_map(|decl| decl.ty)
+            .last()
+            .expect("typed local declaration")
+    }
+
+    #[test]
     fn test_mir_lowering_rejects_return_type_mismatch() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
