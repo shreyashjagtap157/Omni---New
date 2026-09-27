@@ -28,6 +28,10 @@ impl MonomorphizedProgram {
                     func.name
                 ));
             }
+            Self::verify_type_spec_concrete(&func.return_type, &func.name)?;
+            for (_, param_type) in &func.params {
+                Self::verify_type_spec_concrete(param_type, &func.name)?;
+            }
             // Effect gate: no unresolved effect row variables
             if let Some(var) = func.effects.tail_var() {
                 return Err(format!(
@@ -40,6 +44,47 @@ impl MonomorphizedProgram {
         Ok(())
     }
 
+    fn verify_type_spec_concrete(spec: &TypeSpec, enclosing_fn: &str) -> Result<(), String> {
+        match spec {
+            TypeSpec::GenericParam(name) => Err(format!(
+                "MIR semantic gate violation in {}: unresolved type parameter {} remains in a function signature",
+                enclosing_fn, name
+            )),
+            TypeSpec::Known(ty) => Err(format!(
+                "MIR semantic gate violation in {}: raw interned type handle {:?} remains in a function signature",
+                enclosing_fn, ty
+            )),
+            TypeSpec::Tuple(items) => {
+                for item in items {
+                    Self::verify_type_spec_concrete(item, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            TypeSpec::Array(elem, _) | TypeSpec::Range(elem) => {
+                Self::verify_type_spec_concrete(elem, enclosing_fn)
+            }
+            TypeSpec::Fn(params, ret) => {
+                for param in params {
+                    Self::verify_type_spec_concrete(param, enclosing_fn)?;
+                }
+                Self::verify_type_spec_concrete(ret, enclosing_fn)
+            }
+            TypeSpec::Struct(_, args) | TypeSpec::Enum(_, args) => {
+                for arg in args {
+                    Self::verify_type_spec_concrete(arg, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            TypeSpec::Int
+            | TypeSpec::Float
+            | TypeSpec::Bool
+            | TypeSpec::Char
+            | TypeSpec::Byte
+            | TypeSpec::String
+            | TypeSpec::Unit
+            | TypeSpec::Never => Ok(()),
+        }
+    }
     fn verify_expr_concrete(expr: &Expr, enclosing_fn: &str) -> Result<(), String> {
         match expr {
             Expr::Call { func: _, generic_args, args } => {
