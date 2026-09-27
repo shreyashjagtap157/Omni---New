@@ -330,6 +330,12 @@ impl TypeChecker {
                 let init_ty = self.infer_expr(init, env, local_vars)?;
                 let declared_ty =
                     if let Some(spec) = ty { self.lower_type_spec(spec, env) } else { init_ty };
+                if declared_ty != init_ty {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(declared_ty),
+                        found: self.tcx.mangle(init_ty),
+                    });
+                }
                 let mut inner_vars = local_vars.clone();
                 inner_vars.insert(name.clone(), declared_ty);
                 self.infer_expr(body, env, &inner_vars)
