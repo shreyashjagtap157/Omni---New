@@ -507,7 +507,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn test_compile_monomorphized_program_int_return_and_call() {
         let callee = ast::GenericFnDef {
             name: "inc".to_string(),
@@ -579,6 +578,54 @@ mod tests {
         assert!(!bytes.is_empty());
     }
 
+    #[test]
+    fn test_compile_monomorphized_program_bool_comparison() {
+        let prog = MonomorphizedProgram {
+            functions: vec![ast::GenericFnDef {
+                name: "main".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: ast::TypeSpec::Bool,
+                effects: Default::default(),
+                capabilities: vec![],
+                body: ast::Expr::Binary {
+                    op: ast::BinOp::Eq,
+                    lhs: Box::new(ast::Expr::Literal(ast::Lit::Int(1))),
+                    rhs: Box::new(ast::Expr::Literal(ast::Lit::Int(1))),
+                },
+            }],
+        };
+
+        let bytes = compile_monomorphized_program(&prog)
+            .expect("boolean comparison must have a concrete native representation");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn test_compile_monomorphized_program_logical_not() {
+        let prog = MonomorphizedProgram {
+            functions: vec![ast::GenericFnDef {
+                name: "main".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: ast::TypeSpec::Bool,
+                effects: Default::default(),
+                capabilities: vec![],
+                body: ast::Expr::Unary {
+                    op: ast::UnOp::Not,
+                    expr: Box::new(ast::Expr::Literal(ast::Lit::Bool(false))),
+                },
+            }],
+        };
+
+        let bytes = compile_monomorphized_program(&prog)
+            .expect("logical boolean not must have a concrete native representation");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
     fn test_compile_monomorphized_program_fails_on_unresolved_generic() {
         let prog = MonomorphizedProgram {
             functions: vec![ast::GenericFnDef {
