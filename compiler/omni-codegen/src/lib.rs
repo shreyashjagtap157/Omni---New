@@ -72,8 +72,8 @@ pub fn compile_monomorphized_program(
     prog: &omni_mir::MonomorphizedProgram,
 ) -> Result<Vec<u8>, String> {
     let mut lowering = omni_mir::lower::LoweringContext::new();
-    let mir_body = lowering.lower_monomorphized_program(prog)?;
-    if mir_body.blocks.is_empty() && prog.functions.is_empty() {
+    let mir_prog = lowering.lower_monomorphized_program(prog)?;
+    if mir_prog.functions.is_empty() && prog.functions.is_empty() {
         return Err("Cannot compile empty monomorphized program".into());
     }
 

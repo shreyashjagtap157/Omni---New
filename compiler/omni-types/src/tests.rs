@@ -668,7 +668,8 @@ fn test_pattern_result_and_nested_and_generic_adts() {
             body: Expr::Literal(Lit::Int(2)),
         },
     ];
-    let mut pat_checker_tree = crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs);
+    let mut pat_checker_tree =
+        crate::pattern::PatternChecker::new(&mut checker.tcx, &checker.enum_defs);
     assert!(pat_checker_tree.check_match(tree_int_ty, &arms_tree).is_ok());
 }
 

@@ -1,8 +1,26 @@
 use index_vec::{define_index_type, IndexVec};
+use omni_types::ast::{Lit, TypeSpec};
+use omni_types::intern::Ty;
 
 // Strongly-typed indices to prevent array-lookup mixups.
 define_index_type! { pub struct BasicBlock = u32; }
 define_index_type! { pub struct Local = u32; }
+
+/// Whole-program MIR container holding monomorphized function MIR definitions.
+#[derive(Debug, Clone)]
+pub struct MirProgram {
+    pub functions: Vec<MirFunction>,
+}
+
+/// Monomorphized function represented in canonical Mid-Level IR.
+#[derive(Debug, Clone)]
+pub struct MirFunction {
+    pub name: String,
+    pub params: Vec<Local>,
+    pub return_place: Local,
+    pub return_type: TypeSpec,
+    pub body: Body,
+}
 
 /// The entire MIR control-flow graph for a single function.
 #[derive(Debug, Clone)]
@@ -18,10 +36,26 @@ pub struct BlockData {
     pub terminator: Option<Terminator>,
 }
 
-/// Metadata about a local variable (e.g., type, mutability).
+/// Metadata about a local variable (type, name, and index).
 #[derive(Debug, Clone)]
 pub struct LocalDecl {
-    // TODO: Link to omni-types::Ty once we wire the crates together
+    pub name: Option<String>,
+    pub ty: Option<Ty>,
+}
+
+/// Binary arithmetic and logical operations supported in MIR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Eq,
+    Ne,
+    Lt,
+    Gt,
+    Le,
+    Ge,
 }
 
 /// A discrete action within a basic block.
@@ -40,24 +74,43 @@ pub enum Statement {
 pub enum Terminator {
     /// Jump unconditionally to another block.
     Goto(BasicBlock),
+    /// Conditional branch based on an integer/boolean value.
+    SwitchInt { discr: Operand, targets: Vec<(u64, BasicBlock)>, otherwise: BasicBlock },
     /// Invoke a function and branch based on success/unwind.
-    Call { func: Operand, args: Vec<Operand>, target: BasicBlock, cleanup: Option<BasicBlock> },
+    Call {
+        func: Operand,
+        args: Vec<Operand>,
+        destination: Place,
+        target: BasicBlock,
+        cleanup: Option<BasicBlock>,
+    },
     /// Return to the caller.
     Return,
+    /// Unreachable control flow path.
+    Unreachable,
 }
 
 // --- Supporting Types ---
 
-/// A location in memory (e.g., x, x.y, *x).
+/// A location in memory (e.g., local, field).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Place {
     pub local: Local,
 }
 
-/// A value produced by an operation (e.g.,  + b, &x).
+/// A value produced by an operation.
 #[derive(Debug, Clone)]
 pub enum Rvalue {
     Use(Operand),
+    BinaryOp(BinOp, Operand, Operand),
+    UnaryOp(Operand),
+}
+
+/// A literal scalar value in MIR.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Constant {
+    Lit(Lit),
+    FnRef(String),
 }
 
 /// A value consumed by an operation.
@@ -65,7 +118,7 @@ pub enum Rvalue {
 pub enum Operand {
     Copy(Place),
     Move(Place),
-    Constant, // To be expanded
+    Constant(Constant),
 }
 
 /// A formal assumption for the mechanical verifier.

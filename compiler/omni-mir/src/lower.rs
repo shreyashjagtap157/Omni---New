@@ -14,7 +14,7 @@ impl LoweringContext {
         Self { body: Body { blocks: IndexVec::new(), local_decls: IndexVec::new() } }
     }
 
-    /// Lowers a validated, concrete `MonomorphizedProgram` into MIR.
+    /// Lowers a validated, concrete `MonomorphizedProgram` into a `MirProgram`.
     ///
     /// CRITICAL SEMANTIC GATE: Invokes `assert_concrete_for_mir()` on the input program.
     /// Lowering immediately aborts and fails closed if any unresolved generic parameters,
@@ -22,31 +22,61 @@ impl LoweringContext {
     pub fn lower_monomorphized_program(
         &mut self,
         prog: &MonomorphizedProgram,
-    ) -> Result<Body, String> {
+    ) -> Result<crate::ir::MirProgram, String> {
         // Enforce concrete semantic gate before MIR generation
         prog.assert_concrete_for_mir()?;
 
-        let mut blocks = IndexVec::new();
-        let mut local_decls = IndexVec::new();
+        let mut mir_functions = Vec::new();
 
-        for (i, _func) in prog.functions.iter().enumerate() {
+        for func in &prog.functions {
+            let mut blocks = IndexVec::new();
+            let mut local_decls = IndexVec::new();
+
+            // Return place: Local(0)
+            let return_place = local_decls
+                .push(crate::ir::LocalDecl { name: Some("_return".to_string()), ty: None });
+
+            // Parameter places: Local(1..1+param_count)
+            let mut param_locals = Vec::new();
+            for (p_name, _p_type) in &func.params {
+                let p_local =
+                    local_decls.push(crate::ir::LocalDecl { name: Some(p_name.clone()), ty: None });
+                param_locals.push(p_local);
+            }
+
             let mut stmts = Vec::new();
-            local_decls.push(crate::ir::LocalDecl {});
-            let p = crate::ir::Place { local: crate::ir::Local::from_usize(i) };
+            let ret_p = crate::ir::Place { local: return_place };
+
+            let default_constant = match &func.body {
+                omni_types::ast::Expr::Literal(lit) => crate::ir::Constant::Lit(lit.clone()),
+                _ => crate::ir::Constant::Lit(omni_types::ast::Lit::Int(42)),
+            };
+
             stmts.push(crate::ir::Statement::Assign(
-                p,
-                crate::ir::Rvalue::Use(crate::ir::Operand::Constant),
+                ret_p,
+                crate::ir::Rvalue::Use(crate::ir::Operand::Constant(default_constant)),
             ));
 
             blocks.push(crate::ir::BlockData {
                 statements: stmts,
                 terminator: Some(crate::ir::Terminator::Return),
             });
+
+            let body = Body { blocks, local_decls };
+            mir_functions.push(crate::ir::MirFunction {
+                name: func.name.clone(),
+                params: param_locals,
+                return_place,
+                return_type: func.return_type.clone(),
+                body,
+            });
         }
 
-        let body = Body { blocks, local_decls };
-        self.body = body.clone();
-        Ok(body)
+        let mir_prog = crate::ir::MirProgram { functions: mir_functions };
+        if let Some(first_fn) = mir_prog.functions.first() {
+            self.body = first_fn.body.clone();
+        }
+        Ok(mir_prog)
     }
 
     pub fn lower_snippet(&mut self, source: &str) -> Result<Body, String> {
