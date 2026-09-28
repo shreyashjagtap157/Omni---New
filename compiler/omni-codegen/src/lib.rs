@@ -287,6 +287,9 @@ pub fn compile_monomorphized_program(
                 }
             }
 
+        }
+
+        for cl_b in cl_blocks.values().copied() {
             builder.seal_block(cl_b);
         }
 
