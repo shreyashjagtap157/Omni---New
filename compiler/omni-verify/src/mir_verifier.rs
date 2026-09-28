@@ -5,6 +5,8 @@
 //! 3. All basic blocks terminate in a valid Terminator (`Return`, `Goto`, `SwitchInt`, `Call`, `Unreachable`).
 //! 4. Parameter and return local indices strictly match `MirFunction` signature parameters.
 
+use std::collections::{HashSet, VecDeque};
+
 use omni_mir::ir::{
     BasicBlock, BinOp, Constant, Local, MirFunction, MirProgram, Operand, Place, Rvalue, Statement,
     Terminator, UnOp,
@@ -39,6 +41,8 @@ pub enum MirVerificationError {
     },
     CallDestinationRequired { func: String, callee: String },
     CallDestinationUnexpected { func: String, callee: String },
+    UseBeforeAssignment { func: String, block: BasicBlock, local: Local },
+    UninitializedReturn { func: String, block: BasicBlock, local: Local },
 }
 
 impl std::fmt::Display for MirVerificationError {
@@ -119,6 +123,16 @@ impl std::fmt::Display for MirVerificationError {
                 f,
                 "MIR Verification Failure in '{}': Unit-returning call '{}' must not have a destination",
                 func, callee
+            ),
+            Self::UseBeforeAssignment { func, block, local } => write!(
+                f,
+                "MIR Verification Failure in '{}': local {:?} is used before assignment in block {:?}",
+                func, local, block
+            ),
+            Self::UninitializedReturn { func, block, local } => write!(
+                f,
+                "MIR Verification Failure in '{}': return local {:?} is not definitely assigned in block {:?}",
+                func, local, block
             ),
         }
     }
@@ -242,7 +256,241 @@ impl MirVerifier {
         }
 
         Self::check_calls(prog, func)?;
+        Self::check_definite_assignment(prog, func)?;
         Ok(())
+    }
+
+    fn check_definite_assignment(
+        prog: &MirProgram,
+        func: &MirFunction,
+    ) -> Result<(), MirVerificationError> {
+        let num_blocks = func.body.blocks.len();
+        if num_blocks == 0 {
+            return Ok(());
+        }
+
+        let reachable = Self::reachable_blocks(func, num_blocks);
+        let mut predecessors = vec![Vec::<(BasicBlock, bool)>::new(); num_blocks];
+
+        for (idx, block) in func.body.blocks.iter().enumerate() {
+            if !reachable[idx] {
+                continue;
+            }
+            let from = BasicBlock::from_usize(idx);
+            match block.terminator.as_ref().expect("structural terminator already verified") {
+                Terminator::Goto(target) => predecessors[target.index()].push((from, false)),
+                Terminator::SwitchInt { targets, otherwise, .. } => {
+                    for (_, target) in targets {
+                        predecessors[target.index()].push((from, false));
+                    }
+                    predecessors[otherwise.index()].push((from, false));
+                }
+                Terminator::Call { target, cleanup, destination, .. } => {
+                    predecessors[target.index()].push((from, destination.is_some()));
+                    if let Some(cleanup) = cleanup {
+                        predecessors[cleanup.index()].push((from, false));
+                    }
+                }
+                Terminator::Return | Terminator::Unreachable => {}
+            }
+        }
+
+        let all_locals: HashSet<Local> = (0..func.body.local_decls.len())
+            .map(Local::from_usize)
+            .collect();
+        let mut in_sets = vec![all_locals.clone(); num_blocks];
+        let mut out_sets = vec![all_locals.clone(); num_blocks];
+        let entry = BasicBlock::from_usize(0);
+        let mut entry_assigned = HashSet::new();
+        entry_assigned.extend(func.params.iter().copied());
+        in_sets[entry.index()] = entry_assigned.clone();
+        out_sets[entry.index()] = Self::transfer_block(func, entry, &entry_assigned);
+
+        loop {
+            let mut changed = false;
+            for idx in 0..num_blocks {
+                let block = BasicBlock::from_usize(idx);
+                if !reachable[idx] || block == entry {
+                    continue;
+                }
+                let preds = &predecessors[idx];
+                if preds.is_empty() {
+                    continue;
+                }
+
+                let mut new_in = all_locals.clone();
+                for (pred, _) in preds {
+                    new_in.retain(|local| out_sets[pred.index()].contains(local));
+                }
+                let new_out = Self::transfer_block(func, block, &new_in);
+
+                if new_in != in_sets[idx] {
+                    in_sets[idx] = new_in;
+                    changed = true;
+                }
+                if new_out != out_sets[idx] {
+                    out_sets[idx] = new_out;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        let mut tcx = prog.tcx.clone();
+        let unit = tcx.intern(TyKind::Unit);
+
+        for (idx, block_data) in func.body.blocks.iter().enumerate() {
+            if !reachable[idx] {
+                continue;
+            }
+            let block = BasicBlock::from_usize(idx);
+            let mut assigned = in_sets[idx].clone();
+
+            for statement in &block_data.statements {
+                match statement {
+                    Statement::Assign(_, rvalue) => {
+                        Self::check_rvalue_initialized(func, block, rvalue, &assigned)?;
+                    }
+                    Statement::Assume(_) => {}
+                    Statement::Drop(place) => {
+                        Self::require_assigned(func, block, place.local, &assigned)?;
+                    }
+                }
+                if let Statement::Assign(place, _) = statement {
+                    assigned.insert(place.local);
+                } else if let Statement::Drop(place) = statement {
+                    assigned.remove(&place.local);
+                }
+            }
+
+            match block_data.terminator.as_ref().expect("structural terminator already verified") {
+                Terminator::SwitchInt { discr, .. } => {
+                    Self::check_operand_initialized(func, block, discr, &assigned)?;
+                }
+                Terminator::Call { args, .. } => {
+                    for arg in args {
+                        Self::check_operand_initialized(func, block, arg, &assigned)?;
+                    }
+                }
+                Terminator::Return => {
+                    let return_ty = Self::local_ty(func, func.return_place, &func.name)?;
+                    if return_ty != unit && !assigned.contains(&func.return_place) {
+                        return Err(MirVerificationError::UninitializedReturn {
+                            func: func.name.clone(),
+                            block,
+                            local: func.return_place,
+                        });
+                    }
+                }
+                Terminator::Goto(_) | Terminator::Unreachable => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    fn transfer_block(
+        func: &MirFunction,
+        block: BasicBlock,
+        initial: &HashSet<Local>,
+    ) -> HashSet<Local> {
+        let mut assigned = initial.clone();
+        for statement in &func.body.blocks[block].statements {
+            match statement {
+                Statement::Assign(place, _) => {
+                    assigned.insert(place.local);
+                }
+                Statement::Drop(place) => {
+                    assigned.remove(&place.local);
+                }
+                Statement::Assume(_) => {}
+            }
+        }
+        assigned
+    }
+
+    fn reachable_blocks(func: &MirFunction, num_blocks: usize) -> Vec<bool> {
+        let mut reachable = vec![false; num_blocks];
+        let mut queue = VecDeque::from([BasicBlock::from_usize(0)]);
+
+        while let Some(block) = queue.pop_front() {
+            if reachable[block.index()] {
+                continue;
+            }
+            reachable[block.index()] = true;
+            match func.body.blocks[block]
+                .terminator
+                .as_ref()
+                .expect("structural terminator already verified")
+            {
+                Terminator::Goto(target) => queue.push_back(*target),
+                Terminator::SwitchInt { targets, otherwise, .. } => {
+                    for (_, target) in targets {
+                        queue.push_back(*target);
+                    }
+                    queue.push_back(*otherwise);
+                }
+                Terminator::Call { target, cleanup, .. } => {
+                    queue.push_back(*target);
+                    if let Some(cleanup) = cleanup {
+                        queue.push_back(*cleanup);
+                    }
+                }
+                Terminator::Return | Terminator::Unreachable => {}
+            }
+        }
+        reachable
+    }
+
+    fn check_rvalue_initialized(
+        func: &MirFunction,
+        block: BasicBlock,
+        rvalue: &Rvalue,
+        assigned: &HashSet<Local>,
+    ) -> Result<(), MirVerificationError> {
+        match rvalue {
+            Rvalue::Use(op) => Self::check_operand_initialized(func, block, op, assigned),
+            Rvalue::BinaryOp(_, lhs, rhs) => {
+                Self::check_operand_initialized(func, block, lhs, assigned)?;
+                Self::check_operand_initialized(func, block, rhs, assigned)
+            }
+            Rvalue::UnaryOp(_, operand) => {
+                Self::check_operand_initialized(func, block, operand, assigned)
+            }
+        }
+    }
+
+    fn check_operand_initialized(
+        func: &MirFunction,
+        block: BasicBlock,
+        operand: &Operand,
+        assigned: &HashSet<Local>,
+    ) -> Result<(), MirVerificationError> {
+        match operand {
+            Operand::Copy(place) | Operand::Move(place) => {
+                Self::require_assigned(func, block, place.local, assigned)
+            }
+            Operand::Constant(_) => Ok(()),
+        }
+    }
+
+    fn require_assigned(
+        func: &MirFunction,
+        block: BasicBlock,
+        local: Local,
+        assigned: &HashSet<Local>,
+    ) -> Result<(), MirVerificationError> {
+        if assigned.contains(&local) {
+            Ok(())
+        } else {
+            Err(MirVerificationError::UseBeforeAssignment {
+                func: func.name.clone(),
+                block,
+                local,
+            })
+        }
     }
 
     fn check_rvalue_type(
@@ -742,6 +990,73 @@ mod tests {
         assert!(matches!(
             MirVerifier::verify_program(&prog),
             Err(MirVerificationError::CallArityMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn test_verifier_rejects_uninitialized_return() {
+        let mut tcx = TyCtxt::new();
+        let int = tcx.intern(omni_types::intern::TyKind::Int);
+        let mut local_decls = IndexVec::new();
+        let ret = local_decls.push(LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![],
+            terminator: Some(Terminator::Return),
+        });
+        let prog = MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "bad_return".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Int,
+                body: Body { blocks, local_decls },
+            }],
+        };
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::UninitializedReturn { .. })
+        ));
+    }
+
+    #[test]
+    fn test_verifier_rejects_use_before_assignment() {
+        let mut tcx = TyCtxt::new();
+        let int = tcx.intern(omni_types::intern::TyKind::Int);
+        let mut local_decls = IndexVec::new();
+        let ret = local_decls.push(LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
+        let tmp = local_decls.push(LocalDecl {
+            name: Some("tmp".to_string()),
+            ty: Some(int),
+        });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place { local: ret },
+                Rvalue::Use(Operand::Copy(Place { local: tmp })),
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let prog = MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "bad_use".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Int,
+                body: Body { blocks, local_decls },
+            }],
+        };
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::UseBeforeAssignment { .. })
         ));
     }
 
