@@ -729,10 +729,8 @@ mod tests {
         let unit = tcx.intern(omni_mir::TyKind::Unit);
 
         let mut touch_locals = index_vec::IndexVec::new();
-        let touch_ret = touch_locals.push(omni_mir::ir::LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(unit),
-        });
+        let touch_ret = touch_locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(unit) });
         let mut touch_blocks = index_vec::IndexVec::new();
         touch_blocks.push(omni_mir::ir::BlockData {
             statements: vec![],
@@ -740,15 +738,15 @@ mod tests {
         });
 
         let mut main_locals = index_vec::IndexVec::new();
-        let main_ret = main_locals.push(omni_mir::ir::LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(unit),
-        });
+        let main_ret = main_locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(unit) });
         let mut main_blocks = index_vec::IndexVec::new();
         main_blocks.push(omni_mir::ir::BlockData {
             statements: vec![],
             terminator: Some(omni_mir::ir::Terminator::Call {
-                func: omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef("touch".to_string())),
+                func: omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(
+                    "touch".to_string(),
+                )),
                 args: vec![],
                 destination: None,
                 target: omni_mir::ir::BasicBlock::from_usize(1),
