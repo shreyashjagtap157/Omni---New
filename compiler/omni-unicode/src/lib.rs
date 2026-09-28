@@ -38,8 +38,8 @@ pub use annotation::{
 pub use classify::{is_prohibited, prohibited_kind, ProhibitedKind, PROHIBITED_ORDER};
 pub use ident::{canonical_ident, is_canonical, normalization_identity, CanonicalIdentError};
 pub use tables::{
-    DERIVED_CORE_PROPERTIES_SHA256, PROPLIST_SHA256, UNASSIGNED, UNICODE_DATA_SHA256,
-    UNICODE_VERSION,
+    DERIVED_CORE_PROPERTIES_SHA256, DERIVED_NORMALIZATION_PROPERTIES_SHA256, PROPLIST_SHA256,
+    UCD_DIGESTS, UNICODE_DATA_SHA256, UNICODE_VERSION,
 };
 
 /// UAX #31 identifier classes are supplied by `unicode-ident`.
