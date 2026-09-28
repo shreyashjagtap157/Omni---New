@@ -169,12 +169,6 @@ impl MirVerifier {
                 actual: actual_return,
             });
         }
-            return Err(MirVerificationError::InvalidReturnPlace {
-                func: fn_name.clone(),
-                expected: func.return_place,
-                actual: func.return_place,
-            });
-        }
 
         // Validate parameter locals exist and are typed
         for (idx, &param_local) in func.params.iter().enumerate() {
