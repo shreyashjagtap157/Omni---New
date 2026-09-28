@@ -211,6 +211,13 @@ mod tests {
     };
     use omni_types::intern::TyCtxt;
 
+    fn int_context() -> TyCtxt {
+        let mut tcx = TyCtxt::new();
+        tcx.intern(omni_types::intern::TyKind::Error);
+        tcx.intern(omni_types::intern::TyKind::Int);
+        tcx
+    }
+
     #[test]
     fn test_verifier_passes_valid_mir() {
         let dummy_ty = omni_mir::ast::TypeSpec::Int;
@@ -230,11 +237,7 @@ mod tests {
         });
 
         let prog = MirProgram {
-            tcx: {
-                let mut tcx = TyCtxt::new();
-                tcx.intern(omni_types::intern::TyKind::Error);
-                tcx
-            },
+            tcx: int_context(),
             functions: vec![MirFunction {
                 name: "identity".to_string(),
                 params: vec![param_l],
@@ -264,12 +267,7 @@ mod tests {
         });
 
         let prog = MirProgram {
-            tcx: {
-                let mut tcx = TyCtxt::new();
-                tcx.intern(omni_types::intern::TyKind::Error);
-                tcx.intern(omni_types::intern::TyKind::Int);
-                tcx
-            },
+            tcx: int_context(),
             functions: vec![MirFunction {
                 name: "bad_local".to_string(),
                 params: vec![],
@@ -296,6 +294,7 @@ mod tests {
             .push(BlockData { statements: vec![], terminator: Some(Terminator::Goto(invalid_bb)) });
 
         let prog = MirProgram {
+            tcx: int_context(),
             functions: vec![MirFunction {
                 name: "bad_goto".to_string(),
                 params: vec![],
