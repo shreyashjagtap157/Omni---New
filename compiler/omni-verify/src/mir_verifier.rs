@@ -966,8 +966,8 @@ mod tests {
     #[test]
     fn test_verifier_rejects_duplicate_parameter_local() {
         let mut local_decls = IndexVec::new();
-        let ret_l =
-            local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: Some(omni_mir::Ty(1)) });
+        let ret_l = local_decls
+            .push(LocalDecl { name: Some("_return".to_string()), ty: Some(omni_mir::Ty(1)) });
         let param_l =
             local_decls.push(LocalDecl { name: Some("x".to_string()), ty: Some(omni_mir::Ty(1)) });
 
@@ -1005,10 +1005,7 @@ mod tests {
             local_decls.push(LocalDecl { name: Some("shared".to_string()), ty: Some(unit) });
 
         let mut blocks = IndexVec::new();
-        blocks.push(BlockData {
-            statements: vec![],
-            terminator: Some(Terminator::Return),
-        });
+        blocks.push(BlockData { statements: vec![], terminator: Some(Terminator::Return) });
 
         let prog = MirProgram {
             tcx: unit_tcx,
