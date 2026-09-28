@@ -89,6 +89,44 @@ pub fn compile_monomorphized_program(
             ));
         }
 
+        let return_mir_ty = mir_func
+            .body
+            .local_decls[mir_func.return_place]
+            .ty
+            .ok_or_else(|| {
+                format!(
+                    "Codegen error: return local {:?} has no type for '{}'",
+                    mir_func.return_place, mir_func.name
+                )
+            })?;
+        let return_source_abi = native_abi_type(&source_def.return_type)?;
+        let return_mir_abi = native_abi_type_from_ty(&mir_prog.tcx, return_mir_ty)?;
+        if return_source_abi != return_mir_abi {
+            return Err(format!(
+                "Codegen error: source/MIR return ABI mismatch for '{}': source {:?}, MIR {:?}",
+                mir_func.name, return_source_abi, return_mir_abi
+            ));
+        }
+
+        for (param_index, ((_, source_spec), &mir_param)) in
+            source_def.params.iter().zip(&mir_func.params).enumerate()
+        {
+            let mir_ty = mir_func.body.local_decls[mir_param].ty.ok_or_else(|| {
+                format!(
+                    "Codegen error: parameter local {:?} has no type for '{}'",
+                    mir_param, mir_func.name
+                )
+            })?;
+            let source_abi = native_abi_type(source_spec)?;
+            let mir_abi = native_abi_type_from_ty(&mir_prog.tcx, mir_ty)?;
+            if source_abi != mir_abi {
+                return Err(format!(
+                    "Codegen error: source/MIR parameter ABI mismatch for '{}' parameter {}: source {:?}, MIR {:?}",
+                    mir_func.name, param_index, source_abi, mir_abi
+                ));
+            }
+        }
+
         let mut sig = Signature::new(module.isa().default_call_conv());
         if let Some(ret_ty) = native_abi_type(&source_def.return_type)? {
             sig.returns.push(AbiParam::new(ret_ty));
