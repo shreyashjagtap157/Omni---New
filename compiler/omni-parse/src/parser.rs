@@ -100,7 +100,10 @@ impl<'a> Parser<'a> {
                 n.children.push(Child::Node(self.parse_item_stub()));
             } else {
                 n.children.push(Child::Node(self.error_node("expected a top-level declaration")));
-                self.synchronize_top();
+                let skipped = self.synchronize_top();
+                if !skipped.is_empty() {
+                    n.children.push(Child::Node(self.error_node_from(skipped)));
+                }
             }
         }
         n
@@ -139,7 +142,10 @@ impl<'a> Parser<'a> {
                     .push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump())));
             } else {
                 p.children.push(Child::Node(self.error_node("expected parameter name")));
-                self.recover_until(&[Punct::Comma, Punct::RParen]);
+                let skipped = self.recover_until(&[Punct::Comma, Punct::RParen]);
+                if !skipped.is_empty() {
+                    p.children.push(Child::Node(self.error_node_from(skipped)));
+                }
             }
             if self.at_punct(Punct::Colon) {
                 p.children.push(Child::Token(self.bump()));
@@ -409,15 +415,41 @@ impl<'a> Parser<'a> {
             Node::new(SyntaxKind::ErrorNode).with_token(self.bump())
         }
     }
-    fn synchronize_top(&mut self) {
+    /// Skips tokens until a top-level `fn` keyword or end of input.
+    ///
+    /// The skipped tokens are returned so the caller can attach them to an
+    /// `ErrorNode`. Advancing `pos` without preserving the tokens would drop
+    /// them from the green tree and break lossless reconstruction, which is the
+    /// CST's defining invariant.
+    fn synchronize_top(&mut self) -> Vec<usize> {
+        let mut skipped = Vec::new();
         while !self.eof() && !self.at_kw(Kw::Fn) {
-            self.pos += 1;
+            skipped.push(self.bump());
         }
+        skipped
     }
-    fn recover_until(&mut self, puncts: &[Punct]) {
+
+    /// Skips tokens until one of `puncts` or end of input.
+    ///
+    /// As with [`Parser::synchronize_top`], the skipped tokens are returned so
+    /// the caller can keep them in the tree.
+    fn recover_until(&mut self, puncts: &[Punct]) -> Vec<usize> {
+        let mut skipped = Vec::new();
         while !self.eof() && !puncts.iter().any(|p| self.at_punct(*p)) {
-            self.pos += 1;
+            skipped.push(self.bump());
         }
+        skipped
+    }
+
+    /// Wraps `tokens` in a recovery `ErrorNode`.
+    ///
+    /// `GRAM-0007` requires recovery nodes to be tagged and non-translatable;
+    /// `SyntaxKind::ErrorNode` is that tag, and a parse carrying one must not
+    /// be treated as a valid tree.
+    fn error_node_from(&self, tokens: Vec<usize>) -> Node {
+        let mut n = Node::new(SyntaxKind::ErrorNode);
+        n.children.extend(tokens.into_iter().map(Child::Token));
+        n
     }
     fn expect_kw(&mut self, kw: Kw) -> usize {
         if self.at_kw(kw) {
