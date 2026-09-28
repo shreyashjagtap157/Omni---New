@@ -51,14 +51,14 @@ fn ensure_source_mir_type_match(
     use omni_mir::ast::TypeSpec;
     use omni_mir::TyKind;
 
-    let matches = match (spec, tcx.get(ty)) {
+    let matches = matches!(
+        (spec, tcx.get(ty)),
         (TypeSpec::Unit, TyKind::Unit)
-        | (TypeSpec::Int, TyKind::Int)
-        | (TypeSpec::Bool, TyKind::Bool)
-        | (TypeSpec::Byte, TyKind::Byte)
-        | (TypeSpec::Char, TyKind::Char) => true,
-        _ => false,
-    };
+            | (TypeSpec::Int, TyKind::Int)
+            | (TypeSpec::Bool, TyKind::Bool)
+            | (TypeSpec::Byte, TyKind::Byte)
+            | (TypeSpec::Char, TyKind::Char)
+    );
     if matches {
         Ok(())
     } else {
