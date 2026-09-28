@@ -4058,7 +4058,7 @@ This section is the execution-level refinement of the comprehensive Master Plan.
 
 
 
-- **Logic:** A completely independent pass that reads `Body`. Validates that SSA properties hold. Validates that no `Place` is read after being moved. Validates that no `Assumption` is used across an invalidating FFI boundary.
+- **Logic:** A completely independent pass that reads `Body`. Validates the representable SSA/control-flow invariants, including unique parameter-local topology and a return place that cannot alias a parameter. Validates that no `Place` is read after being moved. Validates that no `Assumption` is used across an invalidating FFI boundary.
 
 
 
@@ -4090,7 +4090,7 @@ This section is the execution-level refinement of the comprehensive Master Plan.
 
 - **Dependencies:** `cranelift-codegen`, `cranelift-module`, `cranelift-object`.
 
-- **Current native ABI subset:** `Int`, `Bool`, `Byte`, and `Char` are represented as Cranelift `i64`; `Unit` has no native return/result slot. Other source types are rejected explicitly by the current backend rather than assigned fabricated machine representations.
+- **Current native ABI subset:** `Int`, `Bool`, `Byte`, and `Char` are represented as Cranelift `i64`; `Unit` has no native return/result slot. Other source types are rejected explicitly by the current backend rather than assigned fabricated machine representations. Within this supported subset, native emission requires exact source `TypeSpec` ↔ MIR `TyKind` identity; matching only the machine ABI class is insufficient.
 
 
 
