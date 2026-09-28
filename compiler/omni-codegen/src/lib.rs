@@ -325,7 +325,13 @@ fn compile_mir_program(
                     }
                     switch.emit(&mut builder, discr_val, otherwise_cl);
                 }
-                omni_mir::ir::Terminator::Call { func, args, destination, target, cleanup: _ } => {
+                omni_mir::ir::Terminator::Call { func, args, destination, target, cleanup } => {
+                    if cleanup.is_some() {
+                        return Err(format!(
+                            "Codegen error: call in '{}' has an unsupported cleanup/unwind edge",
+                            mir_func.name
+                        ));
+                    }
                     let fn_name =
                         match func {
                             omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(
