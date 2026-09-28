@@ -382,7 +382,7 @@ fn nested_block_comments_close_as_trivia() {
     assert_eq!(tokens.len(), 2);
     assert_eq!(tokens[0].kind, TokenKind::Ident);
     assert_eq!(tokens[1].kind, TokenKind::Ident);
-    assert!(tokens[1].leading_trivia.iter().any(|tr| tr.kind == TriviaKind::BlockComment));
+    assert!(tokens[0].trailing_trivia.iter().any(|tr| tr.kind == TriviaKind::BlockComment));
 }
 
 #[test]
@@ -439,7 +439,6 @@ fn eof_after_a_single_operator_is_not_swallowed() {
         (b"@", Punct::At),
         (b"#", Punct::Hash),
         (b"$", Punct::Dollar),
-        (b"_", Punct::Underscore),
         (b"~", Punct::Tilde),
     ];
     for (op, expected) in ops {

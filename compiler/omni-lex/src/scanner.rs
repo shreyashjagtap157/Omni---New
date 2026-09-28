@@ -1068,8 +1068,6 @@ impl<'a> Scanner<'a> {
             }
         }
     }
-
-}
 fn invalid_utf8_offsets(source: &[u8]) -> Vec<usize> {
     let mut offsets = Vec::new();
     let mut base = 0usize;
