@@ -11,15 +11,15 @@ use target_lexicon::Triple;
 /// Compiles a fully qualified, concrete monomorphized program to a native object file.
 /// This is the only source of native emission; frontend orchestration belongs to omni-driver.
 fn native_abi_type_from_ty(
-    tcx: &omni_types::intern::TyCtxt,
-    ty: omni_types::intern::Ty,
+    tcx: &omni_mir::TyCtxt,
+    ty: omni_mir::Ty,
 ) -> Result<Option<cranelift_codegen::ir::Type>, String> {
     match tcx.get(ty) {
-        omni_types::intern::TyKind::Unit => Ok(None),
-        omni_types::intern::TyKind::Int
-        | omni_types::intern::TyKind::Bool
-        | omni_types::intern::TyKind::Byte
-        | omni_types::intern::TyKind::Char => Ok(Some(types::I64)),
+        omni_mir::TyKind::Unit => Ok(None),
+        omni_mir::TyKind::Int
+        | omni_mir::TyKind::Bool
+        | omni_mir::TyKind::Byte
+        | omni_mir::TyKind::Char => Ok(Some(types::I64)),
         other => Err(format!(
             "Codegen error: native backend does not yet support MIR ABI type {:?}",
             other
@@ -95,11 +95,8 @@ fn compile_mir_program(
             ));
         }
 
-        let return_mir_ty = mir_func
-            .body
-            .local_decls[mir_func.return_place]
-            .ty
-            .ok_or_else(|| {
+        let return_mir_ty =
+            mir_func.body.local_decls[mir_func.return_place].ty.ok_or_else(|| {
                 format!(
                     "Codegen error: return local {:?} has no type for '{}'",
                     mir_func.return_place, mir_func.name
@@ -200,7 +197,7 @@ fn compile_mir_program(
                 format!("Codegen error: MIR local {:?} has no type", local)
             })?;
             if let Some(native_ty) = native_abi_type_from_ty(&mir_prog.tcx, ty)? {
-                let variable = Variable::new(local_idx);
+                let variable = Variable::from_u32(local_idx as u32);
                 builder.declare_var(variable, native_ty);
                 variables.insert(local, variable);
             }
@@ -287,22 +284,17 @@ fn compile_mir_program(
                     }
                     switch.emit(&mut builder, discr_val, otherwise_cl);
                 }
-                omni_mir::ir::Terminator::Call {
-                    func,
-                    args,
-                    destination,
-                    target,
-                    cleanup: _,
-                } => {
-                    let fn_name = match func {
-                        omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(name)) => name,
-                        _ => {
-                            return Err(
+                omni_mir::ir::Terminator::Call { func, args, destination, target, cleanup: _ } => {
+                    let fn_name =
+                        match func {
+                            omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(
+                                name,
+                            )) => name,
+                            _ => return Err(
                                 "Indirect function calls not yet supported in Cranelift emission"
                                     .into(),
-                            )
-                        }
-                    };
+                            ),
+                        };
                     let source_callee =
                         prog.functions.iter().find(|f| f.name == *fn_name).ok_or_else(|| {
                             format!("Codegen error: call target '{}' not found", fn_name)
@@ -401,9 +393,9 @@ fn lower_operand_to_cl(
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match op {
         omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => {
-            let variable = *variables.get(&place.local).ok_or_else(|| {
-                format!("Codegen error: unbound local {:?}", place.local)
-            })?;
+            let variable = *variables
+                .get(&place.local)
+                .ok_or_else(|| format!("Codegen error: unbound local {:?}", place.local))?;
             Ok(builder.use_var(variable))
         }
         omni_mir::ir::Operand::Constant(c) => match c {
@@ -529,22 +521,20 @@ mod tests {
             capabilities: vec![],
             body: ast::Expr::Literal(ast::Lit::Int(0)),
         };
-        let mut tcx = omni_types::TyCtxt::new();
-        let int = tcx.intern(omni_types::TyKind::Int);
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
 
         let mut locals = index_vec::IndexVec::new();
-        let ret = locals.push(omni_mir::ir::LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
+        let ret = locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
 
         let mut blocks = index_vec::IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![],
             terminator: Some(omni_mir::ir::Terminator::SwitchInt {
-                discr: omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(
-                    ast::Lit::Int(1),
-                )),
+                discr: omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(ast::Lit::Int(
+                    1,
+                ))),
                 targets: vec![(1, omni_mir::ir::BasicBlock::from_usize(1))],
                 otherwise: omni_mir::ir::BasicBlock::from_usize(2),
             }),
@@ -556,9 +546,9 @@ mod tests {
                     omni_mir::ir::Constant::Lit(ast::Lit::Int(41)),
                 )),
             )],
-            terminator: Some(omni_mir::ir::Terminator::Goto(
-                omni_mir::ir::BasicBlock::from_usize(3),
-            )),
+            terminator: Some(omni_mir::ir::Terminator::Goto(omni_mir::ir::BasicBlock::from_usize(
+                3,
+            ))),
         });
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![omni_mir::ir::Statement::Assign(
@@ -567,9 +557,9 @@ mod tests {
                     omni_mir::ir::Constant::Lit(ast::Lit::Int(7)),
                 )),
             )],
-            terminator: Some(omni_mir::ir::Terminator::Goto(
-                omni_mir::ir::BasicBlock::from_usize(3),
-            )),
+            terminator: Some(omni_mir::ir::Terminator::Goto(omni_mir::ir::BasicBlock::from_usize(
+                3,
+            ))),
         });
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![],
@@ -583,19 +573,13 @@ mod tests {
                 params: vec![],
                 return_place: ret,
                 return_type: ast::TypeSpec::Int,
-                body: omni_mir::ir::Body {
-                    blocks,
-                    local_decls: locals,
-                },
+                body: omni_mir::ir::Body { blocks, local_decls: locals },
             }],
         };
         omni_verify::MirVerifier::verify_program(&mir).expect("hand-built CFG must verify");
 
-        let source_program = omni_mir::MonomorphizedProgram {
-            functions: vec![source],
-        };
-        let object =
-            compile_mir_program(&source_program, &mir).expect("CFG native emission");
+        let source_program = omni_mir::MonomorphizedProgram { functions: vec![source] };
+        let object = compile_mir_program(&source_program, &mir).expect("CFG native emission");
 
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let stem = format!(
@@ -616,9 +600,7 @@ mod tests {
             .expect("cc must be available");
         assert!(link.success(), "link failed: {link}");
 
-        let run = Command::new(&exe_path)
-            .status()
-            .expect("executable must run");
+        let run = Command::new(&exe_path).status().expect("executable must run");
         assert_eq!(run.code(), Some(41));
 
         fs::remove_file(object_path).ok();
