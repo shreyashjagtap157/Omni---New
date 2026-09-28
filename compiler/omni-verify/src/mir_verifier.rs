@@ -714,37 +714,27 @@ impl MirVerifier {
                 TypeSpec::Known(ty) if tcx.contains(*ty) => Some(*ty),
                 TypeSpec::Known(_) | TypeSpec::GenericParam(_) => None,
                 TypeSpec::Tuple(items) => {
-                    let items = items
-                        .iter()
-                        .map(|item| lower(tcx, item))
-                        .collect::<Option<Vec<_>>>()?;
+                    let items =
+                        items.iter().map(|item| lower(tcx, item)).collect::<Option<Vec<_>>>()?;
                     Some(tcx.intern(TyKind::Tuple(items)))
                 }
                 TypeSpec::Array(elem, len) => {
                     Some(tcx.intern(TyKind::Array(lower(tcx, elem)?, *len)))
                 }
-                TypeSpec::Range(elem) => {
-                    Some(tcx.intern(TyKind::Range(lower(tcx, elem)?)))
-                }
+                TypeSpec::Range(elem) => Some(tcx.intern(TyKind::Range(lower(tcx, elem)?))),
                 TypeSpec::Fn(params, ret) => {
-                    let params = params
-                        .iter()
-                        .map(|param| lower(tcx, param))
-                        .collect::<Option<Vec<_>>>()?;
+                    let params =
+                        params.iter().map(|param| lower(tcx, param)).collect::<Option<Vec<_>>>()?;
                     Some(tcx.intern(TyKind::Fn(params, lower(tcx, ret)?)))
                 }
                 TypeSpec::Struct(name, args) => {
-                    let args = args
-                        .iter()
-                        .map(|arg| lower(tcx, arg))
-                        .collect::<Option<Vec<_>>>()?;
+                    let args =
+                        args.iter().map(|arg| lower(tcx, arg)).collect::<Option<Vec<_>>>()?;
                     Some(tcx.intern(TyKind::Struct(name.clone(), args)))
                 }
                 TypeSpec::Enum(name, args) => {
-                    let args = args
-                        .iter()
-                        .map(|arg| lower(tcx, arg))
-                        .collect::<Option<Vec<_>>>()?;
+                    let args =
+                        args.iter().map(|arg| lower(tcx, arg)).collect::<Option<Vec<_>>>()?;
                     Some(tcx.intern(TyKind::Enum(name.clone(), args)))
                 }
             }
