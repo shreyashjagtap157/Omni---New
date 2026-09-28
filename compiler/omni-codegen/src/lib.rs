@@ -42,6 +42,36 @@ fn native_abi_type(
     }
 }
 
+fn ensure_source_mir_type_match(
+    tcx: &omni_mir::TyCtxt,
+    spec: &omni_mir::ast::TypeSpec,
+    ty: omni_mir::Ty,
+    context: &str,
+) -> Result<(), String> {
+    use omni_mir::ast::TypeSpec;
+    use omni_mir::TyKind;
+
+    let matches = match (spec, tcx.get(ty)) {
+        (TypeSpec::Unit, TyKind::Unit)
+        | (TypeSpec::Int, TyKind::Int)
+        | (TypeSpec::Bool, TyKind::Bool)
+        | (TypeSpec::Byte, TyKind::Byte)
+        | (TypeSpec::Char, TyKind::Char) => true,
+        _ => false,
+    };
+    if matches {
+        Ok(())
+    } else {
+        Err(format!(
+            "Codegen error: source/MIR semantic type mismatch for {}: source {:?}, MIR {:?}",
+            context,
+            spec,
+            tcx.get(ty)
+        ))
+    }
+}
+
+
 /// Enforces MIR lowering semantic gate and MirVerifier before native emission.
 pub fn compile_monomorphized_program(
     prog: &omni_mir::MonomorphizedProgram,
@@ -102,6 +132,12 @@ fn compile_mir_program(
                     mir_func.return_place, mir_func.name
                 )
             })?;
+        ensure_source_mir_type_match(
+            &mir_prog.tcx,
+            &source_def.return_type,
+            return_mir_ty,
+            &format!("return type of '{}'", mir_func.name),
+        )?;
         let return_source_abi = native_abi_type(&source_def.return_type)?;
         let return_mir_abi = native_abi_type_from_ty(&mir_prog.tcx, return_mir_ty)?;
         if return_source_abi != return_mir_abi {
@@ -120,6 +156,12 @@ fn compile_mir_program(
                     mir_param, mir_func.name
                 )
             })?;
+            ensure_source_mir_type_match(
+                &mir_prog.tcx,
+                source_spec,
+                mir_ty,
+                &format!("parameter {} of '{}'", param_index, mir_func.name),
+            )?;
             let source_abi = native_abi_type(source_spec)?;
             let mir_abi = native_abi_type_from_ty(&mir_prog.tcx, mir_ty)?;
             if source_abi != mir_abi {
@@ -605,6 +647,57 @@ mod tests {
 
         fs::remove_file(object_path).ok();
         fs::remove_file(exe_path).ok();
+    }
+
+    #[test]
+    fn test_compile_mir_program_rejects_source_mir_semantic_type_mismatch() {
+        let source = ast::GenericFnDef {
+            name: "main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Bool,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Literal(ast::Lit::Bool(true)),
+        };
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+
+        let mut locals = index_vec::IndexVec::new();
+        let ret = locals.push(omni_mir::ir::LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
+        let mut blocks = index_vec::IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![omni_mir::ir::Statement::Assign(
+                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
+                    omni_mir::ir::Constant::Lit(ast::Lit::Int(1)),
+                )),
+            )],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mir = omni_mir::ir::MirProgram {
+            tcx,
+            functions: vec![omni_mir::ir::MirFunction {
+                name: "main".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: ast::TypeSpec::Bool,
+                body: omni_mir::ir::Body { blocks, local_decls: locals },
+            }],
+        };
+        omni_verify::MirVerifier::verify_program(&mir).expect("MIR fixture must be internally typed");
+
+        let err = compile_mir_program(
+            &omni_mir::MonomorphizedProgram { functions: vec![source] },
+            &mir,
+        )
+        .expect_err("source Bool and MIR Int must not share an ABI class");
+        assert!(err.contains("source/MIR semantic type mismatch"));
     }
 
     #[test]
