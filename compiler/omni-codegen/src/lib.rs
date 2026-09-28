@@ -71,7 +71,6 @@ fn ensure_source_mir_type_match(
     }
 }
 
-
 /// Enforces MIR lowering semantic gate and MirVerifier before native emission.
 pub fn compile_monomorphized_program(
     prog: &omni_mir::MonomorphizedProgram,
@@ -665,10 +664,8 @@ mod tests {
         let int = tcx.intern(omni_mir::TyKind::Int);
 
         let mut locals = index_vec::IndexVec::new();
-        let ret = locals.push(omni_mir::ir::LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
+        let ret = locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
         let mut blocks = index_vec::IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![omni_mir::ir::Statement::Assign(
@@ -690,13 +687,12 @@ mod tests {
                 body: omni_mir::ir::Body { blocks, local_decls: locals },
             }],
         };
-        omni_verify::MirVerifier::verify_program(&mir).expect("MIR fixture must be internally typed");
+        omni_verify::MirVerifier::verify_program(&mir)
+            .expect("MIR fixture must be internally typed");
 
-        let err = compile_mir_program(
-            &omni_mir::MonomorphizedProgram { functions: vec![source] },
-            &mir,
-        )
-        .expect_err("source Bool and MIR Int must not share an ABI class");
+        let err =
+            compile_mir_program(&omni_mir::MonomorphizedProgram { functions: vec![source] }, &mir)
+                .expect_err("source Bool and MIR Int must not share an ABI class");
         assert!(err.contains("source/MIR semantic type mismatch"));
     }
 
