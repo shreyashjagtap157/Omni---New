@@ -28,7 +28,7 @@ pub enum TyKind {
 
 /// The Type Context (Arena) responsible for interning types.
 /// It ensures two identical TyKinds map to the exact same Ty index.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TyCtxt {
     dedup: HashMap<TyKind, Ty>,
     arena: Vec<TyKind>,
@@ -52,6 +52,11 @@ impl TyCtxt {
         self.arena.push(kind);
 
         ty
+    }
+
+    /// Returns whether a type handle belongs to this context.
+    pub fn contains(&self, ty: Ty) -> bool {
+        (ty.0 as usize) < self.arena.len()
     }
 
     /// Retrieves the actual TyKind structure for a given Ty handle.

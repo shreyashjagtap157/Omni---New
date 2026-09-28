@@ -587,6 +587,7 @@ version = "0.0.0"
 dependencies = [
  "index_vec",
  "omni-mir",
+ "omni-types",
 ]
 
 [[package]]
