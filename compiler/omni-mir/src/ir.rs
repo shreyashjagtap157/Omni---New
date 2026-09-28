@@ -9,6 +9,8 @@ define_index_type! { pub struct Local = u32; }
 /// Whole-program MIR container holding monomorphized function MIR definitions.
 #[derive(Debug, Clone)]
 pub struct MirProgram {
+    /// Type context that owns every Ty handle used by this MIR program.
+    pub tcx: omni_types::intern::TyCtxt,
     pub functions: Vec<MirFunction>,
 }
 

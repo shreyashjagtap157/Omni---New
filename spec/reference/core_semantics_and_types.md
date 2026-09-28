@@ -57,6 +57,8 @@ The fundamental categories of types in Omni comprise:
 To achieve $O(1)$ type equivalence checking, `TyCtxt` maintains a deduplicated arena:
 - Every unique `TyKind` maps to a single canonical `Ty(u32)` index handle.
 - Types are compared by equality of their lightweight handles without deep recursive traversal.
+- A materialized MIR program carries the exact `TyCtxt` that owns every `Ty` handle in
+  its `LocalDecl` metadata; MIR consumers must not reconstruct a separate type arena.
 
 ---
 
@@ -266,5 +268,18 @@ Every `Match` expression passing type-checking and lowering to MIR satisfies:
 2. Every arm is useful (no `UnreachablePattern`).
 3. Pattern arms unconditionally cover 100% of scrutinee type inhabitants (no `NonExhaustiveMatch`).
 4. All pattern bindings are registered in the arm local scope with concrete types.
+
+For all materialized MIR, semantic verification additionally requires:
+5. Every local has a concrete `Ty` owned by the program's authoritative `TyCtxt`.
+6. Every assignment's rvalue type equals its destination local type.
+7. Binary comparison rvalues produce `Bool`; arithmetic rvalues preserve their operand type.
+8. Unary `Neg` accepts only `Int`; unary `Not` accepts only `Bool`.
+9. Direct calls resolve to a declared MIR function with matching arity and argument types.
+10. A Unit-returning call has no destination; a value-returning call has a destination whose type equals the callee return type.
+11. A function return place has the same concrete type as the function's declared return type.
+12. Verification tracks definite assignment across reachable CFG paths; parameters begin assigned,
+    assignments establish assignment, and drops invalidate assignment.
+13. A call destination becomes definitely assigned only on the call's normal target edge; a cleanup
+    edge does not inherit the destination write.
 
 
