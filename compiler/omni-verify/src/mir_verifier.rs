@@ -898,7 +898,7 @@ mod tests {
 
     #[test]
     fn test_verifier_rejects_non_bool_comparison_destination() {
-        let (tcx, int, _) = {
+        let (tcx, int, _bool_ty) = {
             let mut tcx = TyCtxt::new();
             let int = tcx.intern(omni_types::intern::TyKind::Int);
             let bool_ty = tcx.intern(omni_types::intern::TyKind::Bool);
@@ -933,7 +933,6 @@ mod tests {
             Err(MirVerificationError::TypeMismatch { expected, actual, .. })
                 if expected == int && actual == prog.tcx.intern(omni_types::intern::TyKind::Bool)
         ));
-        let _ = bool_ty;
     }
 
     #[test]
