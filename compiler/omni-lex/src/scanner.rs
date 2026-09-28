@@ -533,7 +533,7 @@ impl<'a> Scanner<'a> {
             '?' => Punct::Question,
             '@' => Punct::At,
             '#' => Punct::Hash,
-            '
+            '~' => Punct::Tilde,
             _ => return TokenKind::Error,
         })
     }
