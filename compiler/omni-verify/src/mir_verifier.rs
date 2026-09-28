@@ -92,6 +92,10 @@ pub enum MirVerificationError {
         func: String,
         callee: String,
     },
+    InvalidTypeSpec {
+        func: String,
+        context: String,
+    },
     UseBeforeAssignment {
         func: String,
         block: BasicBlock,
@@ -193,6 +197,11 @@ impl std::fmt::Display for MirVerificationError {
                 f,
                 "MIR Verification Failure in '{}': Unit-returning call '{}' must not have a destination",
                 func, callee
+            ),
+            Self::InvalidTypeSpec { func, context } => write!(
+                f,
+                "MIR Verification Failure in '{}': invalid or non-concrete type specification: {}",
+                func, context
             ),
             Self::UseBeforeAssignment { func, block, local } => write!(
                 f,
@@ -610,7 +619,7 @@ impl MirVerifier {
     }
 
     fn rvalue_type(
-        tcx: &mut omni_types::intern::TyCtxt,
+        tcx: &mut TyCtxt,
         func: &MirFunction,
         rvalue: &Rvalue,
     ) -> Result<Ty, MirVerificationError> {
@@ -654,7 +663,7 @@ impl MirVerifier {
     }
 
     fn operand_type(
-        tcx: &mut omni_types::intern::TyCtxt,
+        tcx: &mut TyCtxt,
         func: &MirFunction,
         operand: &Operand,
     ) -> Result<Ty, MirVerificationError> {
@@ -669,7 +678,7 @@ impl MirVerifier {
         }
     }
 
-    fn literal_type(tcx: &mut omni_types::intern::TyCtxt, lit: &omni_mir::ast::Lit) -> Ty {
+    fn literal_type(tcx: &mut TyCtxt, lit: &omni_mir::ast::Lit) -> Ty {
         match lit {
             omni_mir::ast::Lit::Int(_) => tcx.intern(TyKind::Int),
             omni_mir::ast::Lit::Float(_) => tcx.intern(TyKind::Float),
@@ -719,13 +728,18 @@ impl MirVerifier {
                     Some(tcx.intern(TyKind::Tuple(items)))
                 }
                 TypeSpec::Array(elem, len) => {
-                    Some(tcx.intern(TyKind::Array(lower(tcx, elem)?, *len)))
+                    let elem = lower(tcx, elem)?;
+                    Some(tcx.intern(TyKind::Array(elem, *len)))
                 }
-                TypeSpec::Range(elem) => Some(tcx.intern(TyKind::Range(lower(tcx, elem)?))),
+                TypeSpec::Range(elem) => {
+                    let elem = lower(tcx, elem)?;
+                    Some(tcx.intern(TyKind::Range(elem)))
+                }
                 TypeSpec::Fn(params, ret) => {
                     let params =
                         params.iter().map(|param| lower(tcx, param)).collect::<Option<Vec<_>>>()?;
-                    Some(tcx.intern(TyKind::Fn(params, lower(tcx, ret)?)))
+                    let ret = lower(tcx, ret)?;
+                    Some(tcx.intern(TyKind::Fn(params, ret)))
                 }
                 TypeSpec::Struct(name, args) => {
                     let args =
@@ -869,12 +883,11 @@ mod tests {
     use omni_mir::ir::{
         BlockData, Body, LocalDecl, MirFunction, MirProgram, Place, Rvalue, Statement, Terminator,
     };
-    use omni_types::intern::TyCtxt;
 
     fn int_context() -> TyCtxt {
         let mut tcx = TyCtxt::new();
-        tcx.intern(omni_types::intern::TyKind::Error);
-        tcx.intern(omni_types::intern::TyKind::Int);
+        tcx.intern(TyKind::Error);
+        tcx.intern(TyKind::Int);
         tcx
     }
 
@@ -946,8 +959,8 @@ mod tests {
     fn test_verifier_rejects_non_bool_comparison_destination() {
         let (tcx, int, bool_ty) = {
             let mut tcx = TyCtxt::new();
-            let int = tcx.intern(omni_types::intern::TyKind::Int);
-            let bool_ty = tcx.intern(omni_types::intern::TyKind::Bool);
+            let int = tcx.intern(TyKind::Int);
+            let bool_ty = tcx.intern(TyKind::Bool);
             (tcx, int, bool_ty)
         };
         let mut local_decls = IndexVec::new();
@@ -984,7 +997,7 @@ mod tests {
     #[test]
     fn test_verifier_rejects_invalid_unary_operand() {
         let mut tcx = TyCtxt::new();
-        let int = tcx.intern(omni_types::intern::TyKind::Int);
+        let int = tcx.intern(TyKind::Int);
         let ret = {
             let mut locals = IndexVec::new();
             locals.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) })
@@ -1026,7 +1039,7 @@ mod tests {
     #[test]
     fn test_verifier_rejects_bad_call_signature() {
         let mut tcx = TyCtxt::new();
-        let int = tcx.intern(omni_types::intern::TyKind::Int);
+        let int = tcx.intern(TyKind::Int);
 
         let mut caller_locals = IndexVec::new();
         let caller_ret =
@@ -1096,7 +1109,7 @@ mod tests {
     #[test]
     fn test_verifier_rejects_uninitialized_return() {
         let mut tcx = TyCtxt::new();
-        let int = tcx.intern(omni_types::intern::TyKind::Int);
+        let int = tcx.intern(TyKind::Int);
         let mut local_decls = IndexVec::new();
         let ret = local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
         let mut blocks = IndexVec::new();
@@ -1120,7 +1133,7 @@ mod tests {
     #[test]
     fn test_verifier_rejects_use_before_assignment() {
         let mut tcx = TyCtxt::new();
-        let int = tcx.intern(omni_types::intern::TyKind::Int);
+        let int = tcx.intern(TyKind::Int);
         let mut local_decls = IndexVec::new();
         let ret = local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
         let tmp = local_decls.push(LocalDecl { name: Some("tmp".to_string()), ty: Some(int) });
