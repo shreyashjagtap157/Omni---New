@@ -9,4 +9,5 @@ workspace = true
 
 [dependencies]
 omni-source = { path = "../omni-source" }
-unicode-ident = "1.0.26"
+omni-unicode = { path = "../omni-unicode" }
+unicode-ident = "=1.0.26"

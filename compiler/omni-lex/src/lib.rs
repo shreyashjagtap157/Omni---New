@@ -5,8 +5,11 @@ pub mod scanner;
 pub mod token;
 
 #[cfg(test)]
+mod security_tests;
+#[cfg(test)]
 mod tests;
 
 pub use layout::{LayoutEngine, LayoutError};
+pub use omni_unicode::annotation::SecurityMode;
 pub use scanner::Scanner;
-pub use token::{Kw, Punct, Span, Token, TokenKind, Trivia, TriviaKind};
+pub use token::{ErrorReason, Kw, Punct, Span, Token, TokenKind, Trivia, TriviaKind};

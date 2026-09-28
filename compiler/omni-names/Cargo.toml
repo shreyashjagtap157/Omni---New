@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 omni-syntax = { path = "../omni-syntax" }
+omni-unicode = { path = "../omni-unicode" }
 
 [dev-dependencies]
 omni-parse = { path = "../omni-parse" }

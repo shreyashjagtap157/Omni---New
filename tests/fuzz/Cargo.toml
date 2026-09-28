@@ -11,6 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 omni-lex = { path = "../../compiler/omni-lex" }
 omni-source = { path = "../../compiler/omni-source" }
+omni-unicode = { path = "../../compiler/omni-unicode" }
 
 [[bin]]
 name = "lexer_fuzz"

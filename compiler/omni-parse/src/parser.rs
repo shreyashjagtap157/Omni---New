@@ -60,6 +60,7 @@ impl<'a> Parser<'a> {
             span: Span { start: eof_end, end: eof_end, file_id: 0 },
             leading_trivia: scanner.take_eof_trivia(),
             trailing_trivia: Vec::new(),
+            error_reason: None,
         });
         Self { source, tokens, diagnostics: Vec::new(), pos: 0 }
     }
