@@ -7,6 +7,9 @@ pub struct Scanner<'a> {
     cursor: Cursor<'a>,
     file_id: u16,
     eof_trivia: Vec<Trivia>,
+    invalid_utf8_offsets: Vec<usize>,
+    invalid_utf8_index: usize,
+    pending_error_span: Option<Span>,
 }
 
 impl<'a> Scanner<'a> {
@@ -17,7 +20,15 @@ impl<'a> Scanner<'a> {
     /// panicking, and every token span is an exact byte range of this buffer
     /// taken before line-ending normalization, so `source[span]` round-trips.
     pub fn new(source: &'a [u8], file_id: u16) -> Self {
-        Self { source, cursor: Cursor::new(source), file_id, eof_trivia: Vec::new() }
+        Self {
+            source,
+            cursor: Cursor::new(source),
+            file_id,
+            eof_trivia: Vec::new(),
+            invalid_utf8_offsets: invalid_utf8_offsets(source),
+            invalid_utf8_index: 0,
+            pending_error_span: None,
+        }
     }
 
     /// Convenience constructor for UTF-8 text sources.
@@ -37,7 +48,32 @@ impl<'a> Scanner<'a> {
     }
 
     pub fn next_token(&mut self) -> Option<Token> {
+        if let Some(span) = self.pending_error_span.take() {
+            return Some(Token {
+                kind: TokenKind::Error,
+                span,
+                leading_trivia: Vec::new(),
+                trailing_trivia: Vec::new(),
+            });
+        }
+        if self.invalid_utf8_at_cursor() {
+            return Some(self.consume_invalid_utf8_token(Vec::new()));
+        }
+
         let leading_trivia = self.scan_trivia(false);
+
+        if let Some(span) = self.pending_error_span.take() {
+            return Some(Token {
+                kind: TokenKind::Error,
+                span,
+                leading_trivia,
+                trailing_trivia: Vec::new(),
+            });
+        }
+        if self.invalid_utf8_at_cursor() {
+            return Some(self.consume_invalid_utf8_token(leading_trivia));
+        }
+
         let start = self.cursor.pos() as u32;
         let c = match self.cursor.peek() {
             Some(c) => c,
@@ -90,7 +126,11 @@ impl<'a> Scanner<'a> {
             });
         }
         while let Some(c) = self.cursor.peek() {
-            if stop_at_newline && c == '\n' {
+            if self.invalid_utf8_at_cursor() {
+                break;
+            }
+            if stop_at_newline && c == '
+' {
                 break;
             }
             let start = self.cursor.pos() as u32;
@@ -125,7 +165,11 @@ impl<'a> Scanner<'a> {
                         self.cursor.advance();
                         self.cursor.advance();
                         while let Some(ch) = self.cursor.peek() {
-                            if ch == '\n' {
+                            if self.invalid_utf8_at_cursor() {
+                                break;
+                            }
+                            if ch == '
+' {
                                 break;
                             }
                             self.cursor.advance();
@@ -150,6 +194,16 @@ impl<'a> Scanner<'a> {
                         self.cursor.advance();
                         let mut depth = 1;
                         while depth > 0 {
+                            if self.invalid_utf8_at_cursor() {
+                                self.cursor.advance();
+                                self.invalid_utf8_index += 1;
+                                self.pending_error_span = Some(Span {
+                                    start: self.cursor.pos().saturating_sub(1) as u32,
+                                    end: self.cursor.pos() as u32,
+                                    file_id: self.file_id,
+                                });
+                                break;
+                            }
                             match self.cursor.advance() {
                                 Some('/') if self.cursor.peek() == Some('*') => {
                                     self.cursor.advance();
@@ -160,9 +214,17 @@ impl<'a> Scanner<'a> {
                                     depth -= 1;
                                 }
                                 Some(_) => {}
-                                None => break,
+                                None => {
+                                    self.pending_error_span = Some(Span {
+                                        start,
+                                        end: self.cursor.pos() as u32,
+                                        file_id: self.file_id,
+                                    });
+                                    break;
+                                }
                             }
                         }
+                        if self.pending_error_span.is_none() {
                         trivias.push(Trivia {
                             kind,
                             span: Span {
@@ -179,6 +241,23 @@ impl<'a> Scanner<'a> {
             }
         }
         trivias
+    }
+
+    fn invalid_utf8_at_cursor(&self) -> bool {
+        self.invalid_utf8_offsets.get(self.invalid_utf8_index).copied()
+            == Some(self.cursor.pos())
+    }
+
+    fn consume_invalid_utf8_token(&mut self, leading_trivia: Vec<Trivia>) -> Token {
+        let start = self.cursor.pos() as u32;
+        self.cursor.advance();
+        self.invalid_utf8_index += 1;
+        Token {
+            kind: TokenKind::Error,
+            span: Span { start, end: self.cursor.pos() as u32, file_id: self.file_id },
+            leading_trivia,
+            trailing_trivia: Vec::new(),
+        }
     }
 
     fn scan_ident_tail(&mut self) {
@@ -323,15 +402,39 @@ impl<'a> Scanner<'a> {
     fn scan_punctuation(&mut self) -> TokenKind {
         let first = self.cursor.advance().expect("punctuation requires a character");
         TokenKind::Punct(match first {
+            '+' if self.cursor.peek() == Some('=') {
+                self.cursor.advance();
+                Punct::PlusEq
+            }
             '+' => Punct::Plus,
-            '-' if self.cursor.peek() == Some('>') => {
+            '-' if self.cursor.peek() == Some('>') {
                 self.cursor.advance();
                 Punct::Arrow
             }
+            '-' if self.cursor.peek() == Some('=') {
+                self.cursor.advance();
+                Punct::MinusEq
+            }
             '-' => Punct::Minus,
+            '*' if self.cursor.peek() == Some('=') {
+                self.cursor.advance();
+                Punct::StarEq
+            }
             '*' => Punct::Star,
+            '/' if self.cursor.peek() == Some('=') {
+                self.cursor.advance();
+                Punct::SlashEq
+            }
             '/' => Punct::Slash,
+            '%' if self.cursor.peek() == Some('=') {
+                self.cursor.advance();
+                Punct::PercentEq
+            }
             '%' => Punct::Percent,
+            '^' if self.cursor.peek() == Some('=') {
+                self.cursor.advance();
+                Punct::CaretEq
+            }
             '^' => Punct::Caret,
             '=' if self.cursor.peek() == Some('=') => {
                 self.cursor.advance();
@@ -347,11 +450,29 @@ impl<'a> Scanner<'a> {
                 Punct::NotEq
             }
             '!' => Punct::Bang,
+            '<' if self.cursor.peek() == Some('<') => {
+                self.cursor.advance();
+                if self.cursor.peek() == Some('=') {
+                    self.cursor.advance();
+                    Punct::ShlEq
+                } else {
+                    Punct::Shl
+                }
+            }
             '<' if self.cursor.peek() == Some('=') => {
                 self.cursor.advance();
                 Punct::Le
             }
             '<' => Punct::Lt,
+            '>' if self.cursor.peek() == Some('>') => {
+                self.cursor.advance();
+                if self.cursor.peek() == Some('=') {
+                    self.cursor.advance();
+                    Punct::ShrEq
+                } else {
+                    Punct::Shr
+                }
+            }
             '>' if self.cursor.peek() == Some('=') => {
                 self.cursor.advance();
                 Punct::Ge
@@ -370,11 +491,19 @@ impl<'a> Scanner<'a> {
             }
             ':' => Punct::Colon,
             ';' => Punct::Semicolon,
+            '&' if self.cursor.peek() == Some('=') => {
+                self.cursor.advance();
+                Punct::AmpEq
+            }
             '&' if self.cursor.peek() == Some('&') => {
                 self.cursor.advance();
                 Punct::AmpAmp
             }
             '&' => Punct::Amp,
+            '|' if self.cursor.peek() == Some('=') => {
+                self.cursor.advance();
+                Punct::PipeEq
+            }
             '|' if self.cursor.peek() == Some('>') => {
                 self.cursor.advance();
                 Punct::PipeArrow
@@ -405,7 +534,565 @@ impl<'a> Scanner<'a> {
             '?' => Punct::Question,
             '@' => Punct::At,
             '#' => Punct::Hash,
-            '$' => Punct::Dollar,
+            '
+            _ => return TokenKind::Error,
+        })
+    }
+
+    /// Scan an Edition-1 integer/float literal using a deterministic DFA.
+    ///
+    /// Numeric separators are accepted only between digits. Base prefixes,
+    /// exponent markers, decimal/hexadecimal fractions, and normative
+    /// integer/float suffixes are consumed as part of one token.
+    fn scan_number(&mut self) -> TokenKind {
+        if self.cursor.peek() == Some('0') {
+            match self.cursor.peek_nth(1) {
+                Some('b') => {
+                    self.cursor.advance();
+                    self.cursor.advance();
+                    if self.scan_digit_run(is_binary_digit).is_err() {
+                        return TokenKind::Error;
+                    }
+                    self.consume_suffix(INTEGER_SUFFIXES);
+                    return TokenKind::Int;
+                }
+                Some('o') => {
+                    self.cursor.advance();
+                    self.cursor.advance();
+                    if self.scan_digit_run(is_octal_digit).is_err() {
+                        return TokenKind::Error;
+                    }
+                    self.consume_suffix(INTEGER_SUFFIXES);
+                    return TokenKind::Int;
+                }
+                Some('x') => {
+                    self.cursor.advance();
+                    self.cursor.advance();
+                    if self.scan_digit_run(is_hex_digit).is_err() {
+                        return TokenKind::Error;
+                    }
+                    if self.cursor.peek() == Some('.') {
+                        self.cursor.advance();
+                        if self.scan_optional_digit_run(is_hex_digit).is_err() {
+                            return TokenKind::Error;
+                        }
+                        if self.cursor.peek() != Some('p') {
+                            return TokenKind::Error;
+                        }
+                        self.cursor.advance();
+                        if self.scan_exponent_body().is_err() {
+                            return TokenKind::Error;
+                        }
+                        self.consume_suffix(FLOAT_SUFFIXES);
+                        return TokenKind::Float;
+                    }
+                    self.consume_suffix(INTEGER_SUFFIXES);
+                    return TokenKind::Int;
+                }
+                _ => {}
+            }
+        }
+
+        if self.scan_digit_run(is_decimal_digit).is_err() {
+            return TokenKind::Error;
+        }
+
+        match self.cursor.peek() {
+            Some('.') if self.cursor.peek_nth(1).is_some_and(is_decimal_digit) => {
+                self.cursor.advance();
+                if self.scan_digit_run(is_decimal_digit).is_err() {
+                    return TokenKind::Error;
+                }
+                if matches!(self.cursor.peek(), Some('e' | 'E')) {
+                    self.cursor.advance();
+                    if self.scan_exponent_body().is_err() {
+                        return TokenKind::Error;
+                    }
+                }
+                self.consume_suffix(FLOAT_SUFFIXES);
+                TokenKind::Float
+            }
+            Some('e' | 'E') => {
+                self.cursor.advance();
+                if self.scan_exponent_body().is_err() {
+                    return TokenKind::Error;
+                }
+                self.consume_suffix(FLOAT_SUFFIXES);
+                TokenKind::Float
+            }
+            _ => {
+                self.consume_suffix(INTEGER_SUFFIXES);
+                TokenKind::Int
+            }
+        }
+    }
+
+    /// Consume one-or-more radix digits with underscore only between digits.
+    fn scan_digit_run(&mut self, valid: fn(char) -> bool) -> Result<usize, ()> {
+        let mut digits = 0usize;
+        let mut previous_was_digit = false;
+        loop {
+            match self.cursor.peek() {
+                Some(c) if valid(c) => {
+                    self.cursor.advance();
+                    digits += 1;
+                    previous_was_digit = true;
+                }
+                Some('_') => {
+                    if !previous_was_digit {
+                        return Err(());
+                    }
+                    self.cursor.advance();
+                    previous_was_digit = false;
+                }
+                _ => break,
+            }
+        }
+        if digits == 0 || !previous_was_digit {
+            Err(())
+        } else {
+            Ok(digits)
+        }
+    }
+
+    /// Consume a possibly-empty hexadecimal fractional digit run.
+    fn scan_optional_digit_run(&mut self, valid: fn(char) -> bool) -> Result<(), ()> {
+        let mut saw_digit = false;
+        let mut previous_was_digit = false;
+        loop {
+            match self.cursor.peek() {
+                Some(c) if valid(c) => {
+                    self.cursor.advance();
+                    saw_digit = true;
+                    previous_was_digit = true;
+                }
+                Some('_') => {
+                    if !previous_was_digit {
+                        return Err(());
+                    }
+                    self.cursor.advance();
+                    previous_was_digit = false;
+                }
+                _ => break,
+            }
+        }
+        if saw_digit && !previous_was_digit {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn scan_exponent_body(&mut self) -> Result<(), ()> {
+        if matches!(self.cursor.peek(), Some('+' | '-')) {
+            self.cursor.advance();
+        }
+        self.scan_digit_run(is_decimal_digit).map(|_| ())
+    }
+
+    fn consume_suffix(&mut self, suffixes: &[&str]) {
+        let pos = self.cursor.pos();
+        for suffix in suffixes {
+            let end = pos + suffix.len();
+            if end <= self.source.len() && &self.source[pos..end] == suffix.as_bytes() {
+                for _ in suffix.bytes() {
+                    self.cursor.advance();
+                }
+                return;
+            }
+        }
+    }
+    fn starts_ascii(&self, prefix: &[u8]) -> bool {
+        self.cursor.rest().starts_with(prefix)
+    }
+
+    fn starts_raw_string(&self) -> bool {
+        let rest = self.cursor.rest();
+        if !rest.starts_with(b"r") {
+            return false;
+        }
+        let mut i = 1usize;
+        while i < rest.len() && rest[i] == b'#' {
+            i += 1;
+        }
+        rest.get(i) == Some(&b'"')
+    }
+
+    fn advance_valid_scalar(&mut self) -> Result<Option<char>, ()> {
+        let start = self.cursor.pos();
+        let ch = self.cursor.advance();
+        let end = self.cursor.pos();
+        if ch == Some('\u{FFFD}') && self.source[start..end] != *"\u{FFFD}".as_bytes() {
+            return Err(());
+        }
+        Ok(ch)
+    }
+
+    fn scan_string_with_prefix(&mut self, prefix_len: usize) -> TokenKind {
+        for _ in 0..prefix_len {
+            self.cursor.advance();
+        }
+        if self.cursor.advance() != Some('"') {
+            return TokenKind::Error;
+        }
+        self.scan_string_body()
+    }
+
+    fn scan_string_body(&mut self) -> TokenKind {
+        loop {
+            match self.advance_valid_scalar() {
+                Ok(Some('"')) => return TokenKind::String,
+                Ok(Some('\\')) => {
+                    if self.scan_escape_value().is_err() {
+                        self.drain_to_quote('"');
+                        return TokenKind::Error;
+                    }
+                }
+                Ok(Some(_)) => {}
+                Ok(None) | Err(()) => return TokenKind::Error,
+            }
+        }
+    }
+
+    fn scan_char_or_byte(&mut self, byte_literal: bool) -> TokenKind {
+        if byte_literal {
+            // `b'` is a two-character introducer: consume the prefix byte so
+            // the opening quote below is the literal's delimiter, not its data.
+            self.cursor.advance();
+        }
+        self.cursor.advance();
+        let value = match self.scan_literal_value() {
+            Ok(value) => value,
+            Err(()) => {
+                self.drain_to_quote('\'');
+                return TokenKind::Error;
+            }
+        };
+        if self.cursor.peek() != Some('\'') {
+            self.drain_to_quote('\'');
+            return TokenKind::Error;
+        }
+        self.cursor.advance();
+        if byte_literal {
+            if value <= u8::MAX as u32 {
+                TokenKind::Byte
+            } else {
+                TokenKind::Error
+            }
+        } else {
+            TokenKind::Char
+        }
+    }
+
+    fn scan_literal_value(&mut self) -> Result<u32, ()> {
+        match self.advance_valid_scalar()? {
+            Some('\\') => self.scan_escape_value(),
+            Some('\'') | None => Err(()),
+            Some(ch) => Ok(ch as u32),
+        }
+    }
+
+    fn scan_escape_value(&mut self) -> Result<u32, ()> {
+        match self.cursor.advance() {
+            Some('0') => Ok(0),
+            Some('t') => Ok('\t' as u32),
+            Some('n') => Ok('\n' as u32),
+            Some('r') => Ok('\r' as u32),
+            Some('"') => Ok('"' as u32),
+            Some('\'') => Ok('\'' as u32),
+            Some('\\') => Ok('\\' as u32),
+            Some('x') => {
+                let hi = self.hex_escape_digit()?;
+                let lo = self.hex_escape_digit()?;
+                Ok((hi << 4) | lo)
+            }
+            Some('u') => {
+                if self.cursor.advance() != Some('{') {
+                    return Err(());
+                }
+                let mut value = 0u32;
+                let mut digits = 0usize;
+                loop {
+                    match self.cursor.peek() {
+                        Some(c) if c.is_ascii_hexdigit() => {
+                            if digits == 6 {
+                                return Err(());
+                            }
+                            self.cursor.advance();
+                            value = value * 16 + c.to_digit(16).ok_or(())?;
+                            digits += 1;
+                        }
+                        Some('}') => {
+                            if digits == 0 {
+                                return Err(());
+                            }
+                            self.cursor.advance();
+                            return char::from_u32(value).map(|ch| ch as u32).ok_or(());
+                        }
+                        _ => return Err(()),
+                    }
+                }
+            }
+            _ => Err(()),
+        }
+    }
+
+    fn hex_escape_digit(&mut self) -> Result<u32, ()> {
+        match self.cursor.advance() {
+            Some(c) if c.is_ascii_hexdigit() => c.to_digit(16).ok_or(()),
+            _ => Err(()),
+        }
+    }
+
+    fn drain_to_quote(&mut self, quote: char) {
+        while let Some(c) = self.cursor.advance() {
+            if c == '\\' {
+                let _ = self.cursor.advance();
+            } else if c == quote {
+                break;
+            }
+        }
+    }
+
+    fn scan_raw_string(&mut self) -> TokenKind {
+        self.cursor.advance();
+        let mut hashes = 0usize;
+        while self.cursor.peek() == Some('#') {
+            self.cursor.advance();
+            hashes += 1;
+        }
+        if self.cursor.advance() != Some('"') {
+            return TokenKind::Error;
+        }
+        while let Some(c) = self.cursor.advance() {
+            if self.invalid_utf8_at_cursor() {
+                return TokenKind::Error;
+            }
+            if c != '"' {
+                continue;
+            }
+            let mut h = 0usize;
+            while h < hashes && self.cursor.peek() == Some('#') {
+                self.cursor.advance();
+                h += 1;
+            }
+            if h == hashes {
+                return TokenKind::RawString;
+            }
+        }
+        TokenKind::Error
+    }
+
+    fn scan_interpolated_string(&mut self) -> TokenKind {
+        self.cursor.advance();
+        if self.cursor.advance() != Some('"') {
+            return TokenKind::Error;
+        }
+        loop {
+            match self.advance_valid_scalar() {
+                Ok(Some('"')) => return TokenKind::InterpolatedString,
+                Ok(Some('\\')) => {
+                    if self.scan_escape_value().is_err() {
+                        self.drain_to_quote('"');
+                        return TokenKind::Error;
+                    }
+                }
+                Ok(Some('$')) if self.cursor.peek() == Some('{') => {
+                    self.cursor.advance();
+                    if self.scan_interpolation_body().is_err() {
+                        self.drain_to_quote('"');
+                        return TokenKind::Error;
+                    }
+                }
+                Ok(Some('{')) if self.cursor.peek() == Some('{') => {
+                    self.cursor.advance();
+                }
+                Ok(Some('}')) if self.cursor.peek() == Some('}') => {
+                    self.cursor.advance();
+                }
+                Ok(Some('{')) | Ok(Some('}')) | Err(()) => {
+                    self.drain_to_quote('"');
+                    return TokenKind::Error;
+                }
+                Ok(Some(_)) => {}
+                Ok(None) => return TokenKind::Error,
+            }
+        }
+    }
+
+    fn scan_interpolation_body(&mut self) -> Result<(), ()> {
+        let mut stack = vec!['}'];
+        loop {
+            if self.starts_ascii(b"//") {
+                self.skip_line_comment_for_interpolation();
+                continue;
+            }
+            if self.starts_ascii(b"/*") {
+                self.skip_block_comment_for_interpolation()?;
+                continue;
+            }
+            if self.starts_raw_string() {
+                self.skip_raw_for_interpolation()?;
+                continue;
+            }
+            if self.starts_ascii(b"br\"") || self.starts_ascii(b"rb\"") {
+                self.skip_quoted_for_interpolation(2, '"')?;
+                continue;
+            }
+            if self.starts_ascii(b"f\"") || self.starts_ascii(b"b\"") {
+                self.skip_quoted_for_interpolation(1, '"')?;
+                continue;
+            }
+            if self.starts_ascii(b"b'") {
+                self.skip_quoted_for_interpolation(1, '\'')?;
+                continue;
+            }
+            match self.advance_valid_scalar()? {
+                Some('"') => self.skip_quoted_tail('"')?,
+                Some('\'') => self.skip_quoted_tail('\'')?,
+                Some('(') => stack.push(')'),
+                Some('[') => stack.push(']'),
+                Some('{') => stack.push('}'),
+                Some(close @ (')' | ']' | '}')) => {
+                    if stack.last().copied() != Some(close) {
+                        return Err(());
+                    }
+                    stack.pop();
+                    if stack.is_empty() {
+                        return Ok(());
+                    }
+                }
+                Some(_) => {}
+                None => return Err(()),
+            }
+        }
+    }
+
+    fn skip_line_comment_for_interpolation(&mut self) {
+        self.cursor.advance();
+        self.cursor.advance();
+        while let Some(c) = self.cursor.peek() {
+            if c == '\n' {
+                break;
+            }
+            self.cursor.advance();
+        }
+    }
+
+    fn skip_block_comment_for_interpolation(&mut self) -> Result<(), ()> {
+        self.cursor.advance();
+        self.cursor.advance();
+        let mut depth = 1usize;
+        while depth > 0 {
+            match self.cursor.advance() {
+                Some('/') if self.cursor.peek() == Some('*') => {
+                    self.cursor.advance();
+                    depth += 1;
+                }
+                Some('*') if self.cursor.peek() == Some('/') => {
+                    self.cursor.advance();
+                    depth -= 1;
+                }
+                Some(_) => {}
+                None => return Err(()),
+            }
+        }
+        Ok(())
+    }
+
+    fn skip_quoted_for_interpolation(&mut self, prefix_len: usize, quote: char) -> Result<(), ()> {
+        for _ in 0..prefix_len {
+            self.cursor.advance();
+        }
+        self.skip_quoted_body(quote)
+    }
+
+    fn skip_quoted_body(&mut self, quote: char) -> Result<(), ()> {
+        if self.cursor.advance() != Some(quote) {
+            return Err(());
+        }
+        self.skip_quoted_tail(quote)
+    }
+
+    fn skip_quoted_tail(&mut self, quote: char) -> Result<(), ()> {
+        loop {
+            match self.cursor.advance() {
+                Some(c) if c == quote => return Ok(()),
+                Some('\\') => {
+                    self.cursor.advance();
+                }
+                Some(_) => {}
+                None => return Err(()),
+            }
+        }
+    }
+
+    fn skip_raw_for_interpolation(&mut self) -> Result<(), ()> {
+        self.cursor.advance();
+        let mut hashes = 0usize;
+        while self.cursor.peek() == Some('#') {
+            self.cursor.advance();
+            hashes += 1;
+        }
+        if self.cursor.advance() != Some('"') {
+            return Err(());
+        }
+        loop {
+            match self.cursor.advance() {
+                Some('"') => {
+                    let mut h = 0usize;
+                    while h < hashes && self.cursor.peek() == Some('#') {
+                        self.cursor.advance();
+                        h += 1;
+                    }
+                    if h == hashes {
+                        return Ok(());
+                    }
+                }
+                Some(_) => {}
+                None => return Err(()),
+            }
+        }
+    }
+}
+fn invalid_utf8_offsets(source: &[u8]) -> Vec<usize> {
+    let mut offsets = Vec::new();
+    let mut base = 0usize;
+    while base < source.len() {
+        match std::str::from_utf8(&source[base..]) {
+            Ok(_) => break,
+            Err(err) => {
+                let invalid = base + err.valid_up_to();
+                offsets.push(invalid);
+                base = invalid.saturating_add(1);
+            }
+        }
+    }
+    offsets
+}
+
+const INTEGER_SUFFIXES: &[&str] =
+    &["i128", "u128", "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8"];
+
+const FLOAT_SUFFIXES: &[&str] = &["dec128", "dec64", "dec32", "f128", "f64", "f32", "f16", "bf16"];
+
+fn is_decimal_digit(c: char) -> bool {
+    c.is_ascii_digit()
+}
+
+fn is_binary_digit(c: char) -> bool {
+    matches!(c, '0' | '1')
+}
+
+fn is_octal_digit(c: char) -> bool {
+    matches!(c, '0'..='7')
+}
+
+fn is_hex_digit(c: char) -> bool {
+    c.is_ascii_hexdigit()
+}
+ => Punct::Dollar,
+            '~' => Punct::Tilde,
             '_' => Punct::Underscore,
             _ => return TokenKind::Error,
         })
