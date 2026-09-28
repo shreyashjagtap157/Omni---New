@@ -371,16 +371,18 @@ fn lower_rvalue_to_cl(
                     l,
                     r,
                 ),
-                omni_mir::ir::BinOp::Le => Ok(builder.ins().icmp(
+                omni_mir::ir::BinOp::Le => lower_int_comparison(
+                    builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual,
                     l,
                     r,
-                )),
-                omni_mir::ir::BinOp::Ge => Ok(builder.ins().icmp(
+                ),
+                omni_mir::ir::BinOp::Ge => lower_int_comparison(
+                    builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedGreaterThanOrEqual,
                     l,
                     r,
-                )),
+                ),
             }
         }
         omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
@@ -530,6 +532,31 @@ mod tests {
         let bytes = compile_monomorphized_program(&prog)
             .expect("boolean comparison must have a concrete native representation");
         assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn test_compile_monomorphized_program_ordered_comparisons_have_bool_result() {
+        for op in [ast::BinOp::Le, ast::BinOp::Ge] {
+            let prog = MonomorphizedProgram {
+                functions: vec![ast::GenericFnDef {
+                    name: "main".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: ast::TypeSpec::Bool,
+                    effects: Default::default(),
+                    capabilities: vec![],
+                    body: ast::Expr::Binary {
+                        op,
+                        lhs: Box::new(ast::Expr::Literal(ast::Lit::Int(1))),
+                        rhs: Box::new(ast::Expr::Literal(ast::Lit::Int(2))),
+                    },
+                }],
+            };
+            let bytes = compile_monomorphized_program(&prog)
+                .expect("ordered comparison must lower to canonical Bool representation");
+            assert!(!bytes.is_empty());
+        }
     }
 
     #[test]
