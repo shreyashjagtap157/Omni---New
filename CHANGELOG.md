@@ -4,9 +4,9 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
-### 0.0.1.x — Source normalization and lexer
+### 0.0.1.x — Source normalization, lexer, and source security
 
-The lexer work currently on `main` is qualified by the repository's GitHub Actions suite, but `0.0.1.x` is not yet declared complete.
+The `0.0.1.x` source/lexer boundary is implemented and CI-qualified on `main`. This is repository state, not a release: no version has been published, no tag has been cut, and the Foundation release gate remains **not declared and not published**.
 
 - Hardened lossless byte-oriented lexing while preserving exact source spans.
 - Added malformed UTF-8 preflight and deterministic lexical error spans, including malformed input encountered inside comments, raw strings, and interpolation paths.
@@ -19,16 +19,14 @@ The lexer work currently on `main` is qualified by the repository's GitHub Actio
 - Expanded lexer acceptance/rejection coverage for malformed UTF-8, BOM placement, line endings, identifiers, raw identifiers, literals, comments, operators, large raw delimiters, and adversarial numeric forms.
 - Updated the implementation master plan to record the completed lexer lexical contracts and their qualification boundary.
 
-### Qualification
+### Qualification (lexer contracts)
 
 - GitHub Actions qualification for the merged lexer work passed Rust formatting, strict Clippy, workspace checks/tests, locked metadata, specification binding, Reaper/linkage checks, compiler topology validation, the Foundation `0.0.0.13` gate, Security Audit, and CodeQL.
 - The qualifying merge is `9e3d8ce1aa0174e6b08dd38736c7cded582cc864`.
 
 ### Remaining 0.0.1.x qualification work
 
-None. `SRC-0003` through `SRC-0006` are implemented and covered; see the
-entries below. The `0.0.1.x` boundary is closed pending the GitHub Actions
-qualification recorded under *Qualification* for the source-security branch.
+None. `SRC-0003` through `SRC-0006` are implemented, covered, and CI-qualified; see the entries below.
 
 ### Source security and identifier canonicalization (SRC-0003 through SRC-0006)
 
@@ -79,17 +77,34 @@ pinned exactly, and its Unicode data is bound to UCD 17.0.0 by the generated NFC
 conformance corpus. `Cargo.toml` and `Cargo.lock` now describe the same
 dependency graph.
 
-### Qualification
+### Qualification (source security)
 
 - Formatting (`cargo fmt --all -- --check`), strict Clippy
   (`-D warnings`, all targets), `cargo check`, and the full workspace test suite
   pass locally on Rust 1.95.0; `omni-conform`, `omni-audit`, and
   `omni-topology` all pass, with `omni-unicode` registered at pipeline tier 0.
+- GitHub Actions qualification on the merged `main` commit passed every
+  repository workflow: Omni CI Pipeline, Rust, rust-clippy analyze, Security
+  Audit, and CodeQL Advanced. The CI log shows the Foundation `0.0.0.13` gate
+  passing and the spec-tree digest `7e63431f…` verified against the manifest.
 - The four native end-to-end tests that shell out to a system C linker
   (`omni-codegen` `test_cfg_join_uses_cranelift_variable_ssa` and three
   `omni-driver` `source_pipeline_*` tests) require `cc` and are therefore not
-  runnable on the Windows development host; they are unchanged by this work and
-  are exercised by the Linux CI runners.
+  runnable on the Windows development host, where they fail. They pass on the
+  Linux CI runners, and they fail identically on the pre-change commit, so the
+  failures are environmental rather than a regression.
+- The source-security merge is `743843e5abc44e3822962fd20eb7338091006d5c`.
+
+### Unicode provenance precision
+
+The generated provenance constants now cover **every** UCD file the generator
+consumes, including `DerivedNormalizationProps.txt`, which supplies the derived
+`Full_Composition_Exclusion` property used to build the NFC conformance corpus.
+The four digests are also emitted as a single `UCD_DIGESTS` table, and a test
+asserts that the table lists exactly the consumed inputs and agrees with each
+individual constant, so the "every input is hashed" claim is mechanically
+enforced rather than asserted in prose.
+
 
 ## Foundation 0.0.0.x — qualified, unreleased
 

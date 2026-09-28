@@ -124,7 +124,10 @@ pub fn is_prohibited(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tables::{UNICODE_DATA_SHA256, UNICODE_VERSION};
+    use crate::tables::{
+        DERIVED_CORE_PROPERTIES_SHA256, DERIVED_NORMALIZATION_PROPERTIES_SHA256, PROPLIST_SHA256,
+        UCD_DIGESTS, UNICODE_DATA_SHA256, UNICODE_VERSION,
+    };
 
     #[test]
     fn every_prohibited_class_is_reachable() {
@@ -203,5 +206,58 @@ mod tests {
         assert_eq!(UNICODE_VERSION, "17.0.0");
         assert_eq!(UNICODE_DATA_SHA256.len(), 64);
         assert!(UNICODE_DATA_SHA256.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn every_ucd_input_is_digested() {
+        // The generator reads four UCD files. If one of them is consumed but
+        // not digested, the Unicode data binding is incomplete and SRC-0004's
+        // release identity does not cover the whole corpus.
+        //
+        // This is the test that makes "every consumed input is hashed" a
+        // checked property rather than a claim in prose: adding an input to the
+        // generator without adding its digest fails here.
+        let expected = [
+            "DerivedCoreProperties.txt",
+            "DerivedNormalizationProps.txt",
+            "PropList.txt",
+            "UnicodeData.txt",
+        ];
+        let recorded: Vec<&str> = UCD_DIGESTS.iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            recorded, expected,
+            "UCD_DIGESTS must list exactly the UCD files the generator consumes"
+        );
+    }
+
+    #[test]
+    fn the_aggregate_digest_table_agrees_with_the_individual_constants() {
+        // The individual constants are the ones a release manifest binds by
+        // name, so the table must not be able to disagree with them.
+        let lookup = |name: &str| -> &'static str {
+            UCD_DIGESTS
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, d)| *d)
+                .unwrap_or_else(|| panic!("{name} is missing from UCD_DIGESTS"))
+        };
+        assert_eq!(lookup("PropList.txt"), PROPLIST_SHA256);
+        assert_eq!(lookup("DerivedCoreProperties.txt"), DERIVED_CORE_PROPERTIES_SHA256);
+        assert_eq!(
+            lookup("DerivedNormalizationProps.txt"),
+            DERIVED_NORMALIZATION_PROPERTIES_SHA256
+        );
+        assert_eq!(lookup("UnicodeData.txt"), UNICODE_DATA_SHA256);
+    }
+
+    #[test]
+    fn every_recorded_digest_is_a_plausible_sha256() {
+        for (name, digest) in UCD_DIGESTS {
+            assert_eq!(digest.len(), 64, "{name} digest is not 64 hex characters");
+            assert!(
+                digest.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+                "{name} digest must be lowercase hex"
+            );
+        }
     }
 }

@@ -3,9 +3,14 @@
 
 /// NFC conformance cases: `nfc(decomposed) == composed`.
 ///
-/// Derived from the pinned UCD 17.0.0 `UnicodeData.txt` and
-/// `CompositionExclusions.txt` (Full_Composition_Exclusion characters are
-/// excluded because they must *not* recompose).
+/// Derived from the pinned UCD 17.0.0 `UnicodeData.txt` and the
+/// `Full_Composition_Exclusion` derived property in
+/// `DerivedNormalizationProps.txt`. Excluded characters are those that must
+/// *not* recompose: singleton decompositions (UAX #15 never recomposes a
+/// singleton), and full composition exclusions such as non-starter
+/// decompositions.
+///
+/// The SHA-256 of both source files is in `omni_unicode::tables`.
 pub const NFC_CASES: &[(&str, &str)] = &[
     ("À", "À"),
     ("Á", "Á"),
