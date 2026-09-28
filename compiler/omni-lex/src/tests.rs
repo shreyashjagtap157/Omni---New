@@ -700,7 +700,7 @@ fn raw_identifier_tail_must_satisfy_the_identifier_rule() {
 #[test]
 fn raw_strings_allow_more_than_255_hash_delimiters() {
     let hashes = "#".repeat(256);
-    let source = format!("r{hashes}"payload"{hashes}");
+    let source = format!("r{hashes}\"payload\"{hashes}");
     let tokens = assert_lossless(source.as_bytes());
     assert_eq!(tokens.len(), 1);
     assert_eq!(tokens[0].kind, TokenKind::RawString);
@@ -741,7 +741,7 @@ fn malformed_utf8_in_comment_stops_trivia_before_invalid_byte() {
 
 #[test]
 fn malformed_utf8_in_raw_string_is_lexical_error() {
-    let bytes = b"r#"ok \xFF"#";
+    let bytes = b"r#\"ok \xFF\"#";
     let tokens = assert_lossless(bytes);
     assert!(tokens.iter().any(|t| t.kind == TokenKind::Error));
 }
