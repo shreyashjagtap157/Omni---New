@@ -277,5 +277,9 @@ For all materialized MIR, semantic verification additionally requires:
 9. Direct calls resolve to a declared MIR function with matching arity and argument types.
 10. A Unit-returning call has no destination; a value-returning call has a destination whose type equals the callee return type.
 11. A function return place has the same concrete type as the function's declared return type.
+12. Verification tracks definite assignment across reachable CFG paths; parameters begin assigned,
+    assignments establish assignment, and drops invalidate assignment.
+13. A call destination becomes definitely assigned only on the call's normal target edge; a cleanup
+    edge does not inherit the destination write.
 
 
