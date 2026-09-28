@@ -209,6 +209,7 @@ mod tests {
     use omni_mir::ir::{
         BlockData, Body, LocalDecl, MirFunction, MirProgram, Place, Rvalue, Statement, Terminator,
     };
+    use omni_types::intern::TyCtxt;
 
     #[test]
     fn test_verifier_passes_valid_mir() {
@@ -229,6 +230,11 @@ mod tests {
         });
 
         let prog = MirProgram {
+            tcx: {
+                let mut tcx = TyCtxt::new();
+                tcx.intern(omni_types::intern::TyKind::Error);
+                tcx
+            },
             functions: vec![MirFunction {
                 name: "identity".to_string(),
                 params: vec![param_l],
@@ -258,6 +264,12 @@ mod tests {
         });
 
         let prog = MirProgram {
+            tcx: {
+                let mut tcx = TyCtxt::new();
+                tcx.intern(omni_types::intern::TyKind::Error);
+                tcx.intern(omni_types::intern::TyKind::Int);
+                tcx
+            },
             functions: vec![MirFunction {
                 name: "bad_local".to_string(),
                 params: vec![],
