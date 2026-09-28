@@ -22,6 +22,9 @@ pub enum MirVerificationError {
     InvalidReturnPlace { func: String, expected: Local, actual: Local },
     InvalidParamLocal { func: String, param_index: usize, local: Local },
     EmptyFunctionBody { func: String },
+    DuplicateFunction { func: String },
+    UntypedLocal { func: String, local: Local },
+    InvalidTypeHandle { func: String, local: Local, ty: Ty },
     TypeMismatch { func: String, context: String, expected: Ty, actual: Ty },
     InvalidUnaryOperand { func: String, op: UnOp, expected: Ty, actual: Ty },
     InvalidCallCallee { func: String },
@@ -78,6 +81,17 @@ impl std::fmt::Display for MirVerificationError {
                     func
                 )
             }
+            Self::DuplicateFunction { func } => {
+                write!(f, "MIR Verification Failure: duplicate function '{}'", func)
+            }
+            Self::UntypedLocal { func, local } => {
+                write!(f, "MIR Verification Failure in '{}': local {:?} is untyped", func, local)
+            }
+            Self::InvalidTypeHandle { func, local, ty } => write!(
+                f,
+                "MIR Verification Failure in '{}': local {:?} has invalid type handle {:?}",
+                func, local, ty
+            ),
             Self::TypeMismatch { func, context, expected, actual } => write!(
                 f,
                 "MIR Verification Failure in '{}': {} (expected {:?}, found {:?})",
@@ -142,6 +156,14 @@ pub struct MirVerifier;
 
 impl MirVerifier {
     pub fn verify_program(prog: &MirProgram) -> Result<(), MirVerificationError> {
+        let mut function_names = HashSet::new();
+        for func in &prog.functions {
+            if !function_names.insert(func.name.as_str()) {
+                return Err(MirVerificationError::DuplicateFunction {
+                    func: func.name.clone(),
+                });
+            }
+        }
         for func in &prog.functions {
             Self::verify_function(prog, func)?;
         }
@@ -156,6 +178,23 @@ impl MirVerifier {
 
         if func.body.blocks.is_empty() {
             return Err(MirVerificationError::EmptyFunctionBody { func: fn_name.clone() });
+        }
+
+        for (index, local_decl) in func.body.local_decls.iter().enumerate() {
+            let local = Local::from_usize(index);
+            let ty = local_decl
+                .ty
+                .ok_or_else(|| MirVerificationError::UntypedLocal {
+                    func: fn_name.clone(),
+                    local,
+                })?;
+            if !prog.tcx.contains(ty) {
+                return Err(MirVerificationError::InvalidTypeHandle {
+                    func: fn_name.clone(),
+                    local,
+                    ty,
+                });
+            }
         }
 
         // Validate return place index exists and is typed
@@ -173,7 +212,13 @@ impl MirVerifier {
                 actual: func.return_place,
             });
         }
-        let actual_return = func.body.local_decls[func.return_place].ty.unwrap();
+        let actual_return = func.body.local_decls[func.return_place]
+            .ty
+            .ok_or_else(|| MirVerificationError::InvalidReturnPlace {
+                func: fn_name.clone(),
+                expected: func.return_place,
+                actual: func.return_place,
+            })?;
         let expected_return = Self::spec_type(prog, &func.return_type);
         if actual_return != expected_return {
             return Err(MirVerificationError::TypeMismatch {
