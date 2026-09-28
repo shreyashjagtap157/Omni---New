@@ -145,6 +145,19 @@ pub enum Punct {
     Hash,
     Dollar,
     Underscore,
+    Shl,
+    Shr,
+    PlusEq,
+    MinusEq,
+    StarEq,
+    SlashEq,
+    PercentEq,
+    AmpEq,
+    PipeEq,
+    CaretEq,
+    ShlEq,
+    ShrEq,
+    Tilde,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,6 +203,35 @@ pub struct Token {
     pub span: Span,
     pub leading_trivia: Vec<Trivia>,
     pub trailing_trivia: Vec<Trivia>,
+}
+
+impl Token {
+    pub fn split_shift_right(self) -> Option<(Self, Self)> {
+        if self.kind != TokenKind::Punct(Punct::Shr) || self.span.end != self.span.start + 2 {
+            return None;
+        }
+        let first = Self {
+            kind: TokenKind::Punct(Punct::Gt),
+            span: Span {
+                start: self.span.start,
+                end: self.span.start + 1,
+                file_id: self.span.file_id,
+            },
+            leading_trivia: self.leading_trivia,
+            trailing_trivia: Vec::new(),
+        };
+        let second = Self {
+            kind: TokenKind::Punct(Punct::Gt),
+            span: Span {
+                start: self.span.start + 1,
+                end: self.span.end,
+                file_id: self.span.file_id,
+            },
+            leading_trivia: Vec::new(),
+            trailing_trivia: self.trailing_trivia,
+        };
+        Some((first, second))
+    }
 }
 
 // Trivia preservation (lossless CST) behavior lives here. No `implements` tag is
