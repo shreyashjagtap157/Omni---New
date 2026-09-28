@@ -19,3 +19,5 @@ tests/fuzz/target/
 # Windows-specific
 /TMPDIR
 
+# Local scratch for the Unicode table generator (UCD downloads are not committed).
+/.work/

@@ -1,0 +1,19 @@
+[package]
+name = "omni-unicode"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# UAX #15 Unicode Normalization Forms. Pinned exactly: SRC-0004 requires a
+# deterministic, auditable Unicode data identity, so a floating minor version
+# is not acceptable. The crate publishes no Unicode version of its own, so
+# `nfc_conformance.rs` pins its behaviour to the UCD 17.0.0 data by asserting
+# NFC outcomes derived from UCD `UnicodeData.txt`.
+unicode-normalization = "=0.1.25"
+# UAX #31 identifier classes, already used by `omni-lex`. Reused so that
+# tokenization and canonicalization share one XID_Start/XID_Continue source.
+unicode-ident = "=1.0.26"

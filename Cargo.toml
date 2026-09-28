@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "compiler/omni-unicode",
     "compiler/omni-traits",
     "compiler/omni-source",
     "compiler/omni-lex",

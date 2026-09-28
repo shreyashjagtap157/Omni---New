@@ -1,5 +1,7 @@
-use crate::token::{Kw, Punct, Span, Token, TokenKind, Trivia, TriviaKind};
+use crate::token::{ErrorReason, Kw, Punct, Span, Token, TokenKind, Trivia, TriviaKind};
 use omni_source::Cursor;
+use omni_unicode::annotation::SecurityMode;
+use omni_unicode::classify::{prohibited_kind, ProhibitedKind};
 use unicode_ident::{is_xid_continue, is_xid_start};
 
 pub struct Scanner<'a> {
@@ -9,7 +11,11 @@ pub struct Scanner<'a> {
     eof_trivia: Vec<Trivia>,
     invalid_utf8_offsets: Vec<usize>,
     invalid_utf8_index: usize,
-    pending_error_span: Option<Span>,
+    /// A lexical error deferred to the next token, so that trivia preceding the
+    /// failure is still emitted and the source round-trips exactly.
+    pending_error: Option<(Span, ErrorReason)>,
+    /// How unannotated comment content is treated (SRC-0006).
+    security_mode: SecurityMode,
 }
 
 impl<'a> Scanner<'a> {
@@ -20,6 +26,17 @@ impl<'a> Scanner<'a> {
     /// data, and every token span remains an exact byte range of this buffer
     /// taken before line-ending normalization, so `source[span]` round-trips.
     pub fn new(source: &'a [u8], file_id: u16) -> Self {
+        Self::with_security_mode(source, file_id, SecurityMode::default())
+    }
+
+    /// Creates a scanner with an explicit SRC-0006 strictness.
+    ///
+    /// [`SecurityMode::Strict`] is the default and the repository's fail-closed
+    /// posture: a comment containing an unannotated bidi control or invisible
+    /// format character is reported, per SRC-0006. The bytes are *still* spanned
+    /// and emitted, so the source continues to round-trip exactly; rejecting the
+    /// comment never means losing it.
+    pub fn with_security_mode(source: &'a [u8], file_id: u16, security_mode: SecurityMode) -> Self {
         Self {
             source,
             cursor: Cursor::new(source),
@@ -27,7 +44,8 @@ impl<'a> Scanner<'a> {
             eof_trivia: Vec::new(),
             invalid_utf8_offsets: invalid_utf8_offsets(source),
             invalid_utf8_index: 0,
-            pending_error_span: None,
+            pending_error: None,
+            security_mode,
         }
     }
 
@@ -48,13 +66,8 @@ impl<'a> Scanner<'a> {
     }
 
     pub fn next_token(&mut self) -> Option<Token> {
-        if let Some(span) = self.pending_error_span.take() {
-            return Some(Token {
-                kind: TokenKind::Error,
-                span,
-                leading_trivia: Vec::new(),
-                trailing_trivia: Vec::new(),
-            });
+        if let Some((span, reason)) = self.pending_error.take() {
+            return Some(Token::error(reason, span, Vec::new(), Vec::new()));
         }
         if self.invalid_utf8_at_cursor() {
             return Some(self.consume_invalid_utf8_token(Vec::new()));
@@ -62,13 +75,8 @@ impl<'a> Scanner<'a> {
 
         let leading_trivia = self.scan_trivia(false);
 
-        if let Some(span) = self.pending_error_span.take() {
-            return Some(Token {
-                kind: TokenKind::Error,
-                span,
-                leading_trivia,
-                trailing_trivia: Vec::new(),
-            });
+        if let Some((span, reason)) = self.pending_error.take() {
+            return Some(Token::error(reason, span, leading_trivia, Vec::new()));
         }
         if self.invalid_utf8_at_cursor() {
             return Some(self.consume_invalid_utf8_token(leading_trivia));
@@ -84,6 +92,26 @@ impl<'a> Scanner<'a> {
                 return None;
             }
         };
+
+        // SRC-0005: outside comments and literals, a prohibited code point is a
+        // source error. This check runs *before* any token dispatch so that no
+        // path -- identifier, punctuation, or literal introducer -- can consume
+        // a prohibited character and treat it as ordinary data.
+        //
+        // It is placed after trivia, which is correct: SRC-0006 governs
+        // comments separately, and SRC-0007 governs literal contents, so
+        // neither is in scope here.
+        if let Some(kind) = prohibited_kind(c) {
+            self.cursor.advance();
+            let end = self.cursor.pos() as u32;
+            let span = Span { start, end, file_id: self.file_id };
+            return Some(Token::error(
+                ErrorReason::ProhibitedSource { kind },
+                span,
+                leading_trivia,
+                Vec::new(),
+            ));
+        }
 
         // Peek ahead to handle multi-char tokens
         let c2 = self.cursor.peek_nth(1);
@@ -105,12 +133,51 @@ impl<'a> Scanner<'a> {
         };
         let end = self.cursor.pos() as u32;
         let trailing_trivia = self.scan_trivia(true);
-        Some(Token {
-            kind,
-            span: Span { start, end, file_id: self.file_id },
-            leading_trivia,
-            trailing_trivia,
-        })
+        let span = Span { start, end, file_id: self.file_id };
+        // SRC-0005 also applies *inside* an identifier, where the code point is
+        // XID_Continue-adjacent but prohibited -- a combining mark inside a
+        // name, or a variation selector appended to one. The check is scoped to
+        // identifiers only: SRC-0007 makes every other scalar value legal
+        // inside a literal, so running it over a string, raw string,
+        // interpolated string, or character literal would be a spec violation
+        // rather than a safety improvement.
+        if kind == TokenKind::Ident {
+            if let Some(prohibited) = self.first_prohibited_in(start, end) {
+                return Some(Token::error(
+                    ErrorReason::ProhibitedSource { kind: prohibited },
+                    span,
+                    leading_trivia,
+                    trailing_trivia,
+                ));
+            }
+        }
+        let reason = if kind == TokenKind::Error { Some(ErrorReason::Lexical) } else { None };
+        match reason {
+            Some(reason) => Some(Token::error(reason, span, leading_trivia, trailing_trivia)),
+            None => Some(Token::new(kind, span, leading_trivia, trailing_trivia)),
+        }
+    }
+
+    /// Returns the first SRC-0005 prohibited code point inside `start..end`.
+    ///
+    /// This catches prohibited characters that tokenization absorbed into a
+    /// larger token rather than rejecting at the leading character -- most
+    /// importantly a combining mark inside an identifier, or a variation
+    /// selector appended to a name. The span is exact and the scan is bounded
+    /// by the token, so it cannot report anything outside the token.
+    fn first_prohibited_in(&self, start: u32, end: u32) -> Option<ProhibitedKind> {
+        let s = start as usize;
+        let e = (end as usize).min(self.source.len());
+        if s >= e {
+            return None;
+        }
+        // The slice is a whole-character range by construction, but decode
+        // defensively: an invalid byte here would already have been reported by
+        // the preflight, and must not turn this scan into a panic.
+        match std::str::from_utf8(&self.source[s..e]) {
+            Ok(text) => text.chars().find_map(prohibited_kind),
+            Err(_) => None,
+        }
     }
 
     fn scan_trivia(&mut self, stop_at_newline: bool) -> Vec<Trivia> {
@@ -167,14 +234,10 @@ impl<'a> Scanner<'a> {
                             }
                             self.cursor.advance();
                         }
-                        trivias.push(Trivia {
-                            kind,
-                            span: Span {
-                                start,
-                                end: self.cursor.pos() as u32,
-                                file_id: self.file_id,
-                            },
-                        });
+                        let span =
+                            Span { start, end: self.cursor.pos() as u32, file_id: self.file_id };
+                        self.check_comment_security(&span);
+                        trivias.push(Trivia { kind, span });
                     }
                     Some('*') => {
                         let c3 = lookahead.peek_nth(1);
@@ -190,11 +253,14 @@ impl<'a> Scanner<'a> {
                             if self.invalid_utf8_at_cursor() {
                                 self.cursor.advance();
                                 self.invalid_utf8_index += 1;
-                                self.pending_error_span = Some(Span {
-                                    start,
-                                    end: self.cursor.pos() as u32,
-                                    file_id: self.file_id,
-                                });
+                                self.pending_error = Some((
+                                    Span {
+                                        start,
+                                        end: self.cursor.pos() as u32,
+                                        file_id: self.file_id,
+                                    },
+                                    ErrorReason::MalformedUtf8,
+                                ));
                                 return trivias;
                             }
                             match self.cursor.advance() {
@@ -208,24 +274,26 @@ impl<'a> Scanner<'a> {
                                 }
                                 Some(_) => {}
                                 None => {
-                                    self.pending_error_span = Some(Span {
-                                        start,
-                                        end: self.cursor.pos() as u32,
-                                        file_id: self.file_id,
-                                    });
+                                    self.pending_error = Some((
+                                        Span {
+                                            start,
+                                            end: self.cursor.pos() as u32,
+                                            file_id: self.file_id,
+                                        },
+                                        ErrorReason::Lexical,
+                                    ));
                                     break;
                                 }
                             }
                         }
-                        if self.pending_error_span.is_none() {
-                            trivias.push(Trivia {
-                                kind,
-                                span: Span {
-                                    start,
-                                    end: self.cursor.pos() as u32,
-                                    file_id: self.file_id,
-                                },
-                            });
+                        if self.pending_error.is_none() {
+                            let span = Span {
+                                start,
+                                end: self.cursor.pos() as u32,
+                                file_id: self.file_id,
+                            };
+                            self.check_comment_security(&span);
+                            trivias.push(Trivia { kind, span });
                         }
                     }
                     _ => break,
@@ -238,6 +306,42 @@ impl<'a> Scanner<'a> {
         trivias
     }
 
+    /// SRC-0006: report a comment that carries an unannotated bidi control or
+    /// invisible format character.
+    ///
+    /// The comment is still pushed as trivia with its exact span, so the source
+    /// round-trips byte-for-byte whether or not strict mode rejects it. The
+    /// error is deferred to the next token so that the trivia preceding it is
+    /// emitted first, exactly as for a malformed-UTF-8 failure.
+    fn check_comment_security(&mut self, span: &Span) {
+        if self.security_mode != SecurityMode::Strict {
+            return;
+        }
+        // The comment body, excluding the leading `//`, `///`, `//!`, `/*`, `/*!`
+        // or `/**` delimiter. The scan is over already-validated UTF-8: the
+        // preflight rejects invalid bytes before any comment is scanned, so this
+        // decode cannot fail.
+        let bytes = match self.source.get(span.start as usize..span.end as usize) {
+            Some(b) => b,
+            None => return,
+        };
+        let text = match std::str::from_utf8(bytes) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        let body = text.trim_start_matches('/').trim_start_matches('*');
+        if !omni_unicode::annotation::scan_comment_security(body).is_empty() {
+            // The comment is already emitted as trivia with its exact span, so
+            // the deferred error must be *zero-width* at the comment's start.
+            // Spanning the comment again would emit its bytes twice and break
+            // the lossless reconstruction contract.
+            self.pending_error = Some((
+                Span { start: span.start, end: span.start, file_id: self.file_id },
+                ErrorReason::UnannotatedCommentSecurity,
+            ));
+        }
+    }
+
     fn invalid_utf8_at_cursor(&self) -> bool {
         self.invalid_utf8_offsets.get(self.invalid_utf8_index).copied() == Some(self.cursor.pos())
     }
@@ -246,12 +350,15 @@ impl<'a> Scanner<'a> {
         let start = self.cursor.pos() as u32;
         self.cursor.advance();
         self.invalid_utf8_index += 1;
-        Token {
-            kind: TokenKind::Error,
-            span: Span { start, end: self.cursor.pos() as u32, file_id: self.file_id },
+        // SRC-0001: malformed UTF-8 stays a distinct, non-recoverable source
+        // error. It must never be confused with a prohibited code point, and
+        // must never be smoothed into U+FFFD and accepted.
+        Token::error(
+            ErrorReason::MalformedUtf8,
+            Span { start, end: self.cursor.pos() as u32, file_id: self.file_id },
             leading_trivia,
-            trailing_trivia: Vec::new(),
-        }
+            Vec::new(),
+        )
     }
 
     fn scan_ident_tail(&mut self) {

@@ -21,7 +21,12 @@ use serde::Deserialize;
 /// Pipeline tier rank; higher = later stage.
 fn tier(crate_name: &str) -> Option<u8> {
     Some(match crate_name {
-        "omni-source" => 0,
+        // `omni-unicode` and `omni-source` are both leaf-ward: they depend on no
+        // other workspace crate, only on external libraries. `omni-unicode`
+        // carries the pinned Unicode data and the SRC-0003/0005/0006 semantics
+        // that every later tier must share, so it sits at the bottom of the
+        // pipeline rather than beside any particular stage.
+        "omni-source" | "omni-unicode" => 0,
         "omni-lex" => 1,
         "omni-syntax" => 2,
         "omni-parse" => 3,
