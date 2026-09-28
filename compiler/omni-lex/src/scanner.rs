@@ -922,7 +922,7 @@ impl<'a> Scanner<'a> {
         let mut stack = vec!['}'];
         loop {
             if self.starts_ascii(b"//") {
-                self.skip_line_comment_for_interpolation();
+                self.skip_line_comment_for_interpolation()?;
                 continue;
             }
             if self.starts_ascii(b"/*") {
