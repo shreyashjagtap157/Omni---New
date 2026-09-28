@@ -3,13 +3,30 @@
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_codegen::ir::{types, AbiParam, Signature};
 use cranelift_codegen::settings::{self, Configurable};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
 /// Compiles a fully qualified, concrete monomorphized program to a native object file.
 /// This is the only source of native emission; frontend orchestration belongs to omni-driver.
+fn native_abi_type_from_ty(
+    tcx: &omni_mir::TyCtxt,
+    ty: omni_mir::Ty,
+) -> Result<Option<cranelift_codegen::ir::Type>, String> {
+    match tcx.get(ty) {
+        omni_mir::TyKind::Unit => Ok(None),
+        omni_mir::TyKind::Int
+        | omni_mir::TyKind::Bool
+        | omni_mir::TyKind::Byte
+        | omni_mir::TyKind::Char => Ok(Some(types::I64)),
+        other => Err(format!(
+            "Codegen error: native backend does not yet support MIR ABI type {:?}",
+            other
+        )),
+    }
+}
+
 fn native_abi_type(
     spec: &omni_mir::ast::TypeSpec,
 ) -> Result<Option<cranelift_codegen::ir::Type>, String> {
@@ -25,6 +42,35 @@ fn native_abi_type(
     }
 }
 
+fn ensure_source_mir_type_match(
+    tcx: &omni_mir::TyCtxt,
+    spec: &omni_mir::ast::TypeSpec,
+    ty: omni_mir::Ty,
+    context: &str,
+) -> Result<(), String> {
+    use omni_mir::ast::TypeSpec;
+    use omni_mir::TyKind;
+
+    let matches = matches!(
+        (spec, tcx.get(ty)),
+        (TypeSpec::Unit, TyKind::Unit)
+            | (TypeSpec::Int, TyKind::Int)
+            | (TypeSpec::Bool, TyKind::Bool)
+            | (TypeSpec::Byte, TyKind::Byte)
+            | (TypeSpec::Char, TyKind::Char)
+    );
+    if matches {
+        Ok(())
+    } else {
+        Err(format!(
+            "Codegen error: source/MIR semantic type mismatch for {}: source {:?}, MIR {:?}",
+            context,
+            spec,
+            tcx.get(ty)
+        ))
+    }
+}
+
 /// Enforces MIR lowering semantic gate and MirVerifier before native emission.
 pub fn compile_monomorphized_program(
     prog: &omni_mir::MonomorphizedProgram,
@@ -32,7 +78,6 @@ pub fn compile_monomorphized_program(
     let mut lowering = omni_mir::lower::LoweringContext::new();
     let mir_prog = lowering.lower_monomorphized_program(prog)?;
 
-    // MANDATORY PRE-CODEGEN VERIFICATION GATE
     omni_verify::MirVerifier::verify_program(&mir_prog)
         .map_err(|e| format!("Pre-codegen MIR verification failed: {}", e))?;
 
@@ -40,6 +85,13 @@ pub fn compile_monomorphized_program(
         return Err("Cannot compile empty monomorphized program".into());
     }
 
+    compile_mir_program(prog, &mir_prog)
+}
+
+fn compile_mir_program(
+    prog: &omni_mir::MonomorphizedProgram,
+    mir_prog: &omni_mir::ir::MirProgram,
+) -> Result<Vec<u8>, String> {
     let mut flag_builder = settings::builder();
     flag_builder.set("opt_level", "speed").map_err(|e| e.to_string())?;
     flag_builder.set("is_pic", "false").map_err(|e| e.to_string())?;
@@ -70,6 +122,53 @@ pub fn compile_monomorphized_program(
                 "Codegen error: MIR/source parameter count mismatch for '{}'",
                 mir_func.name
             ));
+        }
+
+        let return_mir_ty =
+            mir_func.body.local_decls[mir_func.return_place].ty.ok_or_else(|| {
+                format!(
+                    "Codegen error: return local {:?} has no type for '{}'",
+                    mir_func.return_place, mir_func.name
+                )
+            })?;
+        ensure_source_mir_type_match(
+            &mir_prog.tcx,
+            &source_def.return_type,
+            return_mir_ty,
+            &format!("return type of '{}'", mir_func.name),
+        )?;
+        let return_source_abi = native_abi_type(&source_def.return_type)?;
+        let return_mir_abi = native_abi_type_from_ty(&mir_prog.tcx, return_mir_ty)?;
+        if return_source_abi != return_mir_abi {
+            return Err(format!(
+                "Codegen error: source/MIR return ABI mismatch for '{}': source {:?}, MIR {:?}",
+                mir_func.name, return_source_abi, return_mir_abi
+            ));
+        }
+
+        for (param_index, ((_, source_spec), &mir_param)) in
+            source_def.params.iter().zip(&mir_func.params).enumerate()
+        {
+            let mir_ty = mir_func.body.local_decls[mir_param].ty.ok_or_else(|| {
+                format!(
+                    "Codegen error: parameter local {:?} has no type for '{}'",
+                    mir_param, mir_func.name
+                )
+            })?;
+            ensure_source_mir_type_match(
+                &mir_prog.tcx,
+                source_spec,
+                mir_ty,
+                &format!("parameter {} of '{}'", param_index, mir_func.name),
+            )?;
+            let source_abi = native_abi_type(source_spec)?;
+            let mir_abi = native_abi_type_from_ty(&mir_prog.tcx, mir_ty)?;
+            if source_abi != mir_abi {
+                return Err(format!(
+                    "Codegen error: source/MIR parameter ABI mismatch for '{}' parameter {}: source {:?}, MIR {:?}",
+                    mir_func.name, param_index, source_abi, mir_abi
+                ));
+            }
         }
 
         let mut sig = Signature::new(module.isa().default_call_conv());
@@ -132,7 +231,19 @@ pub fn compile_monomorphized_program(
         builder.append_block_params_for_function_params(entry_cl_block);
         builder.switch_to_block(entry_cl_block);
 
-        let mut locals_map = std::collections::HashMap::new();
+        let mut variables = std::collections::HashMap::new();
+        for (local_idx, local_decl) in mir_func.body.local_decls.iter().enumerate() {
+            let local = omni_mir::ir::Local::from_usize(local_idx);
+            let ty = local_decl
+                .ty
+                .ok_or_else(|| format!("Codegen error: MIR local {:?} has no type", local))?;
+            if let Some(native_ty) = native_abi_type_from_ty(&mir_prog.tcx, ty)? {
+                let variable = Variable::from_u32(local_idx as u32);
+                builder.declare_var(variable, native_ty);
+                variables.insert(local, variable);
+            }
+        }
+
         for (p_idx, &param_local) in mir_func.params.iter().enumerate() {
             let cl_val =
                 builder.block_params(entry_cl_block).get(p_idx).copied().ok_or_else(|| {
@@ -141,22 +252,32 @@ pub fn compile_monomorphized_program(
                         mir_func.name, p_idx
                     )
                 })?;
-            locals_map.insert(param_local, cl_val);
+            let variable = *variables.get(&param_local).ok_or_else(|| {
+                format!(
+                    "Codegen error: function parameter local {:?} has no native representation",
+                    param_local
+                )
+            })?;
+            builder.def_var(variable, cl_val);
         }
 
         for (b_idx, mir_block) in mir_func.body.blocks.iter().enumerate() {
             let cl_b = *cl_blocks
                 .get(&b_idx)
                 .ok_or_else(|| format!("Codegen error: missing Cranelift block {}", b_idx))?;
-            if b_idx != 0 {
-                builder.switch_to_block(cl_b);
-            }
+            builder.switch_to_block(cl_b);
 
             for stmt in &mir_block.statements {
                 match stmt {
                     omni_mir::ir::Statement::Assign(place, rval) => {
-                        let val = lower_rvalue_to_cl(&mut builder, rval, &locals_map)?;
-                        locals_map.insert(place.local, val);
+                        let variable = *variables.get(&place.local).ok_or_else(|| {
+                            format!(
+                                "Codegen error: assignment target local {:?} has no native representation",
+                                place.local
+                            )
+                        })?;
+                        let val = lower_rvalue_to_cl(&mut builder, rval, &variables)?;
+                        builder.def_var(variable, val);
                     }
                     omni_mir::ir::Statement::Assume(_) | omni_mir::ir::Statement::Drop(_) => {}
                 }
@@ -172,15 +293,13 @@ pub fn compile_monomorphized_program(
             match term {
                 omni_mir::ir::Terminator::Return => {
                     if native_abi_type(&source_def.return_type)?.is_some() {
-                        let ret_val = locals_map
-                            .get(&mir_func.return_place)
-                            .copied()
-                            .ok_or_else(|| {
-                                format!(
-                                    "Codegen error: Return place {:?} was not assigned in function '{}'",
-                                    mir_func.return_place, mir_func.name
-                                )
-                            })?;
+                        let variable = *variables.get(&mir_func.return_place).ok_or_else(|| {
+                            format!(
+                                "Codegen error: return local {:?} has no native representation",
+                                mir_func.return_place
+                            )
+                        })?;
+                        let ret_val = builder.use_var(variable);
                         builder.ins().return_(&[ret_val]);
                     } else {
                         builder.ins().return_(&[]);
@@ -193,7 +312,7 @@ pub fn compile_monomorphized_program(
                     builder.ins().jump(target_cl, &[]);
                 }
                 omni_mir::ir::Terminator::SwitchInt { discr, targets, otherwise } => {
-                    let discr_val = lower_operand_to_cl(&mut builder, discr, &locals_map)?;
+                    let discr_val = lower_operand_to_cl(&mut builder, discr, &variables)?;
                     let otherwise_cl = *cl_blocks.get(&otherwise.index()).ok_or_else(|| {
                         format!("Codegen error: undefined switch target {:?}", otherwise)
                     })?;
@@ -206,7 +325,13 @@ pub fn compile_monomorphized_program(
                     }
                     switch.emit(&mut builder, discr_val, otherwise_cl);
                 }
-                omni_mir::ir::Terminator::Call { func, args, destination, target, cleanup: _ } => {
+                omni_mir::ir::Terminator::Call { func, args, destination, target, cleanup } => {
+                    if cleanup.is_some() {
+                        return Err(format!(
+                            "Codegen error: call in '{}' has an unsupported cleanup/unwind edge",
+                            mir_func.name
+                        ));
+                    }
                     let fn_name =
                         match func {
                             omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(
@@ -232,7 +357,7 @@ pub fn compile_monomorphized_program(
 
                     let mut call_args = Vec::with_capacity(args.len());
                     for (arg, (_, param_spec)) in args.iter().zip(source_callee.params.iter()) {
-                        let value = lower_operand_to_cl(&mut builder, arg, &locals_map)?;
+                        let value = lower_operand_to_cl(&mut builder, arg, &variables)?;
                         let expected = native_abi_type(param_spec)?.ok_or_else(|| {
                             format!(
                                 "Codegen error: Unit argument is not representable in native ABI for '{}'",
@@ -265,7 +390,13 @@ pub fn compile_monomorphized_program(
                                     fn_name, destination
                                 ));
                             }
-                            locals_map.insert(destination.local, results[0]);
+                            let variable = *variables.get(&destination.local).ok_or_else(|| {
+                                format!(
+                                    "Codegen error: call destination local {:?} has no native representation",
+                                    destination.local
+                                )
+                            })?;
+                            builder.def_var(variable, results[0]);
                         }
                         None => {
                             if !results.is_empty() {
@@ -286,11 +417,9 @@ pub fn compile_monomorphized_program(
                     builder.ins().trap(cranelift_codegen::ir::TrapCode::UnreachableCodeReached);
                 }
             }
-
-            builder.seal_block(cl_b);
         }
 
-        builder.finalize();
+        builder.seal_all_blocks();
 
         module
             .define_function(func_id, &mut ctx)
@@ -307,13 +436,15 @@ pub fn compile_monomorphized_program(
 fn lower_operand_to_cl(
     builder: &mut FunctionBuilder,
     op: &omni_mir::ir::Operand,
-    locals: &std::collections::HashMap<omni_mir::ir::Local, cranelift_codegen::ir::Value>,
+    variables: &std::collections::HashMap<omni_mir::ir::Local, Variable>,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match op {
-        omni_mir::ir::Operand::Copy(p) | omni_mir::ir::Operand::Move(p) => locals
-            .get(&p.local)
-            .copied()
-            .ok_or_else(|| format!("Codegen error: unbound local {:?}", p.local)),
+        omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => {
+            let variable = *variables
+                .get(&place.local)
+                .ok_or_else(|| format!("Codegen error: unbound local {:?}", place.local))?;
+            Ok(builder.use_var(variable))
+        }
         omni_mir::ir::Operand::Constant(c) => match c {
             omni_mir::ir::Constant::Lit(lit) => match lit {
                 omni_mir::ast::Lit::Int(n) => Ok(builder.ins().iconst(types::I64, *n)),
@@ -335,13 +466,13 @@ fn lower_operand_to_cl(
 fn lower_rvalue_to_cl(
     builder: &mut FunctionBuilder,
     rval: &omni_mir::ir::Rvalue,
-    locals: &std::collections::HashMap<omni_mir::ir::Local, cranelift_codegen::ir::Value>,
+    variables: &std::collections::HashMap<omni_mir::ir::Local, Variable>,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match rval {
-        omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, op, locals),
+        omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, op, variables),
         omni_mir::ir::Rvalue::BinaryOp(op, lhs, rhs) => {
-            let l = lower_operand_to_cl(builder, lhs, locals)?;
-            let r = lower_operand_to_cl(builder, rhs, locals)?;
+            let l = lower_operand_to_cl(builder, lhs, variables)?;
+            let r = lower_operand_to_cl(builder, rhs, variables)?;
             match op {
                 omni_mir::ir::BinOp::Add => Ok(builder.ins().iadd(l, r)),
                 omni_mir::ir::BinOp::Sub => Ok(builder.ins().isub(l, r)),
@@ -371,20 +502,22 @@ fn lower_rvalue_to_cl(
                     l,
                     r,
                 ),
-                omni_mir::ir::BinOp::Le => Ok(builder.ins().icmp(
+                omni_mir::ir::BinOp::Le => lower_int_comparison(
+                    builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual,
                     l,
                     r,
-                )),
-                omni_mir::ir::BinOp::Ge => Ok(builder.ins().icmp(
+                ),
+                omni_mir::ir::BinOp::Ge => lower_int_comparison(
+                    builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedGreaterThanOrEqual,
                     l,
                     r,
-                )),
+                ),
             }
         }
         omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
-            let val = lower_operand_to_cl(builder, operand, locals)?;
+            let val = lower_operand_to_cl(builder, operand, variables)?;
             match op {
                 omni_mir::ir::UnOp::Neg => Ok(builder.ins().ineg(val)),
                 omni_mir::ir::UnOp::Not => {
@@ -418,6 +551,241 @@ pub mod backend;
 mod tests {
     use super::*;
     use omni_mir::{ast, MonomorphizedProgram};
+
+    #[test]
+    fn test_cfg_join_uses_cranelift_variable_ssa() {
+        use std::fs;
+        use std::process::Command;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let source = ast::GenericFnDef {
+            name: "main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Int,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Literal(ast::Lit::Int(0)),
+        };
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+
+        let mut locals = index_vec::IndexVec::new();
+        let ret = locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
+
+        let mut blocks = index_vec::IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::SwitchInt {
+                discr: omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(ast::Lit::Int(
+                    1,
+                ))),
+                targets: vec![(1, omni_mir::ir::BasicBlock::from_usize(1))],
+                otherwise: omni_mir::ir::BasicBlock::from_usize(2),
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![omni_mir::ir::Statement::Assign(
+                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
+                    omni_mir::ir::Constant::Lit(ast::Lit::Int(41)),
+                )),
+            )],
+            terminator: Some(omni_mir::ir::Terminator::Goto(omni_mir::ir::BasicBlock::from_usize(
+                3,
+            ))),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![omni_mir::ir::Statement::Assign(
+                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
+                    omni_mir::ir::Constant::Lit(ast::Lit::Int(7)),
+                )),
+            )],
+            terminator: Some(omni_mir::ir::Terminator::Goto(omni_mir::ir::BasicBlock::from_usize(
+                3,
+            ))),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mir = omni_mir::ir::MirProgram {
+            tcx,
+            functions: vec![omni_mir::ir::MirFunction {
+                name: "main".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: ast::TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals },
+            }],
+        };
+        omni_verify::MirVerifier::verify_program(&mir).expect("hand-built CFG must verify");
+
+        let source_program = omni_mir::MonomorphizedProgram { functions: vec![source] };
+        let object = compile_mir_program(&source_program, &mir).expect("CFG native emission");
+
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let stem = format!(
+            "omni-codegen-cfg-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let dir = std::env::temp_dir();
+        let object_path = dir.join(format!("{stem}.o"));
+        let exe_path = dir.join(&stem);
+        fs::write(&object_path, object).expect("object write");
+
+        let link = Command::new("cc")
+            .arg(&object_path)
+            .arg("-o")
+            .arg(&exe_path)
+            .status()
+            .expect("cc must be available");
+        assert!(link.success(), "link failed: {link}");
+
+        let run = Command::new(&exe_path).status().expect("executable must run");
+        assert_eq!(run.code(), Some(41));
+
+        fs::remove_file(object_path).ok();
+        fs::remove_file(exe_path).ok();
+    }
+
+    #[test]
+    fn test_compile_mir_program_rejects_source_mir_semantic_type_mismatch() {
+        let source = ast::GenericFnDef {
+            name: "main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Bool,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Literal(ast::Lit::Bool(true)),
+        };
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+
+        let mut locals = index_vec::IndexVec::new();
+        let ret = locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
+        let mut blocks = index_vec::IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![omni_mir::ir::Statement::Assign(
+                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
+                    omni_mir::ir::Constant::Lit(ast::Lit::Int(1)),
+                )),
+            )],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mir = omni_mir::ir::MirProgram {
+            tcx,
+            functions: vec![omni_mir::ir::MirFunction {
+                name: "main".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: ast::TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals },
+            }],
+        };
+        omni_verify::MirVerifier::verify_program(&mir)
+            .expect("MIR fixture must be internally typed");
+
+        let err =
+            compile_mir_program(&omni_mir::MonomorphizedProgram { functions: vec![source] }, &mir)
+                .expect_err("source Bool and MIR Int must not share an ABI class");
+        assert!(err.contains("source/MIR semantic type mismatch"));
+    }
+
+    #[test]
+    fn test_compile_mir_program_rejects_cleanup_edge() {
+        let touch = ast::GenericFnDef {
+            name: "touch".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Unit,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Block(vec![]),
+        };
+        let main = ast::GenericFnDef {
+            name: "main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Unit,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Block(vec![]),
+        };
+
+        let mut tcx = omni_mir::TyCtxt::new();
+        let unit = tcx.intern(omni_mir::TyKind::Unit);
+
+        let mut touch_locals = index_vec::IndexVec::new();
+        let touch_ret = touch_locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(unit) });
+        let mut touch_blocks = index_vec::IndexVec::new();
+        touch_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mut main_locals = index_vec::IndexVec::new();
+        let main_ret = main_locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(unit) });
+        let mut main_blocks = index_vec::IndexVec::new();
+        main_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Call {
+                func: omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(
+                    "touch".to_string(),
+                )),
+                args: vec![],
+                destination: None,
+                target: omni_mir::ir::BasicBlock::from_usize(1),
+                cleanup: Some(omni_mir::ir::BasicBlock::from_usize(2)),
+            }),
+        });
+        main_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+        main_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mir = omni_mir::ir::MirProgram {
+            tcx,
+            functions: vec![
+                omni_mir::ir::MirFunction {
+                    name: "touch".to_string(),
+                    params: vec![],
+                    return_place: touch_ret,
+                    return_type: ast::TypeSpec::Unit,
+                    body: omni_mir::ir::Body { blocks: touch_blocks, local_decls: touch_locals },
+                },
+                omni_mir::ir::MirFunction {
+                    name: "main".to_string(),
+                    params: vec![],
+                    return_place: main_ret,
+                    return_type: ast::TypeSpec::Unit,
+                    body: omni_mir::ir::Body { blocks: main_blocks, local_decls: main_locals },
+                },
+            ],
+        };
+
+        let err = compile_mir_program(&MonomorphizedProgram { functions: vec![touch, main] }, &mir)
+            .expect_err("native backend must not erase a MIR cleanup edge");
+        assert!(err.contains("unsupported cleanup/unwind edge"));
+    }
 
     #[test]
     fn test_compile_monomorphized_program_success() {
