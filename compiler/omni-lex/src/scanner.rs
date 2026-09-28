@@ -154,12 +154,11 @@ impl<'a> Scanner<'a> {
                 match c2 {
                     Some('/') => {
                         let c3 = lookahead.peek_nth(1);
-                        let kind =
-                            if c3 == Some('/') || c3 == Some('!') {
-                                TriviaKind::DocComment
-                            } else {
-                                TriviaKind::LineComment
-                            };
+                        let kind = if c3 == Some('/') || c3 == Some('!') {
+                            TriviaKind::DocComment
+                        } else {
+                            TriviaKind::LineComment
+                        };
                         self.cursor.advance();
                         self.cursor.advance();
                         while let Some(ch) = self.cursor.peek() {
@@ -179,12 +178,11 @@ impl<'a> Scanner<'a> {
                     }
                     Some('*') => {
                         let c3 = lookahead.peek_nth(1);
-                        let kind =
-                            if c3 == Some('*') || c3 == Some('!') {
-                                TriviaKind::DocComment
-                            } else {
-                                TriviaKind::BlockComment
-                            };
+                        let kind = if c3 == Some('*') || c3 == Some('!') {
+                            TriviaKind::DocComment
+                        } else {
+                            TriviaKind::BlockComment
+                        };
                         self.cursor.advance();
                         self.cursor.advance();
                         let mut depth = 1usize;
@@ -240,7 +238,7 @@ impl<'a> Scanner<'a> {
         trivias
     }
 
-fn invalid_utf8_at_cursor(&self) -> bool {
+    fn invalid_utf8_at_cursor(&self) -> bool {
         self.invalid_utf8_offsets.get(self.invalid_utf8_index).copied()
             == Some(self.cursor.pos())
     }
