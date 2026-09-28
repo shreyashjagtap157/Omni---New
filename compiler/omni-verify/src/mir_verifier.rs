@@ -393,8 +393,7 @@ impl MirVerifier {
             }
         }
 
-        let all_locals =
-            (0..func.body.local_decls.len()).map(Local::from_usize).collect();
+        let all_locals = (0..func.body.local_decls.len()).map(Local::from_usize).collect();
         let mut in_sets = vec![all_locals.clone(); num_blocks];
         let mut out_sets = vec![all_locals.clone(); num_blocks];
         let entry = BasicBlock::from_usize(0);
@@ -1053,15 +1052,9 @@ mod tests {
         let mut tcx = TyCtxt::new();
         let int = tcx.intern(omni_types::intern::TyKind::Int);
         let mut local_decls = IndexVec::new();
-        let ret = local_decls.push(LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
+        let ret = local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
         let mut blocks = IndexVec::new();
-        blocks.push(BlockData {
-            statements: vec![],
-            terminator: Some(Terminator::Return),
-        });
+        blocks.push(BlockData { statements: vec![], terminator: Some(Terminator::Return) });
         let prog = MirProgram {
             tcx,
             functions: vec![MirFunction {
