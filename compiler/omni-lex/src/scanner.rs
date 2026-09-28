@@ -239,8 +239,7 @@ impl<'a> Scanner<'a> {
     }
 
     fn invalid_utf8_at_cursor(&self) -> bool {
-        self.invalid_utf8_offsets.get(self.invalid_utf8_index).copied()
-            == Some(self.cursor.pos())
+        self.invalid_utf8_offsets.get(self.invalid_utf8_index).copied() == Some(self.cursor.pos())
     }
 
     fn consume_invalid_utf8_token(&mut self, leading_trivia: Vec<Trivia>) -> Token {
