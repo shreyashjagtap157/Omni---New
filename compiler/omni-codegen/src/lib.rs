@@ -3,13 +3,30 @@
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_codegen::ir::{types, AbiParam, Signature};
 use cranelift_codegen::settings::{self, Configurable};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
 
 /// Compiles a fully qualified, concrete monomorphized program to a native object file.
 /// This is the only source of native emission; frontend orchestration belongs to omni-driver.
+fn native_abi_type_from_ty(
+    tcx: &omni_types::intern::TyCtxt,
+    ty: omni_types::intern::Ty,
+) -> Result<Option<cranelift_codegen::ir::Type>, String> {
+    match tcx.get(ty) {
+        omni_types::intern::TyKind::Unit => Ok(None),
+        omni_types::intern::TyKind::Int
+        | omni_types::intern::TyKind::Bool
+        | omni_types::intern::TyKind::Byte
+        | omni_types::intern::TyKind::Char => Ok(Some(types::I64)),
+        other => Err(format!(
+            "Codegen error: native backend does not yet support MIR ABI type {:?}",
+            other
+        )),
+    }
+}
+
 fn native_abi_type(
     spec: &omni_mir::ast::TypeSpec,
 ) -> Result<Option<cranelift_codegen::ir::Type>, String> {
@@ -132,7 +149,19 @@ pub fn compile_monomorphized_program(
         builder.append_block_params_for_function_params(entry_cl_block);
         builder.switch_to_block(entry_cl_block);
 
-        let mut locals_map = std::collections::HashMap::new();
+        let mut variables = std::collections::HashMap::new();
+        for (local_idx, local_decl) in mir_func.body.local_decls.iter().enumerate() {
+            let local = omni_mir::ir::Local::from_usize(local_idx);
+            let ty = local_decl.ty.ok_or_else(|| {
+                format!("Codegen error: MIR local {:?} has no type", local)
+            })?;
+            if let Some(native_ty) = native_abi_type_from_ty(&mir_prog.tcx, ty)? {
+                let variable = Variable::new(local_idx);
+                builder.declare_var(variable, native_ty);
+                variables.insert(local, variable);
+            }
+        }
+
         for (p_idx, &param_local) in mir_func.params.iter().enumerate() {
             let cl_val =
                 builder.block_params(entry_cl_block).get(p_idx).copied().ok_or_else(|| {
@@ -141,22 +170,32 @@ pub fn compile_monomorphized_program(
                         mir_func.name, p_idx
                     )
                 })?;
-            locals_map.insert(param_local, cl_val);
+            let variable = *variables.get(&param_local).ok_or_else(|| {
+                format!(
+                    "Codegen error: function parameter local {:?} has no native representation",
+                    param_local
+                )
+            })?;
+            builder.def_var(variable, cl_val);
         }
 
         for (b_idx, mir_block) in mir_func.body.blocks.iter().enumerate() {
             let cl_b = *cl_blocks
                 .get(&b_idx)
                 .ok_or_else(|| format!("Codegen error: missing Cranelift block {}", b_idx))?;
-            if b_idx != 0 {
-                builder.switch_to_block(cl_b);
-            }
+            builder.switch_to_block(cl_b);
 
             for stmt in &mir_block.statements {
                 match stmt {
                     omni_mir::ir::Statement::Assign(place, rval) => {
-                        let val = lower_rvalue_to_cl(&mut builder, rval, &locals_map)?;
-                        locals_map.insert(place.local, val);
+                        let variable = *variables.get(&place.local).ok_or_else(|| {
+                            format!(
+                                "Codegen error: assignment target local {:?} has no native representation",
+                                place.local
+                            )
+                        })?;
+                        let val = lower_rvalue_to_cl(&mut builder, rval, &variables)?;
+                        builder.def_var(variable, val);
                     }
                     omni_mir::ir::Statement::Assume(_) | omni_mir::ir::Statement::Drop(_) => {}
                 }
@@ -172,15 +211,13 @@ pub fn compile_monomorphized_program(
             match term {
                 omni_mir::ir::Terminator::Return => {
                     if native_abi_type(&source_def.return_type)?.is_some() {
-                        let ret_val = locals_map
-                            .get(&mir_func.return_place)
-                            .copied()
-                            .ok_or_else(|| {
-                                format!(
-                                    "Codegen error: Return place {:?} was not assigned in function '{}'",
-                                    mir_func.return_place, mir_func.name
-                                )
-                            })?;
+                        let variable = *variables.get(&mir_func.return_place).ok_or_else(|| {
+                            format!(
+                                "Codegen error: return local {:?} has no native representation",
+                                mir_func.return_place
+                            )
+                        })?;
+                        let ret_val = builder.use_var(variable);
                         builder.ins().return_(&[ret_val]);
                     } else {
                         builder.ins().return_(&[]);
@@ -193,7 +230,7 @@ pub fn compile_monomorphized_program(
                     builder.ins().jump(target_cl, &[]);
                 }
                 omni_mir::ir::Terminator::SwitchInt { discr, targets, otherwise } => {
-                    let discr_val = lower_operand_to_cl(&mut builder, discr, &locals_map)?;
+                    let discr_val = lower_operand_to_cl(&mut builder, discr, &variables)?;
                     let otherwise_cl = *cl_blocks.get(&otherwise.index()).ok_or_else(|| {
                         format!("Codegen error: undefined switch target {:?}", otherwise)
                     })?;
@@ -206,17 +243,22 @@ pub fn compile_monomorphized_program(
                     }
                     switch.emit(&mut builder, discr_val, otherwise_cl);
                 }
-                omni_mir::ir::Terminator::Call { func, args, destination, target, cleanup: _ } => {
-                    let fn_name =
-                        match func {
-                            omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(
-                                name,
-                            )) => name,
-                            _ => return Err(
+                omni_mir::ir::Terminator::Call {
+                    func,
+                    args,
+                    destination,
+                    target,
+                    cleanup: _,
+                } => {
+                    let fn_name = match func {
+                        omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(name)) => name,
+                        _ => {
+                            return Err(
                                 "Indirect function calls not yet supported in Cranelift emission"
                                     .into(),
-                            ),
-                        };
+                            )
+                        }
+                    };
                     let source_callee =
                         prog.functions.iter().find(|f| f.name == *fn_name).ok_or_else(|| {
                             format!("Codegen error: call target '{}' not found", fn_name)
@@ -232,7 +274,7 @@ pub fn compile_monomorphized_program(
 
                     let mut call_args = Vec::with_capacity(args.len());
                     for (arg, (_, param_spec)) in args.iter().zip(source_callee.params.iter()) {
-                        let value = lower_operand_to_cl(&mut builder, arg, &locals_map)?;
+                        let value = lower_operand_to_cl(&mut builder, arg, &variables)?;
                         let expected = native_abi_type(param_spec)?.ok_or_else(|| {
                             format!(
                                 "Codegen error: Unit argument is not representable in native ABI for '{}'",
@@ -265,7 +307,13 @@ pub fn compile_monomorphized_program(
                                     fn_name, destination
                                 ));
                             }
-                            locals_map.insert(destination.local, results[0]);
+                            let variable = *variables.get(&destination.local).ok_or_else(|| {
+                                format!(
+                                    "Codegen error: call destination local {:?} has no native representation",
+                                    destination.local
+                                )
+                            })?;
+                            builder.def_var(variable, results[0]);
                         }
                         None => {
                             if !results.is_empty() {
@@ -286,11 +334,10 @@ pub fn compile_monomorphized_program(
                     builder.ins().trap(cranelift_codegen::ir::TrapCode::UnreachableCodeReached);
                 }
             }
-
-            builder.seal_block(cl_b);
         }
 
-        builder.finalize();
+        builder.seal_all_blocks();
+
 
         module
             .define_function(func_id, &mut ctx)
@@ -307,13 +354,15 @@ pub fn compile_monomorphized_program(
 fn lower_operand_to_cl(
     builder: &mut FunctionBuilder,
     op: &omni_mir::ir::Operand,
-    locals: &std::collections::HashMap<omni_mir::ir::Local, cranelift_codegen::ir::Value>,
+    variables: &std::collections::HashMap<omni_mir::ir::Local, Variable>,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match op {
-        omni_mir::ir::Operand::Copy(p) | omni_mir::ir::Operand::Move(p) => locals
-            .get(&p.local)
-            .copied()
-            .ok_or_else(|| format!("Codegen error: unbound local {:?}", p.local)),
+        omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => {
+            let variable = *variables.get(&place.local).ok_or_else(|| {
+                format!("Codegen error: unbound local {:?}", place.local)
+            })?;
+            Ok(builder.use_var(variable))
+        }
         omni_mir::ir::Operand::Constant(c) => match c {
             omni_mir::ir::Constant::Lit(lit) => match lit {
                 omni_mir::ast::Lit::Int(n) => Ok(builder.ins().iconst(types::I64, *n)),
@@ -335,13 +384,13 @@ fn lower_operand_to_cl(
 fn lower_rvalue_to_cl(
     builder: &mut FunctionBuilder,
     rval: &omni_mir::ir::Rvalue,
-    locals: &std::collections::HashMap<omni_mir::ir::Local, cranelift_codegen::ir::Value>,
+    variables: &std::collections::HashMap<omni_mir::ir::Local, Variable>,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match rval {
-        omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, op, locals),
+        omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, op, variables),
         omni_mir::ir::Rvalue::BinaryOp(op, lhs, rhs) => {
-            let l = lower_operand_to_cl(builder, lhs, locals)?;
-            let r = lower_operand_to_cl(builder, rhs, locals)?;
+            let l = lower_operand_to_cl(builder, lhs, variables)?;
+            let r = lower_operand_to_cl(builder, rhs, variables)?;
             match op {
                 omni_mir::ir::BinOp::Add => Ok(builder.ins().iadd(l, r)),
                 omni_mir::ir::BinOp::Sub => Ok(builder.ins().isub(l, r)),
@@ -371,20 +420,22 @@ fn lower_rvalue_to_cl(
                     l,
                     r,
                 ),
-                omni_mir::ir::BinOp::Le => Ok(builder.ins().icmp(
+                omni_mir::ir::BinOp::Le => lower_int_comparison(
+                    builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual,
                     l,
                     r,
-                )),
-                omni_mir::ir::BinOp::Ge => Ok(builder.ins().icmp(
+                ),
+                omni_mir::ir::BinOp::Ge => lower_int_comparison(
+                    builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedGreaterThanOrEqual,
                     l,
                     r,
-                )),
+                ),
             }
         }
         omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
-            let val = lower_operand_to_cl(builder, operand, locals)?;
+            let val = lower_operand_to_cl(builder, operand, variables)?;
             match op {
                 omni_mir::ir::UnOp::Neg => Ok(builder.ins().ineg(val)),
                 omni_mir::ir::UnOp::Not => {
