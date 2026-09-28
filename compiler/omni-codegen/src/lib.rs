@@ -686,7 +686,7 @@ mod tests {
                 name: "main".to_string(),
                 params: vec![],
                 return_place: ret,
-                return_type: ast::TypeSpec::Bool,
+                return_type: ast::TypeSpec::Int,
                 body: omni_mir::ir::Body { blocks, local_decls: locals },
             }],
         };
