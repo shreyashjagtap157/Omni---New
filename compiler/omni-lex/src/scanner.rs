@@ -516,11 +516,11 @@ impl<'a> Scanner<'a> {
                     Punct::DotDot
                 }
             }
-            '.' if self.cursor.peek() == Some('?') => {
+            '.' => Punct::Dot,
+            '?' if self.cursor.peek() == Some('.') => {
                 self.cursor.advance();
                 Punct::QuestionDot
             }
-            '.' => Punct::Dot,
             '?' if self.cursor.peek() == Some('?') => {
                 self.cursor.advance();
                 Punct::QuestionQuestion
