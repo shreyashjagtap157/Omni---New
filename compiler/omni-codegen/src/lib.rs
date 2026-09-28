@@ -193,9 +193,9 @@ fn compile_mir_program(
         let mut variables = std::collections::HashMap::new();
         for (local_idx, local_decl) in mir_func.body.local_decls.iter().enumerate() {
             let local = omni_mir::ir::Local::from_usize(local_idx);
-            let ty = local_decl.ty.ok_or_else(|| {
-                format!("Codegen error: MIR local {:?} has no type", local)
-            })?;
+            let ty = local_decl
+                .ty
+                .ok_or_else(|| format!("Codegen error: MIR local {:?} has no type", local))?;
             if let Some(native_ty) = native_abi_type_from_ty(&mir_prog.tcx, ty)? {
                 let variable = Variable::from_u32(local_idx as u32);
                 builder.declare_var(variable, native_ty);
