@@ -11,8 +11,7 @@ use omni_mir::ir::{
     BasicBlock, BinOp, Constant, Local, MirFunction, MirProgram, Operand, Place, Rvalue, Statement,
     Terminator, UnOp,
 };
-use omni_types::checker::SubstEnv;
-use omni_types::intern::{Ty, TyKind};
+use omni_mir::{Ty, TyCtxt, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MirVerificationError {
@@ -272,7 +271,7 @@ impl MirVerifier {
                 actual: func.return_place,
             }
         })?;
-        let expected_return = Self::spec_type(prog, &func.return_type);
+        let expected_return = Self::spec_type(prog, &func.return_type, fn_name)?;
         if actual_return != expected_return {
             return Err(MirVerificationError::TypeMismatch {
                 func: fn_name.clone(),
@@ -696,9 +695,66 @@ impl MirVerifier {
         })
     }
 
-    fn spec_type(prog: &MirProgram, spec: &omni_mir::ast::TypeSpec) -> Ty {
+    fn spec_type(
+        prog: &MirProgram,
+        spec: &omni_mir::ast::TypeSpec,
+        func: &str,
+    ) -> Result<Ty, MirVerificationError> {
+        fn lower(tcx: &mut TyCtxt, spec: &omni_mir::ast::TypeSpec) -> Option<Ty> {
+            use omni_mir::ast::TypeSpec;
+            match spec {
+                TypeSpec::Int => Some(tcx.intern(TyKind::Int)),
+                TypeSpec::Float => Some(tcx.intern(TyKind::Float)),
+                TypeSpec::Bool => Some(tcx.intern(TyKind::Bool)),
+                TypeSpec::Char => Some(tcx.intern(TyKind::Char)),
+                TypeSpec::Byte => Some(tcx.intern(TyKind::Byte)),
+                TypeSpec::String => Some(tcx.intern(TyKind::String)),
+                TypeSpec::Unit => Some(tcx.intern(TyKind::Unit)),
+                TypeSpec::Never => Some(tcx.intern(TyKind::Never)),
+                TypeSpec::Known(ty) if tcx.contains(*ty) => Some(*ty),
+                TypeSpec::Known(_) | TypeSpec::GenericParam(_) => None,
+                TypeSpec::Tuple(items) => {
+                    let items = items
+                        .iter()
+                        .map(|item| lower(tcx, item))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(tcx.intern(TyKind::Tuple(items)))
+                }
+                TypeSpec::Array(elem, len) => {
+                    Some(tcx.intern(TyKind::Array(lower(tcx, elem)?, *len)))
+                }
+                TypeSpec::Range(elem) => {
+                    Some(tcx.intern(TyKind::Range(lower(tcx, elem)?)))
+                }
+                TypeSpec::Fn(params, ret) => {
+                    let params = params
+                        .iter()
+                        .map(|param| lower(tcx, param))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(tcx.intern(TyKind::Fn(params, lower(tcx, ret)?)))
+                }
+                TypeSpec::Struct(name, args) => {
+                    let args = args
+                        .iter()
+                        .map(|arg| lower(tcx, arg))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(tcx.intern(TyKind::Struct(name.clone(), args)))
+                }
+                TypeSpec::Enum(name, args) => {
+                    let args = args
+                        .iter()
+                        .map(|arg| lower(tcx, arg))
+                        .collect::<Option<Vec<_>>>()?;
+                    Some(tcx.intern(TyKind::Enum(name.clone(), args)))
+                }
+            }
+        }
+
         let mut tcx = prog.tcx.clone();
-        tcx.lower_type_spec(spec, &SubstEnv::new())
+        lower(&mut tcx, spec).ok_or_else(|| MirVerificationError::InvalidTypeSpec {
+            func: func.to_string(),
+            context: format!("{spec:?}"),
+        })
     }
 
     fn check_calls(prog: &MirProgram, func: &MirFunction) -> Result<(), MirVerificationError> {
