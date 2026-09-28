@@ -1435,12 +1435,7 @@ fn is_hex_digit(c: char) -> bool {
             self.cursor.advance();
             hashes += 1;
         }
-        let too_many = hashes > 255;
         if self.cursor.advance() != Some('"') {
-            return TokenKind::Error;
-        }
-        if too_many {
-            self.drain_to_quote('"');
             return TokenKind::Error;
         }
         while let Some(c) = self.cursor.advance() {
