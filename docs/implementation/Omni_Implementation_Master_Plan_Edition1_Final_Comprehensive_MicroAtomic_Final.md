@@ -4092,7 +4092,7 @@ This section is the execution-level refinement of the comprehensive Master Plan.
 
 
 
-- **Logic:** Map MIR `Local`s to Cranelift `Variable`s. Translate MIR `Statement::Assign` to Cranelift `inst::store`. Translate `Terminator::Call` to Cranelift ABI calls.
+- **Logic:** Map MIR `Local`s to Cranelift `Variable`s and use Cranelift's `declare_var`/`def_var`/`use_var` SSA construction. Emit MIR assignments as variable definitions, preserve values across CFG joins/backedges through Cranelift block parameters, and translate `Terminator::Call` to predeclared Cranelift ABI calls.
 
 
 
