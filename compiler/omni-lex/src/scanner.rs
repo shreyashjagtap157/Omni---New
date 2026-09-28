@@ -195,7 +195,7 @@ impl<'a> Scanner<'a> {
                                     end: self.cursor.pos() as u32,
                                     file_id: self.file_id,
                                 });
-                                break;
+                                return trivias;
                             }
                             match self.cursor.advance() {
                                 Some('/') if self.cursor.peek() == Some('*') => {
@@ -1068,19 +1068,36 @@ impl<'a> Scanner<'a> {
             }
         }
     }
+}
+
 fn invalid_utf8_offsets(source: &[u8]) -> Vec<usize> {
     let mut offsets = Vec::new();
-    let mut base = 0usize;
-    while base < source.len() {
-        match std::str::from_utf8(&source[base..]) {
-            Ok(_) => break,
-            Err(err) => {
-                let invalid = base + err.valid_up_to();
-                offsets.push(invalid);
-                base = invalid.saturating_add(1);
-            }
+    let mut pos = 0usize;
+
+    while pos < source.len() {
+        let first = source[pos];
+        let width = match first {
+            0x00..=0x7F => 1,
+            0xC2..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF4 => 4,
+            _ => 0,
+        };
+
+        if width == 0 {
+            offsets.push(pos);
+            pos += 1;
+            continue;
+        }
+
+        if pos + width <= source.len() && std::str::from_utf8(&source[pos..pos + width]).is_ok() {
+            pos += width;
+        } else {
+            offsets.push(pos);
+            pos += 1;
         }
     }
+
     offsets
 }
 
