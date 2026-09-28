@@ -412,7 +412,7 @@ fn eof_after_a_single_operator_is_not_swallowed() {
     for (op, expected) in ops {
         let tokens = assert_lossless(op);
         assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0].kind, TokenKind::Punct(expected));
+        assert_eq!(tokens[0].kind, TokenKind::Punct(*expected));
         assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, op.len() as u32));
     }
 

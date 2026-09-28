@@ -15,9 +15,9 @@ pub struct Scanner<'a> {
 impl<'a> Scanner<'a> {
     /// Creates a scanner over raw source bytes.
     ///
-    /// Accepting `&[u8]` is what makes malformed UTF-8 reachable: the cursor
-    /// decodes what it can and emits `U+FFFD` for the rest without ever
-    /// panicking, and every token span is an exact byte range of this buffer
+    /// Accepting `&[u8]` preserves the scanner's lossless byte-span contract;
+    /// malformed UTF-8 is detected before it can be interpreted as lexical
+    /// data, and every token span remains an exact byte range of this buffer
     /// taken before line-ending normalization, so `source[span]` round-trips.
     pub fn new(source: &'a [u8], file_id: u16) -> Self {
         Self {
