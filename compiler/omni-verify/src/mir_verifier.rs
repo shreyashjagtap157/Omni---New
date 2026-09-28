@@ -455,15 +455,6 @@ impl MirVerifier {
         Ok(())
     }
 
-    fn operand_structure_type(
-        prog: &MirProgram,
-        func: &MirFunction,
-        operand: &Operand,
-    ) -> Result<Ty, MirVerificationError> {
-        let mut tcx = prog.tcx.clone();
-        Self::operand_type(&mut tcx, func, operand)
-    }
-
     fn check_place(
 
         func: &str,
@@ -579,6 +570,185 @@ mod tests {
         let res = MirVerifier::verify_program(&prog);
         assert!(res.is_err());
         assert!(matches!(res.unwrap_err(), MirVerificationError::UndefinedLocal { .. }));
+    }
+
+    #[test]
+    fn test_verifier_rejects_non_bool_comparison_destination() {
+        let (tcx, int, _) = {
+            let mut tcx = TyCtxt::new();
+            let int = tcx.intern(omni_types::intern::TyKind::Int);
+            let bool_ty = tcx.intern(omni_types::intern::TyKind::Bool);
+            (tcx, int, bool_ty)
+        };
+        let mut local_decls = IndexVec::new();
+        let ret = local_decls.push(LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place { local: ret },
+                Rvalue::BinaryOp(
+                    omni_mir::ir::BinOp::Eq,
+                    Operand::Constant(omni_mir::ir::Constant::Lit(
+                        omni_mir::ast::Lit::Int(1),
+                    )),
+                    Operand::Constant(omni_mir::ir::Constant::Lit(
+                        omni_mir::ast::Lit::Int(2),
+                    )),
+                ),
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let prog = MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "bad_cmp".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Int,
+                body: Body { blocks, local_decls },
+            }],
+        };
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::TypeMismatch { expected, actual, .. })
+                if expected == int && actual == prog.tcx.intern(omni_types::intern::TyKind::Bool)
+        ));
+        let _ = bool_ty;
+    }
+
+    #[test]
+    fn test_verifier_rejects_invalid_unary_operand() {
+        let mut tcx = TyCtxt::new();
+        let int = tcx.intern(omni_types::intern::TyKind::Int);
+        let ret = {
+            let mut locals = IndexVec::new();
+            locals.push(LocalDecl {
+                name: Some("_return".to_string()),
+                ty: Some(int),
+            })
+        };
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place { local: ret },
+                Rvalue::UnaryOp(
+                    omni_mir::ir::UnOp::Not,
+                    Operand::Constant(omni_mir::ir::Constant::Lit(
+                        omni_mir::ast::Lit::Int(1),
+                    )),
+                ),
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let prog = MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "bad_not".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Int,
+                body: Body {
+                    blocks,
+                    local_decls: {
+                        let mut locals = IndexVec::new();
+                        locals.push(LocalDecl {
+                            name: Some("_return".to_string()),
+                            ty: Some(int),
+                        });
+                        locals
+                    },
+                },
+            }],
+        };
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::InvalidUnaryOperand { .. })
+        ));
+    }
+
+    #[test]
+    fn test_verifier_rejects_bad_call_signature() {
+        let mut tcx = TyCtxt::new();
+        let int = tcx.intern(omni_types::intern::TyKind::Int);
+
+        let mut caller_locals = IndexVec::new();
+        let caller_ret = caller_locals.push(LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
+        let mut callee_locals = IndexVec::new();
+        let callee_ret = callee_locals.push(LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
+        let callee_param = callee_locals.push(LocalDecl {
+            name: Some("x".to_string()),
+            ty: Some(int),
+        });
+
+        let mut caller_blocks = IndexVec::new();
+        caller_blocks.push(BlockData {
+            statements: vec![],
+            terminator: Some(Terminator::Call {
+                func: Operand::Constant(omni_mir::ir::Constant::FnRef("inc".to_string())),
+                args: vec![],
+                destination: None,
+                target: BasicBlock::from_usize(1),
+                cleanup: None,
+            }),
+        });
+        caller_blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place { local: caller_ret },
+                Rvalue::Use(Operand::Constant(omni_mir::ir::Constant::Lit(
+                    omni_mir::ast::Lit::Int(0),
+                ))),
+            )],
+            terminator: Some(Terminator::Return),
+        });
+
+        let mut callee_blocks = IndexVec::new();
+        callee_blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place { local: callee_ret },
+                Rvalue::Use(Operand::Copy(Place { local: callee_param })),
+            )],
+            terminator: Some(Terminator::Return),
+        });
+
+        let prog = MirProgram {
+            tcx,
+            functions: vec![
+                MirFunction {
+                    name: "main".to_string(),
+                    params: vec![],
+                    return_place: caller_ret,
+                    return_type: omni_mir::ast::TypeSpec::Int,
+                    body: Body {
+                        blocks: caller_blocks,
+                        local_decls: caller_locals,
+                    },
+                },
+                MirFunction {
+                    name: "inc".to_string(),
+                    params: vec![callee_param],
+                    return_place: callee_ret,
+                    return_type: omni_mir::ast::TypeSpec::Int,
+                    body: Body {
+                        blocks: callee_blocks,
+                        local_decls: callee_locals,
+                    },
+                },
+            ],
+        };
+
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::CallArityMismatch { .. })
+        ));
     }
 
     #[test]
