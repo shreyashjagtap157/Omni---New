@@ -49,7 +49,6 @@ pub fn compile_monomorphized_program(
     let mut lowering = omni_mir::lower::LoweringContext::new();
     let mir_prog = lowering.lower_monomorphized_program(prog)?;
 
-    // MANDATORY PRE-CODEGEN VERIFICATION GATE
     omni_verify::MirVerifier::verify_program(&mir_prog)
         .map_err(|e| format!("Pre-codegen MIR verification failed: {}", e))?;
 
@@ -57,6 +56,13 @@ pub fn compile_monomorphized_program(
         return Err("Cannot compile empty monomorphized program".into());
     }
 
+    compile_mir_program(prog, &mir_prog)
+}
+
+fn compile_mir_program(
+    prog: &omni_mir::MonomorphizedProgram,
+    mir_prog: &omni_mir::ir::MirProgram,
+) -> Result<Vec<u8>, String> {
     let mut flag_builder = settings::builder();
     flag_builder.set("opt_level", "speed").map_err(|e| e.to_string())?;
     flag_builder.set("is_pic", "false").map_err(|e| e.to_string())?;
@@ -387,7 +393,9 @@ pub fn compile_monomorphized_program(
     let mut buffer = Vec::new();
     product.object.emit(&mut buffer).map_err(|e| format!("Object emission error: {}", e))?;
     Ok(buffer)
+
 }
+
 
 fn lower_operand_to_cl(
     builder: &mut FunctionBuilder,
@@ -507,6 +515,120 @@ pub mod backend;
 mod tests {
     use super::*;
     use omni_mir::{ast, MonomorphizedProgram};
+
+    #[test]
+    fn test_cfg_join_uses_cranelift_variable_ssa() {
+        use std::fs;
+        use std::process::Command;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let source = ast::GenericFnDef {
+            name: "main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Int,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Literal(ast::Lit::Int(0)),
+        };
+        let mut tcx = omni_types::TyCtxt::new();
+        let int = tcx.intern(omni_types::TyKind::Int);
+
+        let ret = {
+            let mut locals = index_vec::IndexVec::new();
+            locals.push(omni_mir::ir::LocalDecl {
+                name: Some("_return".to_string()),
+                ty: Some(int),
+            })
+        };
+
+        let mut blocks = index_vec::IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::SwitchInt {
+                discr: omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(
+                    ast::Lit::Int(1),
+                )),
+                targets: vec![(1, omni_mir::ir::BasicBlock::from_usize(1))],
+                otherwise: omni_mir::ir::BasicBlock::from_usize(2),
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![omni_mir::ir::Statement::Assign(
+                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
+                    omni_mir::ir::Constant::Lit(ast::Lit::Int(41)),
+                )),
+            )],
+            terminator: Some(omni_mir::ir::Terminator::Goto(
+                omni_mir::ir::BasicBlock::from_usize(3),
+            )),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![omni_mir::ir::Statement::Assign(
+                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
+                    omni_mir::ir::Constant::Lit(ast::Lit::Int(7)),
+                )),
+            )],
+            terminator: Some(omni_mir::ir::Terminator::Goto(
+                omni_mir::ir::BasicBlock::from_usize(3),
+            )),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mir = omni_mir::ir::MirProgram {
+            tcx,
+            functions: vec![omni_mir::ir::MirFunction {
+                name: "main".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: ast::TypeSpec::Int,
+                body: omni_mir::ir::Body {
+                    blocks,
+                    local_decls: locals,
+                },
+            }],
+        };
+        omni_verify::MirVerifier::verify_program(&mir).expect("hand-built CFG must verify");
+
+        let source_program = omni_mir::MonomorphizedProgram {
+            functions: vec![source],
+        };
+        let object =
+            compile_mir_program(&source_program, &mir).expect("CFG native emission");
+
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let stem = format!(
+            "omni-codegen-cfg-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let dir = std::env::temp_dir();
+        let object_path = dir.join(format!("{stem}.o"));
+        let exe_path = dir.join(&stem);
+        fs::write(&object_path, object).expect("object write");
+
+        let link = Command::new("cc")
+            .arg(&object_path)
+            .arg("-o")
+            .arg(&exe_path)
+            .status()
+            .expect("cc must be available");
+        assert!(link.success(), "link failed: {link}");
+
+        let run = Command::new(&exe_path)
+            .status()
+            .expect("executable must run");
+        assert_eq!(run.code(), Some(41));
+
+        fs::remove_file(object_path).ok();
+        fs::remove_file(exe_path).ok();
+    }
 
     #[test]
     fn test_compile_monomorphized_program_success() {
