@@ -3835,7 +3835,11 @@ This section is the execution-level refinement of the comprehensive Master Plan.
 
 
 
-- **Logic:** Implement DFA for keywords, identifiers, and numbers.
+- **Logic:** Implement DFA for keywords, identifiers, numbers, and the complete Edition-1 operator/punctuation set. Maximal munch covers shifts and compound assignments; `Token::split_shift_right()` provides the lossless parser-side contextual split.
+
+
+
+- **Lexical safety:** malformed UTF-8 is surfaced as `TokenKind::Error` rather than trivia; unterminated block comments are lexical errors; raw-string hash delimiters have no arbitrary 255-marker cap.
 
 
 

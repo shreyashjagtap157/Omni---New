@@ -366,38 +366,92 @@ fn eof_inside_a_string_literal_terminates_cleanly() {
 }
 
 #[test]
-fn eof_inside_a_block_comment_terminates_cleanly() {
+fn eof_inside_a_block_comment_is_a_lexical_error() {
     let bytes = b"a /* outer /* inner";
     let tokens = assert_lossless(bytes);
-    assert_eq!(tokens.len(), 1, "an unterminated comment is trivia, not a token");
-    let mut scanner = Scanner::new(bytes, 0);
-    assert!(scanner.next_token().is_some());
-    assert!(scanner.next_token().is_none());
-    let eof = scanner.take_eof_trivia();
-    assert!(eof.is_empty(), "the comment already ended inside a token's trailing trivia");
-    let trailing = &tokens[0].trailing_trivia;
-    assert_eq!(trailing.len(), 2, "whitespace then the unterminated block comment");
-    assert_eq!(trailing[1].kind, TriviaKind::BlockComment);
-    assert_eq!(trailing[1].span.end, bytes.len() as u32, "comment runs to end of input");
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[0].kind, TokenKind::Ident);
+    assert_eq!(tokens[1].kind, TokenKind::Error);
+    assert_eq!((tokens[1].span.start, tokens[1].span.end), (2, bytes.len() as u32));
+}
+
+#[test]
+fn nested_block_comments_close_as_trivia() {
+    let bytes = b"a /* outer /* inner */ outer */ b";
+    let tokens = assert_lossless(bytes);
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[0].kind, TokenKind::Ident);
+    assert_eq!(tokens[1].kind, TokenKind::Ident);
+    assert!(tokens[0].trailing_trivia.iter().any(|tr| tr.kind == TriviaKind::BlockComment));
 }
 
 #[test]
 fn eof_after_a_single_operator_is_not_swallowed() {
-    let ops: &[&[u8]] = &[
-        b"+", b"-", b"*", b"/", b"%", b"^", b"=", b"==", b"!=", b"<", b"<=", b">", b">=", b"->",
-        b"=>", b"(", b")", b"{", b"}", b"[", b"]", b",", b":", b"::", b";", b"&", b"&&", b"|",
-        b"||", b"|>", b".", b"..", b"..=", b"?", b"??", b"@", b"#", b"$",
+    let ops: &[(&[u8], Punct)] = &[
+        (b"+", Punct::Plus),
+        (b"-", Punct::Minus),
+        (b"*", Punct::Star),
+        (b"/", Punct::Slash),
+        (b"%", Punct::Percent),
+        (b"^", Punct::Caret),
+        (b"=", Punct::Eq),
+        (b"==", Punct::EqEq),
+        (b"!=", Punct::NotEq),
+        (b"<", Punct::Lt),
+        (b"<=", Punct::Le),
+        (b">", Punct::Gt),
+        (b">=", Punct::Ge),
+        (b"<<", Punct::Shl),
+        (b">>", Punct::Shr),
+        (b"<<=", Punct::ShlEq),
+        (b">>=", Punct::ShrEq),
+        (b"+=", Punct::PlusEq),
+        (b"-=", Punct::MinusEq),
+        (b"*=", Punct::StarEq),
+        (b"/=", Punct::SlashEq),
+        (b"%=", Punct::PercentEq),
+        (b"&=", Punct::AmpEq),
+        (b"|=", Punct::PipeEq),
+        (b"^=", Punct::CaretEq),
+        (b"->", Punct::Arrow),
+        (b"=>", Punct::FatArrow),
+        (b"(", Punct::LParen),
+        (b")", Punct::RParen),
+        (b"{", Punct::LBrace),
+        (b"}", Punct::RBrace),
+        (b"[", Punct::LBracket),
+        (b"]", Punct::RBracket),
+        (b",", Punct::Comma),
+        (b":", Punct::Colon),
+        (b"::", Punct::ColonColon),
+        (b";", Punct::Semicolon),
+        (b"&", Punct::Amp),
+        (b"&&", Punct::AmpAmp),
+        (b"|", Punct::Pipe),
+        (b"||", Punct::PipePipe),
+        (b"|>", Punct::PipeArrow),
+        (b".", Punct::Dot),
+        (b"..", Punct::DotDot),
+        (b"..=", Punct::DotDotEq),
+        (b"?", Punct::Question),
+        (b"?.", Punct::QuestionDot),
+        (b"??", Punct::QuestionQuestion),
+        (b"@", Punct::At),
+        (b"#", Punct::Hash),
+        (b"$", Punct::Dollar),
+        (b"~", Punct::Tilde),
     ];
-    for op in ops {
+    for (op, expected) in ops {
         let tokens = assert_lossless(op);
-        assert_eq!(
-            tokens.len(),
-            1,
-            "operator {:?} must lex as one token",
-            String::from_utf8_lossy(op)
-        );
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, TokenKind::Punct(*expected));
         assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, op.len() as u32));
     }
+
+    let tokens = assert_lossless(b"&mut");
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[0].kind, TokenKind::Punct(Punct::Amp));
+    assert_eq!(tokens[1].kind, TokenKind::Keyword(Kw::Mut));
 }
 
 #[test]
@@ -673,6 +727,55 @@ fn raw_identifier_tail_must_satisfy_the_identifier_rule() {
     assert_eq!(tokens.len(), 1, "a valid XID_Start tail is accepted");
     assert_eq!(tokens[0].kind, TokenKind::Ident);
     assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, 4));
+}
+
+#[test]
+fn raw_strings_allow_more_than_255_hash_delimiters() {
+    let hashes = "#".repeat(256);
+    let source = format!("r{hashes}\"payload\"{hashes}");
+    let tokens = assert_lossless(source.as_bytes());
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, TokenKind::RawString);
+}
+
+#[test]
+fn shift_right_can_be_split_for_generic_argument_context() {
+    let bytes = b"Foo<Bar<Baz>>";
+    let mut scanner = Scanner::new(bytes, 0);
+    let mut tokens = Vec::new();
+    while let Some(token) = scanner.next_token() {
+        tokens.push(token);
+    }
+    let shift = tokens.last().expect("right-shift token");
+    assert_eq!(shift.kind, TokenKind::Punct(Punct::Shr));
+    let (gt1, gt2) = shift.clone().split_shift_right().expect("shift token must split");
+    let start = b"Foo<Bar<Baz".len() as u32;
+    assert_eq!(gt1.kind, TokenKind::Punct(Punct::Gt));
+    assert_eq!(gt2.kind, TokenKind::Punct(Punct::Gt));
+    assert_eq!((gt1.span.start, gt1.span.end), (start, start + 1));
+    assert_eq!((gt2.span.start, gt2.span.end), (start + 1, start + 2));
+}
+
+#[test]
+fn malformed_utf8_in_whitespace_becomes_an_error_token() {
+    let bytes = b" \xFFx";
+    let tokens = assert_lossless(bytes);
+    assert_eq!(tokens[0].kind, TokenKind::Error);
+    assert_eq!((tokens[0].span.start, tokens[0].span.end), (1, 2));
+}
+
+#[test]
+fn malformed_utf8_in_comment_stops_trivia_before_invalid_byte() {
+    let bytes = b"x /* ok \xFF */ y";
+    let tokens = assert_lossless(bytes);
+    assert!(tokens.iter().any(|t| t.kind == TokenKind::Error));
+}
+
+#[test]
+fn malformed_utf8_in_raw_string_is_lexical_error() {
+    let bytes = b"r#\"ok \xFF\"#";
+    let tokens = assert_lossless(bytes);
+    assert!(tokens.iter().any(|t| t.kind == TokenKind::Error));
 }
 
 #[test]
