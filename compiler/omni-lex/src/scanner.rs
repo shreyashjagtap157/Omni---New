@@ -129,8 +129,7 @@ impl<'a> Scanner<'a> {
             if self.invalid_utf8_at_cursor() {
                 break;
             }
-            if stop_at_newline && c == '
-' {
+            if stop_at_newline && c == '\n' {
                 break;
             }
             let start = self.cursor.pos() as u32;
@@ -864,10 +863,13 @@ impl<'a> Scanner<'a> {
         if self.cursor.advance() != Some('"') {
             return TokenKind::Error;
         }
-        while let Some(c) = self.cursor.advance() {
+        loop {
             if self.invalid_utf8_at_cursor() {
                 return TokenKind::Error;
             }
+            let Some(c) = self.cursor.advance() else {
+                return TokenKind::Error;
+            };
             if c != '"' {
                 continue;
             }
@@ -924,7 +926,7 @@ impl<'a> Scanner<'a> {
         let mut stack = vec!['}'];
         loop {
             if self.starts_ascii(b"//") {
-                self.skip_line_comment_for_interpolation();
+                self.skip_line_comment_for_interpolation()?;
                 continue;
             }
             if self.starts_ascii(b"/*") {
@@ -968,15 +970,19 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn skip_line_comment_for_interpolation(&mut self) {
+    fn skip_line_comment_for_interpolation(&mut self) -> Result<(), ()> {
         self.cursor.advance();
         self.cursor.advance();
         while let Some(c) = self.cursor.peek() {
+            if self.invalid_utf8_at_cursor() {
+                return Err(());
+            }
             if c == '\n' {
                 break;
             }
             self.cursor.advance();
         }
+        Ok(())
     }
 
     fn skip_block_comment_for_interpolation(&mut self) -> Result<(), ()> {
@@ -984,6 +990,9 @@ impl<'a> Scanner<'a> {
         self.cursor.advance();
         let mut depth = 1usize;
         while depth > 0 {
+            if self.invalid_utf8_at_cursor() {
+                return Err(());
+            }
             match self.cursor.advance() {
                 Some('/') if self.cursor.peek() == Some('*') => {
                     self.cursor.advance();
@@ -1016,6 +1025,9 @@ impl<'a> Scanner<'a> {
 
     fn skip_quoted_tail(&mut self, quote: char) -> Result<(), ()> {
         loop {
+            if self.invalid_utf8_at_cursor() {
+                return Err(());
+            }
             match self.cursor.advance() {
                 Some(c) if c == quote => return Ok(()),
                 Some('\\') => {
@@ -1038,6 +1050,9 @@ impl<'a> Scanner<'a> {
             return Err(());
         }
         loop {
+            if self.invalid_utf8_at_cursor() {
+                return Err(());
+            }
             match self.cursor.advance() {
                 Some('"') => {
                     let mut h = 0usize;
@@ -1594,9 +1609,6 @@ fn is_hex_digit(c: char) -> bool {
         while self.cursor.peek() == Some('#') {
             self.cursor.advance();
             hashes += 1;
-            if hashes > 255 {
-                return Err(());
-            }
         }
         if self.cursor.advance() != Some('"') {
             return Err(());
