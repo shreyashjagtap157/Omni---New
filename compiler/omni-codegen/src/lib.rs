@@ -286,7 +286,6 @@ pub fn compile_monomorphized_program(
                     builder.ins().trap(cranelift_codegen::ir::TrapCode::UnreachableCodeReached);
                 }
             }
-
         }
 
         for cl_b in cl_blocks.values().copied() {
