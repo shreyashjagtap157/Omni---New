@@ -703,6 +703,96 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_mir_program_rejects_cleanup_edge() {
+        let touch = ast::GenericFnDef {
+            name: "touch".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Unit,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Block(vec![]),
+        };
+        let main = ast::GenericFnDef {
+            name: "main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Unit,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Block(vec![]),
+        };
+
+        let mut tcx = omni_mir::TyCtxt::new();
+        let unit = tcx.intern(omni_mir::TyKind::Unit);
+
+        let mut touch_locals = index_vec::IndexVec::new();
+        let touch_ret = touch_locals.push(omni_mir::ir::LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(unit),
+        });
+        let mut touch_blocks = index_vec::IndexVec::new();
+        touch_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mut main_locals = index_vec::IndexVec::new();
+        let main_ret = main_locals.push(omni_mir::ir::LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(unit),
+        });
+        let mut main_blocks = index_vec::IndexVec::new();
+        main_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Call {
+                func: omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef("touch".to_string())),
+                args: vec![],
+                destination: None,
+                target: omni_mir::ir::BasicBlock::from_usize(1),
+                cleanup: Some(omni_mir::ir::BasicBlock::from_usize(2)),
+            }),
+        });
+        main_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+        main_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mir = omni_mir::ir::MirProgram {
+            tcx,
+            functions: vec![
+                omni_mir::ir::MirFunction {
+                    name: "touch".to_string(),
+                    params: vec![],
+                    return_place: touch_ret,
+                    return_type: ast::TypeSpec::Unit,
+                    body: omni_mir::ir::Body {
+                        blocks: touch_blocks,
+                        local_decls: touch_locals,
+                    },
+                },
+                omni_mir::ir::MirFunction {
+                    name: "main".to_string(),
+                    params: vec![],
+                    return_place: main_ret,
+                    return_type: ast::TypeSpec::Unit,
+                    body: omni_mir::ir::Body { blocks: main_blocks, local_decls: main_locals },
+                },
+            ],
+        };
+
+        let err = compile_mir_program(&MonomorphizedProgram { functions: vec![touch, main] }, &mir)
+            .expect_err("native backend must not erase a MIR cleanup edge");
+        assert!(err.contains("unsupported cleanup/unwind edge"));
+    }
+
+    #[test]
     fn test_compile_monomorphized_program_success() {
         let prog = MonomorphizedProgram {
             functions: vec![ast::GenericFnDef {
