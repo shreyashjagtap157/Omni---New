@@ -270,7 +270,7 @@ impl MirVerifier {
         }
 
         let reachable = Self::reachable_blocks(func, num_blocks);
-        let mut predecessors = vec![Vec::<(BasicBlock, bool)>::new(); num_blocks];
+        let mut predecessors = vec![Vec::<(BasicBlock, Option<Local>)>::new(); num_blocks];
 
         for (idx, block) in func.body.blocks.iter().enumerate() {
             if !reachable[idx] {
@@ -278,17 +278,17 @@ impl MirVerifier {
             }
             let from = BasicBlock::from_usize(idx);
             match block.terminator.as_ref().expect("structural terminator already verified") {
-                Terminator::Goto(target) => predecessors[target.index()].push((from, false)),
+                Terminator::Goto(target) => predecessors[target.index()].push((from, None)),
                 Terminator::SwitchInt { targets, otherwise, .. } => {
                     for (_, target) in targets {
-                        predecessors[target.index()].push((from, false));
+                        predecessors[target.index()].push((from, None));
                     }
-                    predecessors[otherwise.index()].push((from, false));
+                    predecessors[otherwise.index()].push((from, None));
                 }
                 Terminator::Call { target, cleanup, destination, .. } => {
-                    predecessors[target.index()].push((from, destination.is_some()));
+                    predecessors[target.index()].push((from, destination.map(|place| place.local)));
                     if let Some(cleanup) = cleanup {
-                        predecessors[cleanup.index()].push((from, false));
+                        predecessors[cleanup.index()].push((from, None));
                     }
                 }
                 Terminator::Return | Terminator::Unreachable => {}
@@ -319,8 +319,12 @@ impl MirVerifier {
                 }
 
                 let mut new_in = all_locals.clone();
-                for (pred, _) in preds {
-                    new_in.retain(|local| out_sets[pred.index()].contains(local));
+                for (pred, edge_assignment) in preds {
+                    let mut pred_out = out_sets[pred.index()].clone();
+                    if let Some(local) = edge_assignment {
+                        pred_out.insert(*local);
+                    }
+                    new_in.retain(|local| pred_out.contains(local));
                 }
                 let new_out = Self::transfer_block(func, block, &new_in);
 
