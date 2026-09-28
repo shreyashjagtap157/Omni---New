@@ -152,3 +152,69 @@ The foundation sequence `OMNI-IMP-0.0.0.1` through `OMNI-IMP-0.0.0.13` establish
 - The normative specification under `spec/` and the final micro-atomic implementation master plan remain the authoritative sources for language semantics and milestone ordering.
 - Changelog entries distinguish qualified repository work from work that is still pending qualification or has not been released.
 - No published release or `0.0.0.13` tag is implied by these entries.
+
+### 0.0.2.1 - Grammar reconciliation
+
+The Candidate 2 Vibe-First amendment is reconciled against the bound Edition 1
+EBNF in `docs/grammar-reconciliation.md`. The outcome is that the EBNF is
+**not** edited: the amendment's erratum overlay is `status: pre-release` with
+`signature_state: pending` and declares `implementation_impact: "none"`, so
+`REL-0007` does not permit applying it; `GRAM-0003` admits the newline exception
+only under a Candidate 2 feature gate that is not enabled; and `spec/grammar/`
+is inside `omni_canon::INCLUDED_DIRS`, so any edit would rebind
+`spec_tree_sha256` in both the manifest and the Foundation gate, while a new
+file there fails the gate closed as an undeclared artifact. `ROOT-0002` forbids
+resolving the conflict by implementation fiat.
+
+- Eleven conflicts between `VIBE-GRAM-0001`..`0007` and the in-force Edition 1
+  rules are inventoried, each mapped to the EBNF production it affects, with the
+  five policy actions required before the amendment can take effect.
+- The Edition 1 productions the parser does not yet implement are recorded, so
+  the 0.0.2.3 scope is explicit: `block_expr`, most binary operators,
+  `struct_def`/`enum_def` bodies, `if`, `match`, `loop`, `while`, `for`,
+  closures, arrays, tuples, and indexing.
+- The grammar that is actually in force is now pinned by tests in
+  `compiler/omni-parse/src/grammar_contract.rs`, each assertion citing its rule,
+  so the parser cannot drift toward Candidate 2 behaviour before the gate is
+  enabled.
+
+### Parser: fixed token loss during error recovery
+
+`Parser::synchronize_top` and `Parser::recover_until` advanced the token
+position without recording the tokens they skipped, so malformed input lost
+source text: `"fn main( { return 1; }"` reconstructed as `"fn main( { "`. This
+broke the CST's defining `parse(source).text() == source` invariant, and the
+existing recovery test only asserted that the text was non-empty, so it went
+unnoticed. Both helpers now return the skipped indices and callers attach them
+to an `ErrorNode`, which also gives recovery the `GRAM-0007` recovery-only tag
+it previously lacked. Nine tests added, including a sixteen-input recovery
+round-trip matrix and a check that round-tripping is not achieved by accepting
+everything.
+### Dependency maintenance: Dependabot PRs closed deliberately
+
+The five open Dependabot PRs were reviewed and closed with a recorded rationale
+rather than merged or left to rot, per the smallest-change rule in
+`docs/toolchain-qualification.md`.
+
+- **#27 `cranelift-codegen` 0.110.3 -> 0.136.1** and **#28 `cranelift-object`
+  0.110.3 -> 0.135.3**: the four cranelift crates are pinned at a single `0.110`
+  and release in lockstep, so either bump alone would split the family across
+  incompatible versions, and neither proposes the matching `cranelift-frontend`
+  or `cranelift-module` bump. The `Rust` workflow also fails. This needs one
+  coordinated four-crate migration with its own qualification.
+- **#30 `target-lexicon` 0.12.16 -> 0.13.5**: a transitive dependency of the
+  pinned cranelift 0.110 stack, which declares the 0.12 series. `Rust` fails.
+  It should move only with the cranelift migration.
+- **#29 `sha2` 0.10.9 -> 0.11.0**: CI is green, but `sha2` produces the
+  `spec_tree_sha256` and `plan_sha256` release identity recorded in the manifest
+  and the Foundation gate. A major bump of the digest primitive is a change to
+  release identity and belongs in a dedicated pass that re-verifies every
+  recorded digest, not in routine maintenance.
+- **#31 `object` 0.36.7 -> 0.40.0**: a major API change in the native
+  object-emission path used by `omni-codegen`. `Rust` fails. It belongs with
+  native-backend hardening.
+
+No dependency version is changed by this work; `Cargo.lock` still matches
+`Cargo.toml` and the Foundation gate digest is unchanged. Dependabot will
+re-propose against the current `main`, at which point the cranelift migration
+can be scheduled as its own qualified task.
