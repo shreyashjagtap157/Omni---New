@@ -382,7 +382,6 @@ fn compile_mir_program(
 
         builder.seal_all_blocks();
 
-
         module
             .define_function(func_id, &mut ctx)
             .map_err(|e| format!("Function definition error: {}", e))?;
@@ -393,9 +392,7 @@ fn compile_mir_program(
     let mut buffer = Vec::new();
     product.object.emit(&mut buffer).map_err(|e| format!("Object emission error: {}", e))?;
     Ok(buffer)
-
 }
-
 
 fn lower_operand_to_cl(
     builder: &mut FunctionBuilder,
