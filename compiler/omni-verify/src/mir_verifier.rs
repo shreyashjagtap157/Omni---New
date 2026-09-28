@@ -393,7 +393,8 @@ impl MirVerifier {
             }
         }
 
-        let all_locals = (0..func.body.local_decls.len()).map(Local::from_usize).collect();
+        let all_locals =
+            (0..func.body.local_decls.len()).map(Local::from_usize).collect::<HashSet<Local>>();
         let mut in_sets = vec![all_locals.clone(); num_blocks];
         let mut out_sets = vec![all_locals.clone(); num_blocks];
         let entry = BasicBlock::from_usize(0);
