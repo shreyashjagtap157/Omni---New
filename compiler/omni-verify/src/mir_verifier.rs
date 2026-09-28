@@ -6,8 +6,11 @@
 //! 4. Parameter and return local indices strictly match `MirFunction` signature parameters.
 
 use omni_mir::ir::{
-    BasicBlock, Local, MirFunction, MirProgram, Operand, Place, Statement, Terminator,
+    BasicBlock, BinOp, Constant, Local, MirFunction, MirProgram, Operand, Place, Rvalue, Statement,
+    Terminator, UnOp,
 };
+use omni_types::checker::SubstEnv;
+use omni_types::intern::{Ty, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MirVerificationError {
@@ -17,6 +20,25 @@ pub enum MirVerificationError {
     InvalidReturnPlace { func: String, expected: Local, actual: Local },
     InvalidParamLocal { func: String, param_index: usize, local: Local },
     EmptyFunctionBody { func: String },
+    TypeMismatch { func: String, context: String, expected: Ty, actual: Ty },
+    InvalidUnaryOperand { func: String, op: UnOp, expected: Ty, actual: Ty },
+    InvalidCallCallee { func: String },
+    UnknownFunction { func: String, callee: String },
+    CallArityMismatch {
+        func: String,
+        callee: String,
+        expected: usize,
+        actual: usize,
+    },
+    CallArgumentTypeMismatch {
+        func: String,
+        callee: String,
+        arg_index: usize,
+        expected: Ty,
+        actual: Ty,
+    },
+    CallDestinationRequired { func: String, callee: String },
+    CallDestinationUnexpected { func: String, callee: String },
 }
 
 impl std::fmt::Display for MirVerificationError {
@@ -52,6 +74,52 @@ impl std::fmt::Display for MirVerificationError {
                     func
                 )
             }
+            Self::TypeMismatch { func, context, expected, actual } => write!(
+                f,
+                "MIR Verification Failure in '{}': {} (expected {:?}, found {:?})",
+                func, context, expected, actual
+            ),
+            Self::InvalidUnaryOperand { func, op, expected, actual } => write!(
+                f,
+                "MIR Verification Failure in '{}': unary {:?} expects {:?}, found {:?}",
+                func, op, expected, actual
+            ),
+            Self::InvalidCallCallee { func } => write!(
+                f,
+                "MIR Verification Failure in '{}': call callee is not a direct function reference",
+                func
+            ),
+            Self::UnknownFunction { func, callee } => write!(
+                f,
+                "MIR Verification Failure in '{}': call targets unknown function '{}'",
+                func, callee
+            ),
+            Self::CallArityMismatch { func, callee, expected, actual } => write!(
+                f,
+                "MIR Verification Failure in '{}': call '{}' expects {} arguments, found {}",
+                func, callee, expected, actual
+            ),
+            Self::CallArgumentTypeMismatch {
+                func,
+                callee,
+                arg_index,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "MIR Verification Failure in '{}': call '{}' argument {} has type {:?}, expected {:?}",
+                func, callee, arg_index, actual, expected
+            ),
+            Self::CallDestinationRequired { func, callee } => write!(
+                f,
+                "MIR Verification Failure in '{}': value-returning call '{}' requires a destination",
+                func, callee
+            ),
+            Self::CallDestinationUnexpected { func, callee } => write!(
+                f,
+                "MIR Verification Failure in '{}': Unit-returning call '{}' must not have a destination",
+                func, callee
+            ),
         }
     }
 }
@@ -61,12 +129,15 @@ pub struct MirVerifier;
 impl MirVerifier {
     pub fn verify_program(prog: &MirProgram) -> Result<(), MirVerificationError> {
         for func in &prog.functions {
-            Self::verify_function(func)?;
+            Self::verify_function(prog, func)?;
         }
         Ok(())
     }
 
-    pub fn verify_function(func: &MirFunction) -> Result<(), MirVerificationError> {
+    pub fn verify_function(
+        prog: &MirProgram,
+        func: &MirFunction,
+    ) -> Result<(), MirVerificationError> {
         let fn_name = &func.name;
 
         if func.body.blocks.is_empty() {
@@ -82,6 +153,22 @@ impl MirVerifier {
             });
         }
         if func.body.local_decls[func.return_place].ty.is_none() {
+            return Err(MirVerificationError::InvalidReturnPlace {
+                func: fn_name.clone(),
+                expected: func.return_place,
+                actual: func.return_place,
+            });
+        }
+        let actual_return = func.body.local_decls[func.return_place].ty.unwrap();
+        let expected_return = Self::spec_type(prog, &func.return_type);
+        if actual_return != expected_return {
+            return Err(MirVerificationError::TypeMismatch {
+                func: fn_name.clone(),
+                context: "return place type differs from function return type".to_string(),
+                expected: expected_return,
+                actual: actual_return,
+            });
+        }
             return Err(MirVerificationError::InvalidReturnPlace {
                 func: fn_name.clone(),
                 expected: func.return_place,
@@ -114,17 +201,14 @@ impl MirVerifier {
                     Statement::Assign(place, rval) => {
                         Self::check_place(fn_name, place, num_locals)?;
                         match rval {
-                            omni_mir::ir::Rvalue::Use(op) => {
-                                Self::check_operand(fn_name, op, num_locals)?
-                            }
-                            omni_mir::ir::Rvalue::BinaryOp(_, op1, op2) => {
+                            Rvalue::Use(op) => Self::check_operand(fn_name, op, num_locals)?,
+                            Rvalue::BinaryOp(_, op1, op2) => {
                                 Self::check_operand(fn_name, op1, num_locals)?;
                                 Self::check_operand(fn_name, op2, num_locals)?;
                             }
-                            omni_mir::ir::Rvalue::UnaryOp(_, op) => {
-                                Self::check_operand(fn_name, op, num_locals)?
-                            }
+                            Rvalue::UnaryOp(_, op) => Self::check_operand(fn_name, op, num_locals)?,
                         }
+                        Self::check_rvalue_type(prog, func, place, rval)?;
                     }
                     Statement::Assume(_) => {}
                     Statement::Drop(place) => Self::check_place(fn_name, place, num_locals)?,
@@ -163,10 +247,225 @@ impl MirVerifier {
             }
         }
 
+        Self::check_calls(prog, func)?;
         Ok(())
     }
 
+    fn check_rvalue_type(
+        prog: &MirProgram,
+        func: &MirFunction,
+        destination: &Place,
+        rvalue: &Rvalue,
+    ) -> Result<(), MirVerificationError> {
+        let mut tcx = prog.tcx.clone();
+        let actual = Self::rvalue_type(&mut tcx, func, rvalue)?;
+        let expected = Self::local_ty(func, destination.local, &func.name)?;
+        if actual != expected {
+            return Err(MirVerificationError::TypeMismatch {
+                func: func.name.clone(),
+                context: format!("assignment to local {:?}", destination.local),
+                expected,
+                actual,
+            });
+        }
+        Ok(())
+    }
+
+    fn rvalue_type(
+        tcx: &mut omni_types::intern::TyCtxt,
+        func: &MirFunction,
+        rvalue: &Rvalue,
+    ) -> Result<Ty, MirVerificationError> {
+        match rvalue {
+            Rvalue::Use(op) => Self::operand_type(tcx, func, op),
+            Rvalue::BinaryOp(op, lhs, rhs) => {
+                let lhs_ty = Self::operand_type(tcx, func, lhs)?;
+                let rhs_ty = Self::operand_type(tcx, func, rhs)?;
+                if lhs_ty != rhs_ty {
+                    return Err(MirVerificationError::TypeMismatch {
+                        func: func.name.clone(),
+                        context: "binary operands have incompatible types".to_string(),
+                        expected: lhs_ty,
+                        actual: rhs_ty,
+                    });
+                }
+                Ok(match op {
+                    BinOp::Eq
+                    | BinOp::Ne
+                    | BinOp::Lt
+                    | BinOp::Gt
+                    | BinOp::Le
+                    | BinOp::Ge => tcx.intern(TyKind::Bool),
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => lhs_ty,
+                })
+            }
+            Rvalue::UnaryOp(op, operand) => {
+                let actual = Self::operand_type(tcx, func, operand)?;
+                let expected = match op {
+                    UnOp::Neg => tcx.intern(TyKind::Int),
+                    UnOp::Not => tcx.intern(TyKind::Bool),
+                };
+                if actual != expected {
+                    return Err(MirVerificationError::InvalidUnaryOperand {
+                        func: func.name.clone(),
+                        op: *op,
+                        expected,
+                        actual,
+                    });
+                }
+                Ok(expected)
+            }
+        }
+    }
+
+    fn operand_type(
+        tcx: &mut omni_types::intern::TyCtxt,
+        func: &MirFunction,
+        operand: &Operand,
+    ) -> Result<Ty, MirVerificationError> {
+        match operand {
+            Operand::Copy(place) | Operand::Move(place) => {
+                Self::local_ty(func, place.local, &func.name)
+            }
+            Operand::Constant(Constant::Lit(lit)) => Ok(Self::literal_type(tcx, lit)),
+            Operand::Constant(Constant::FnRef(_)) => Err(MirVerificationError::InvalidCallCallee {
+                func: func.name.clone(),
+            }),
+        }
+    }
+
+    fn literal_type(tcx: &mut omni_types::intern::TyCtxt, lit: &omni_mir::ast::Lit) -> Ty {
+        match lit {
+            omni_mir::ast::Lit::Int(_) => tcx.intern(TyKind::Int),
+            omni_mir::ast::Lit::Float(_) => tcx.intern(TyKind::Float),
+            omni_mir::ast::Lit::Bool(_) => tcx.intern(TyKind::Bool),
+            omni_mir::ast::Lit::Char(_) => tcx.intern(TyKind::Char),
+            omni_mir::ast::Lit::Byte(_) => tcx.intern(TyKind::Byte),
+            omni_mir::ast::Lit::String(_) => tcx.intern(TyKind::String),
+        }
+    }
+
+    fn local_ty(
+        func: &MirFunction,
+        local: Local,
+        fn_name: &str,
+    ) -> Result<Ty, MirVerificationError> {
+        if local.index() >= func.body.local_decls.len() {
+            return Err(MirVerificationError::UndefinedLocal {
+                func: fn_name.to_string(),
+                local,
+            });
+        }
+        func.body.local_decls[local]
+            .ty
+            .ok_or_else(|| MirVerificationError::InvalidParamLocal {
+                func: fn_name.to_string(),
+                param_index: usize::MAX,
+                local,
+            })
+    }
+
+    fn spec_type(prog: &MirProgram, spec: &omni_mir::ast::TypeSpec) -> Ty {
+        let mut tcx = prog.tcx.clone();
+        tcx.lower_type_spec(spec, &SubstEnv::new())
+    }
+
+    fn check_calls(
+        prog: &MirProgram,
+        func: &MirFunction,
+    ) -> Result<(), MirVerificationError> {
+        for block in func.body.blocks.iter() {
+            let Some(Terminator::Call { func: callee, args, destination, .. }) =
+                block.terminator.as_ref()
+            else {
+                continue;
+            };
+
+            let callee_name = match callee {
+                Operand::Constant(Constant::FnRef(name)) => name,
+                _ => {
+                    return Err(MirVerificationError::InvalidCallCallee {
+                        func: func.name.clone(),
+                    })
+                }
+            };
+
+            let target = prog
+                .functions
+                .iter()
+                .find(|candidate| candidate.name == *callee_name)
+                .ok_or_else(|| MirVerificationError::UnknownFunction {
+                    func: func.name.clone(),
+                    callee: callee_name.clone(),
+                })?;
+
+            if args.len() != target.params.len() {
+                return Err(MirVerificationError::CallArityMismatch {
+                    func: func.name.clone(),
+                    callee: callee_name.clone(),
+                    expected: target.params.len(),
+                    actual: args.len(),
+                });
+            }
+
+            let mut tcx = prog.tcx.clone();
+            for (arg_index, (arg, param)) in args.iter().zip(&target.params).enumerate() {
+                let actual = Self::operand_type(&mut tcx, func, arg)?;
+                let expected = Self::local_ty(target, *param, &target.name)?;
+                if actual != expected {
+                    return Err(MirVerificationError::CallArgumentTypeMismatch {
+                        func: func.name.clone(),
+                        callee: callee_name.clone(),
+                        arg_index,
+                        expected,
+                        actual,
+                    });
+                }
+            }
+
+            let return_ty = Self::local_ty(target, target.return_place, &target.name)?;
+            let unit_ty = tcx.intern(TyKind::Unit);
+            match (return_ty == unit_ty, destination) {
+                (true, None) => {}
+                (true, Some(_)) => {
+                    return Err(MirVerificationError::CallDestinationUnexpected {
+                        func: func.name.clone(),
+                        callee: callee_name.clone(),
+                    })
+                }
+                (false, None) => {
+                    return Err(MirVerificationError::CallDestinationRequired {
+                        func: func.name.clone(),
+                        callee: callee_name.clone(),
+                    })
+                }
+                (false, Some(place)) => {
+                    let destination_ty = Self::local_ty(func, place.local, &func.name)?;
+                    if destination_ty != return_ty {
+                        return Err(MirVerificationError::TypeMismatch {
+                            func: func.name.clone(),
+                            context: format!("call '{}' destination type", callee_name),
+                            expected: return_ty,
+                            actual: destination_ty,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn operand_structure_type(
+        prog: &MirProgram,
+        func: &MirFunction,
+        operand: &Operand,
+    ) -> Result<Ty, MirVerificationError> {
+        let mut tcx = prog.tcx.clone();
+        Self::operand_type(&mut tcx, func, operand)
+    }
+
     fn check_place(
+
         func: &str,
         place: &Place,
         num_locals: usize,
