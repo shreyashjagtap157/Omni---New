@@ -535,13 +535,11 @@ mod tests {
         let mut tcx = omni_types::TyCtxt::new();
         let int = tcx.intern(omni_types::TyKind::Int);
 
-        let ret = {
-            let mut locals = index_vec::IndexVec::new();
-            locals.push(omni_mir::ir::LocalDecl {
-                name: Some("_return".to_string()),
-                ty: Some(int),
-            })
-        };
+        let mut locals = index_vec::IndexVec::new();
+        let ret = locals.push(omni_mir::ir::LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
 
         let mut blocks = index_vec::IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
