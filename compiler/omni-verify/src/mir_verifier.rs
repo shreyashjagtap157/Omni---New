@@ -37,6 +37,16 @@ pub enum MirVerificationError {
         param_index: usize,
         local: Local,
     },
+    DuplicateParamLocal {
+        func: String,
+        param_index: usize,
+        local: Local,
+    },
+    ParamAliasesReturnPlace {
+        func: String,
+        param_index: usize,
+        local: Local,
+    },
     EmptyFunctionBody {
         func: String,
     },
@@ -131,6 +141,20 @@ impl std::fmt::Display for MirVerificationError {
                 write!(
                     f,
                     "MIR Verification Failure in '{}': Parameter {} maps to undefined local {:?}",
+                    func, param_index, local
+                )
+            }
+            Self::DuplicateParamLocal { func, param_index, local } => {
+                write!(
+                    f,
+                    "MIR Verification Failure in '{}': Parameter {} duplicates parameter local {:?}",
+                    func, param_index, local
+                )
+            }
+            Self::ParamAliasesReturnPlace { func, param_index, local } => {
+                write!(
+                    f,
+                    "MIR Verification Failure in '{}': Parameter {} aliases return place {:?}",
                     func, param_index, local
                 )
             }
@@ -290,12 +314,28 @@ impl MirVerifier {
             });
         }
 
-        // Validate parameter locals exist and are typed
+        // Validate parameter-local topology: every parameter must be a unique,
+        // typed local distinct from the function's dedicated return place.
+        let mut parameter_locals = HashSet::new();
         for (idx, &param_local) in func.params.iter().enumerate() {
             if param_local.index() >= func.body.local_decls.len()
                 || func.body.local_decls[param_local].ty.is_none()
             {
                 return Err(MirVerificationError::InvalidParamLocal {
+                    func: fn_name.clone(),
+                    param_index: idx,
+                    local: param_local,
+                });
+            }
+            if param_local == func.return_place {
+                return Err(MirVerificationError::ParamAliasesReturnPlace {
+                    func: fn_name.clone(),
+                    param_index: idx,
+                    local: param_local,
+                });
+            }
+            if !parameter_locals.insert(param_local) {
+                return Err(MirVerificationError::DuplicateParamLocal {
                     func: fn_name.clone(),
                     param_index: idx,
                     local: param_local,
@@ -921,6 +961,68 @@ mod tests {
         };
 
         assert!(MirVerifier::verify_program(&prog).is_ok());
+    }
+
+    #[test]
+    fn test_verifier_rejects_duplicate_parameter_local() {
+        let mut local_decls = IndexVec::new();
+        let ret_l =
+            local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: Some(omni_mir::Ty(1)) });
+        let param_l =
+            local_decls.push(LocalDecl { name: Some("x".to_string()), ty: Some(omni_mir::Ty(1)) });
+
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place { local: ret_l },
+                Rvalue::Use(Operand::Copy(Place { local: param_l })),
+            )],
+            terminator: Some(Terminator::Return),
+        });
+
+        let prog = MirProgram {
+            tcx: int_context(),
+            functions: vec![MirFunction {
+                name: "duplicate_params".to_string(),
+                params: vec![param_l, param_l],
+                return_place: ret_l,
+                return_type: omni_mir::ast::TypeSpec::Int,
+                body: Body { blocks, local_decls },
+            }],
+        };
+
+        let res = MirVerifier::verify_program(&prog);
+        assert!(matches!(res, Err(MirVerificationError::DuplicateParamLocal { .. })));
+    }
+
+    #[test]
+    fn test_verifier_rejects_parameter_aliasing_return_place() {
+        let mut unit_tcx = TyCtxt::new();
+        let unit = unit_tcx.intern(TyKind::Unit);
+
+        let mut local_decls = IndexVec::new();
+        let shared =
+            local_decls.push(LocalDecl { name: Some("shared".to_string()), ty: Some(unit) });
+
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![],
+            terminator: Some(Terminator::Return),
+        });
+
+        let prog = MirProgram {
+            tcx: unit_tcx,
+            functions: vec![MirFunction {
+                name: "param_return_alias".to_string(),
+                params: vec![shared],
+                return_place: shared,
+                return_type: omni_mir::ast::TypeSpec::Unit,
+                body: Body { blocks, local_decls },
+            }],
+        };
+
+        let res = MirVerifier::verify_program(&prog);
+        assert!(matches!(res, Err(MirVerificationError::ParamAliasesReturnPlace { .. })));
     }
 
     #[test]
