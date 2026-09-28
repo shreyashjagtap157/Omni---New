@@ -16,19 +16,62 @@ use omni_types::intern::{Ty, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MirVerificationError {
-    UndefinedLocal { func: String, local: Local },
-    UndefinedBlock { func: String, block: BasicBlock },
-    UnterminatedBlock { func: String, block: BasicBlock },
-    InvalidReturnPlace { func: String, expected: Local, actual: Local },
-    InvalidParamLocal { func: String, param_index: usize, local: Local },
-    EmptyFunctionBody { func: String },
-    DuplicateFunction { func: String },
-    UntypedLocal { func: String, local: Local },
-    InvalidTypeHandle { func: String, local: Local, ty: Ty },
-    TypeMismatch { func: String, context: String, expected: Ty, actual: Ty },
-    InvalidUnaryOperand { func: String, op: UnOp, expected: Ty, actual: Ty },
-    InvalidCallCallee { func: String },
-    UnknownFunction { func: String, callee: String },
+    UndefinedLocal {
+        func: String,
+        local: Local,
+    },
+    UndefinedBlock {
+        func: String,
+        block: BasicBlock,
+    },
+    UnterminatedBlock {
+        func: String,
+        block: BasicBlock,
+    },
+    InvalidReturnPlace {
+        func: String,
+        expected: Local,
+        actual: Local,
+    },
+    InvalidParamLocal {
+        func: String,
+        param_index: usize,
+        local: Local,
+    },
+    EmptyFunctionBody {
+        func: String,
+    },
+    DuplicateFunction {
+        func: String,
+    },
+    UntypedLocal {
+        func: String,
+        local: Local,
+    },
+    InvalidTypeHandle {
+        func: String,
+        local: Local,
+        ty: Ty,
+    },
+    TypeMismatch {
+        func: String,
+        context: String,
+        expected: Ty,
+        actual: Ty,
+    },
+    InvalidUnaryOperand {
+        func: String,
+        op: UnOp,
+        expected: Ty,
+        actual: Ty,
+    },
+    InvalidCallCallee {
+        func: String,
+    },
+    UnknownFunction {
+        func: String,
+        callee: String,
+    },
     CallArityMismatch {
         func: String,
         callee: String,
@@ -42,10 +85,24 @@ pub enum MirVerificationError {
         expected: Ty,
         actual: Ty,
     },
-    CallDestinationRequired { func: String, callee: String },
-    CallDestinationUnexpected { func: String, callee: String },
-    UseBeforeAssignment { func: String, block: BasicBlock, local: Local },
-    UninitializedReturn { func: String, block: BasicBlock, local: Local },
+    CallDestinationRequired {
+        func: String,
+        callee: String,
+    },
+    CallDestinationUnexpected {
+        func: String,
+        callee: String,
+    },
+    UseBeforeAssignment {
+        func: String,
+        block: BasicBlock,
+        local: Local,
+    },
+    UninitializedReturn {
+        func: String,
+        block: BasicBlock,
+        local: Local,
+    },
 }
 
 impl std::fmt::Display for MirVerificationError {
@@ -159,9 +216,7 @@ impl MirVerifier {
         let mut function_names = HashSet::new();
         for func in &prog.functions {
             if !function_names.insert(func.name.as_str()) {
-                return Err(MirVerificationError::DuplicateFunction {
-                    func: func.name.clone(),
-                });
+                return Err(MirVerificationError::DuplicateFunction { func: func.name.clone() });
             }
         }
         for func in &prog.functions {
@@ -182,12 +237,10 @@ impl MirVerifier {
 
         for (index, local_decl) in func.body.local_decls.iter().enumerate() {
             let local = Local::from_usize(index);
-            let ty = local_decl
-                .ty
-                .ok_or_else(|| MirVerificationError::UntypedLocal {
-                    func: fn_name.clone(),
-                    local,
-                })?;
+            let ty = local_decl.ty.ok_or_else(|| MirVerificationError::UntypedLocal {
+                func: fn_name.clone(),
+                local,
+            })?;
             if !prog.tcx.contains(ty) {
                 return Err(MirVerificationError::InvalidTypeHandle {
                     func: fn_name.clone(),
@@ -212,13 +265,13 @@ impl MirVerifier {
                 actual: func.return_place,
             });
         }
-        let actual_return = func.body.local_decls[func.return_place]
-            .ty
-            .ok_or_else(|| MirVerificationError::InvalidReturnPlace {
+        let actual_return = func.body.local_decls[func.return_place].ty.ok_or_else(|| {
+            MirVerificationError::InvalidReturnPlace {
                 func: fn_name.clone(),
                 expected: func.return_place,
                 actual: func.return_place,
-            })?;
+            }
+        })?;
         let expected_return = Self::spec_type(prog, &func.return_type);
         if actual_return != expected_return {
             return Err(MirVerificationError::TypeMismatch {
@@ -340,9 +393,8 @@ impl MirVerifier {
             }
         }
 
-        let all_locals: HashSet<Local> = (0..func.body.local_decls.len())
-            .map(Local::from_usize)
-            .collect();
+        let all_locals =
+            (0..func.body.local_decls.len()).map(Local::from_usize).collect();
         let mut in_sets = vec![all_locals.clone(); num_blocks];
         let mut out_sets = vec![all_locals.clone(); num_blocks];
         let entry = BasicBlock::from_usize(0);
@@ -534,11 +586,7 @@ impl MirVerifier {
         if assigned.contains(&local) {
             Ok(())
         } else {
-            Err(MirVerificationError::UseBeforeAssignment {
-                func: func.name.clone(),
-                block,
-                local,
-            })
+            Err(MirVerificationError::UseBeforeAssignment { func: func.name.clone(), block, local })
         }
     }
 
@@ -581,12 +629,9 @@ impl MirVerifier {
                     });
                 }
                 Ok(match op {
-                    BinOp::Eq
-                    | BinOp::Ne
-                    | BinOp::Lt
-                    | BinOp::Gt
-                    | BinOp::Le
-                    | BinOp::Ge => tcx.intern(TyKind::Bool),
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+                        tcx.intern(TyKind::Bool)
+                    }
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => lhs_ty,
                 })
             }
@@ -619,9 +664,9 @@ impl MirVerifier {
                 Self::local_ty(func, place.local, &func.name)
             }
             Operand::Constant(Constant::Lit(lit)) => Ok(Self::literal_type(tcx, lit)),
-            Operand::Constant(Constant::FnRef(_)) => Err(MirVerificationError::InvalidCallCallee {
-                func: func.name.clone(),
-            }),
+            Operand::Constant(Constant::FnRef(_)) => {
+                Err(MirVerificationError::InvalidCallCallee { func: func.name.clone() })
+            }
         }
     }
 
@@ -642,18 +687,13 @@ impl MirVerifier {
         fn_name: &str,
     ) -> Result<Ty, MirVerificationError> {
         if local.index() >= func.body.local_decls.len() {
-            return Err(MirVerificationError::UndefinedLocal {
-                func: fn_name.to_string(),
-                local,
-            });
+            return Err(MirVerificationError::UndefinedLocal { func: fn_name.to_string(), local });
         }
-        func.body.local_decls[local]
-            .ty
-            .ok_or_else(|| MirVerificationError::InvalidParamLocal {
-                func: fn_name.to_string(),
-                param_index: usize::MAX,
-                local,
-            })
+        func.body.local_decls[local].ty.ok_or_else(|| MirVerificationError::InvalidParamLocal {
+            func: fn_name.to_string(),
+            param_index: usize::MAX,
+            local,
+        })
     }
 
     fn spec_type(prog: &MirProgram, spec: &omni_mir::ast::TypeSpec) -> Ty {
@@ -661,10 +701,7 @@ impl MirVerifier {
         tcx.lower_type_spec(spec, &SubstEnv::new())
     }
 
-    fn check_calls(
-        prog: &MirProgram,
-        func: &MirFunction,
-    ) -> Result<(), MirVerificationError> {
+    fn check_calls(prog: &MirProgram, func: &MirFunction) -> Result<(), MirVerificationError> {
         for block in func.body.blocks.iter() {
             let Some(Terminator::Call { func: callee, args, destination, .. }) =
                 block.terminator.as_ref()
@@ -675,20 +712,17 @@ impl MirVerifier {
             let callee_name = match callee {
                 Operand::Constant(Constant::FnRef(name)) => name,
                 _ => {
-                    return Err(MirVerificationError::InvalidCallCallee {
-                        func: func.name.clone(),
-                    })
+                    return Err(MirVerificationError::InvalidCallCallee { func: func.name.clone() })
                 }
             };
 
-            let target = prog
-                .functions
-                .iter()
-                .find(|candidate| candidate.name == *callee_name)
-                .ok_or_else(|| MirVerificationError::UnknownFunction {
-                    func: func.name.clone(),
-                    callee: callee_name.clone(),
-                })?;
+            let target =
+                prog.functions.iter().find(|candidate| candidate.name == *callee_name).ok_or_else(
+                    || MirVerificationError::UnknownFunction {
+                        func: func.name.clone(),
+                        callee: callee_name.clone(),
+                    },
+                )?;
 
             if args.len() != target.params.len() {
                 return Err(MirVerificationError::CallArityMismatch {
@@ -747,7 +781,6 @@ impl MirVerifier {
     }
 
     fn check_place(
-
         func: &str,
         place: &Place,
         num_locals: usize,
@@ -872,22 +905,15 @@ mod tests {
             (tcx, int, bool_ty)
         };
         let mut local_decls = IndexVec::new();
-        let ret = local_decls.push(LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
+        let ret = local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
                 Place { local: ret },
                 Rvalue::BinaryOp(
                     omni_mir::ir::BinOp::Eq,
-                    Operand::Constant(omni_mir::ir::Constant::Lit(
-                        omni_mir::ast::Lit::Int(1),
-                    )),
-                    Operand::Constant(omni_mir::ir::Constant::Lit(
-                        omni_mir::ast::Lit::Int(2),
-                    )),
+                    Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(1))),
+                    Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(2))),
                 ),
             )],
             terminator: Some(Terminator::Return),
@@ -916,10 +942,7 @@ mod tests {
         let int = tcx.intern(omni_types::intern::TyKind::Int);
         let ret = {
             let mut locals = IndexVec::new();
-            locals.push(LocalDecl {
-                name: Some("_return".to_string()),
-                ty: Some(int),
-            })
+            locals.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) })
         };
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
@@ -927,9 +950,7 @@ mod tests {
                 Place { local: ret },
                 Rvalue::UnaryOp(
                     omni_mir::ir::UnOp::Not,
-                    Operand::Constant(omni_mir::ir::Constant::Lit(
-                        omni_mir::ast::Lit::Int(1),
-                    )),
+                    Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(1))),
                 ),
             )],
             terminator: Some(Terminator::Return),
@@ -945,10 +966,7 @@ mod tests {
                     blocks,
                     local_decls: {
                         let mut locals = IndexVec::new();
-                        locals.push(LocalDecl {
-                            name: Some("_return".to_string()),
-                            ty: Some(int),
-                        });
+                        locals.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
                         locals
                     },
                 },
@@ -966,19 +984,13 @@ mod tests {
         let int = tcx.intern(omni_types::intern::TyKind::Int);
 
         let mut caller_locals = IndexVec::new();
-        let caller_ret = caller_locals.push(LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
+        let caller_ret =
+            caller_locals.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
         let mut callee_locals = IndexVec::new();
-        let callee_ret = callee_locals.push(LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
-        let callee_param = callee_locals.push(LocalDecl {
-            name: Some("x".to_string()),
-            ty: Some(int),
-        });
+        let callee_ret =
+            callee_locals.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
+        let callee_param =
+            callee_locals.push(LocalDecl { name: Some("x".to_string()), ty: Some(int) });
 
         let mut caller_blocks = IndexVec::new();
         caller_blocks.push(BlockData {
@@ -1018,20 +1030,14 @@ mod tests {
                     params: vec![],
                     return_place: caller_ret,
                     return_type: omni_mir::ast::TypeSpec::Int,
-                    body: Body {
-                        blocks: caller_blocks,
-                        local_decls: caller_locals,
-                    },
+                    body: Body { blocks: caller_blocks, local_decls: caller_locals },
                 },
                 MirFunction {
                     name: "inc".to_string(),
                     params: vec![callee_param],
                     return_place: callee_ret,
                     return_type: omni_mir::ast::TypeSpec::Int,
-                    body: Body {
-                        blocks: callee_blocks,
-                        local_decls: callee_locals,
-                    },
+                    body: Body { blocks: callee_blocks, local_decls: callee_locals },
                 },
             ],
         };
@@ -1077,14 +1083,8 @@ mod tests {
         let mut tcx = TyCtxt::new();
         let int = tcx.intern(omni_types::intern::TyKind::Int);
         let mut local_decls = IndexVec::new();
-        let ret = local_decls.push(LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
-        let tmp = local_decls.push(LocalDecl {
-            name: Some("tmp".to_string()),
-            ty: Some(int),
-        });
+        let ret = local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
+        let tmp = local_decls.push(LocalDecl { name: Some("tmp".to_string()), ty: Some(int) });
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
