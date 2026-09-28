@@ -4090,6 +4090,9 @@ This section is the execution-level refinement of the comprehensive Master Plan.
 
 - **Dependencies:** `cranelift-codegen`, `cranelift-module`, `cranelift-object`.
 
+- **Current native ABI subset:** `Int`, `Bool`, `Byte`, and `Char` are represented as Cranelift `i64`; `Unit` has no native return/result slot. Other source types are rejected explicitly by the current backend rather than assigned fabricated machine representations.
+
+
 
 
 - **Logic:** Map MIR `Local`s to Cranelift `Variable`s and use Cranelift's `declare_var`/`def_var`/`use_var` SSA construction. Emit MIR assignments as variable definitions, preserve values across CFG joins/backedges through Cranelift block parameters, and translate `Terminator::Call` to predeclared Cranelift ABI calls.
