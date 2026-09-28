@@ -770,10 +770,7 @@ mod tests {
                     params: vec![],
                     return_place: touch_ret,
                     return_type: ast::TypeSpec::Unit,
-                    body: omni_mir::ir::Body {
-                        blocks: touch_blocks,
-                        local_decls: touch_locals,
-                    },
+                    body: omni_mir::ir::Body { blocks: touch_blocks, local_decls: touch_locals },
                 },
                 omni_mir::ir::MirFunction {
                     name: "main".to_string(),
