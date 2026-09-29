@@ -450,11 +450,9 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         omni_syntax::SyntaxKind::CallExpr => {
             let mut children = node.children();
             let callee = children.next().ok_or_else(|| "Semantic frontend error: call has no callee".to_string())?;
-            let func = direct_name(&callee)
-                .or_else(|| (callee.kind() == omni_syntax::SyntaxKind::PathExpr).then(|| callee.text().to_string().trim().to_string()))
-                .ok_or_else(|| "Semantic frontend error: only direct named calls are supported".to_string())?;
+            let (func, generic_args) = call_target_from_cst(&callee)?;
             let args = children.map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?;
-            Ok(Expr::Call { func, generic_args: Vec::new(), args })
+            Ok(Expr::Call { func, generic_args, args })
         }
         omni_syntax::SyntaxKind::FieldExpr => {
             let mut children = node.children();
@@ -510,6 +508,23 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         => Err(format!("Semantic frontend error: native AST lowering does not yet support {:?}", node.kind())),
         other => Err(format!("Semantic frontend error: unsupported expression node {:?}", other)),
     }
+}
+
+fn call_target_from_cst(node: &omni_syntax::SyntaxNode) -> Result<(String, Vec<TypeSpec>), String> {
+    let segment = node
+        .descendants()
+        .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+        .last()
+        .ok_or_else(|| "Semantic frontend error: call target has no path segment".to_string())?;
+    let name = direct_name(&segment)
+        .ok_or_else(|| "Semantic frontend error: call target has no name".to_string())?;
+    let generic_args = node
+        .descendants()
+        .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg)
+        .filter_map(|arg| arg.children().next())
+        .map(type_spec_from_cst)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((name, generic_args))
 }
 
 fn match_arm_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::MatchArm, String> {
