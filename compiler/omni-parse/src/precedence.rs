@@ -108,22 +108,18 @@ pub struct GenericCloserPart {
 
 /// Split `>`, `>>`, or `>>=` into the logical punctuation needed by nested
 /// generic closers. The ranges are contiguous and cover the original spelling.
-pub const fn split_generic_closer(kind: Punct) -> Option<[GenericCloserPart; 3]> {
+pub const fn split_generic_closer(kind: Punct) -> Option<[Option<GenericCloserPart>; 3]> {
     match kind {
-        Punct::Gt => Some([
-            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 },
-            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 0 },
-            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 0 },
-        ]),
+        Punct::Gt => Some([Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 }), None, None]),
         Punct::Shr => Some([
-            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 },
-            GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 },
-            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 0 },
+            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 }),
+            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 }),
+            None,
         ]),
         Punct::ShrEq => Some([
-            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 },
-            GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 },
-            GenericCloserPart { kind: Punct::Eq, byte_offset: 2, byte_len: 1 },
+            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 }),
+            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 }),
+            Some(GenericCloserPart { kind: Punct::Eq, byte_offset: 2, byte_len: 1 }),
         ]),
         _ => None,
     }
@@ -326,8 +322,7 @@ mod tests {
             let parts = split_generic_closer(punct).expect("generic closer");
             let mut cursor = 0usize;
             let mut rebuilt = String::new();
-            for part in parts {
-                if part.byte_len == 0 { continue; }
+            for part in parts.into_iter().flatten() {
                 assert_eq!(part.byte_offset as usize, cursor);
                 let end = cursor + part.byte_len as usize;
                 rebuilt.push_str(&source[cursor..end]);
