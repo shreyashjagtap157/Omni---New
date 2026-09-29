@@ -591,6 +591,15 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 else_branch,
             })
         }
+        omni_syntax::SyntaxKind::CastExpr => {
+            let mut children = node.children();
+            let expr = children.next().ok_or_else(|| "Semantic frontend error: cast has no source expression".to_string())?;
+            let ty = children.next().ok_or_else(|| "Semantic frontend error: cast has no target type".to_string())?;
+            Ok(Expr::Cast {
+                expr: Box::new(expr_from_node(&expr)?),
+                ty: type_spec_from_cst(ty)?,
+            })
+        }
         omni_syntax::SyntaxKind::MatchExpr => {
             let mut children = node.children();
             let scrutinee = children.next().ok_or_else(|| "Semantic frontend error: match has no scrutinee".to_string())?;
