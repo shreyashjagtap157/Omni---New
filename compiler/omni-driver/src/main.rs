@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub struct Args {
     pub input_file: Option<PathBuf>,
@@ -81,6 +82,8 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     }
 
     let mut checker = omni_types::TypeChecker::new();
+    let trait_system = Arc::new(omni_traits::TraitSystem::new());
+    trait_system.attach_to_checker(&mut checker);
     let enum_names = syntax
         .children()
         .filter(|n| n.kind() == omni_syntax::SyntaxKind::EnumDef)
