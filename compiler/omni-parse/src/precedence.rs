@@ -25,6 +25,14 @@ pub type BindingPower = (u8, u8);
 /// No binding power: this token cannot continue an expression.
 pub const NO_BINDING: BindingPower = (0, 0);
 
+/// Binding power for unary/prefix operators. This is above cast precedence.
+pub const UNARY_BINDING_POWER: u8 = 28;
+
+/// Binding power for postfix call/navigation operators. Generic parsing remains
+/// a later wave; this constant only prevents call parsing from weakening binary
+/// precedence in the current parser subset.
+pub const POSTFIX_BINDING_POWER: u8 = 30;
+
 /// The Edition 1 infix precedence table, transcribed from the normative EBNF
 /// precedence section.
 pub const fn binding_power(kind: TokenKind) -> BindingPower {
