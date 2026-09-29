@@ -258,6 +258,42 @@ impl Resolver {
                     self.resolve_node(&c, out, errors);
                 }
             }
+            SyntaxKind::ConstDef | SyntaxKind::StaticDef => {
+                for c in node.children() {
+                    if is_expression_node(c.kind()) {
+                        self.resolve_node(&c, out, errors);
+                    }
+                }
+            }
+            SyntaxKind::ModuleDecl => {
+                for c in node.children() {
+                    match c.kind() {
+                        SyntaxKind::FnDef => self.resolve_fn(c, out, errors),
+                        SyntaxKind::ConstDef | SyntaxKind::StaticDef => self.resolve_node(&c, out, errors),
+                        _ => {}
+                    }
+                }
+            }
+            SyntaxKind::StructDef
+            | SyntaxKind::EnumDef
+            | SyntaxKind::TraitDef
+            | SyntaxKind::ImplDef
+            | SyntaxKind::TypeAlias
+            | SyntaxKind::UseDecl
+            | SyntaxKind::ExternCrateDecl
+            | SyntaxKind::Attribute
+            | SyntaxKind::GenericParams
+            | SyntaxKind::GenericParam
+            | SyntaxKind::Type
+            | SyntaxKind::Path
+            | SyntaxKind::PathSegment
+            | SyntaxKind::TypeBound
+            | SyntaxKind::TraitRef
+            | SyntaxKind::TypeArgs
+            | SyntaxKind::Lifetime
+            | SyntaxKind::LifetimeArg
+            | SyntaxKind::WhereClause
+            | SyntaxKind::WherePredicate => {}
             _ => {
                 for c in node.children() {
                     self.resolve_node(&c, out, errors);
@@ -288,6 +324,46 @@ impl Resolver {
             }),
         }
     }
+}
+
+fn is_expression_node(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::ExprStmt
+            | SyntaxKind::FinalExpr
+            | SyntaxKind::ReturnExpr
+            | SyntaxKind::BreakExpr
+            | SyntaxKind::ContinueExpr
+            | SyntaxKind::YieldExpr
+            | SyntaxKind::BinaryExpr
+            | SyntaxKind::AssignExpr
+            | SyntaxKind::RangeExpr
+            | SyntaxKind::UnaryExpr
+            | SyntaxKind::CallExpr
+            | SyntaxKind::MethodCallExpr
+            | SyntaxKind::FieldExpr
+            | SyntaxKind::IndexExpr
+            | SyntaxKind::CastExpr
+            | SyntaxKind::LiteralExpr
+            | SyntaxKind::PathExpr
+            | SyntaxKind::MacroInvocation
+            | SyntaxKind::ParenthesizedExpr
+            | SyntaxKind::StructExpr
+            | SyntaxKind::ArrayExpr
+            | SyntaxKind::TupleExpr
+            | SyntaxKind::ClosureExpr
+            | SyntaxKind::AsyncBlock
+            | SyntaxKind::UnsafeBlock
+            | SyntaxKind::TryBlock
+            | SyntaxKind::TryExpr
+            | SyntaxKind::IfExpr
+            | SyntaxKind::MatchExpr
+            | SyntaxKind::LoopExpr
+            | SyntaxKind::WhileExpr
+            | SyntaxKind::ForExpr
+            | SyntaxKind::AwaitExpr
+            | SyntaxKind::Block
+    )
 }
 
 fn start_u32(node: &SyntaxNode) -> u32 {
