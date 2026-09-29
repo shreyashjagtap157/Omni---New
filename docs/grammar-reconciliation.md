@@ -153,3 +153,32 @@ discovered later:
 
 These are ordinary 0.0.2.3 work against the in-force baseline. None of them is
 Candidate 2 surface syntax, and none of them changes the reconciliation.
+## 0.0.2.3-A parser infrastructure boundary
+
+The first 0.0.2.3 wave establishes reusable parser infrastructure only. It does not claim Edition 1 parser completion and does not enable Candidate 2 syntax.
+
+The parser now has bounded lookahead, a state-safe missing-token consumption primitive, delimiter-pair helpers, and source-span access through the existing lexer spans. The generic-closer utility represents `>`, `>>`, and `>>=` as logical parts of the original token with contiguous byte ranges. It does not rewrite source text, duplicate trivia, or create generic parsing semantics.
+
+### Lifetime lexer/parser contract blocker
+
+The normative grammar contains `lifetime = "'" identifier` and also contains character literals introduced by the same apostrophe. The current lexer has no Lifetime token. Direct inspection of the scanner shows that `'a` is consumed by `scan_char_or_byte(false)` and produces one `TokenKind::Error` over bytes `0..2` with `ErrorReason::Lexical`; valid `'a'` remains `TokenKind::Char`, and `b'a'` remains `TokenKind::Byte`.
+
+0.0.2.3-A deliberately does **not** reinterpret that lexical Error token inside the parser. Doing so without an established contextual-token contract would hide a lexer/parser boundary defect and could misclassify malformed character literals. The exact behavior is pinned by lexer regression tests. The lifetime production therefore remains a parser-blocking contract issue for the next specification/lexer decision; no grammar text is changed here.
+
+### Trait/impl item-list separator ambiguity
+
+The in-force EBNF defines both `trait_def` and `impl_def` item lists using comma separators, while `function_def` has no trailing semicolon. Consequently an ordinary example such as `impl Foo { fn a() {} fn b() {} }` does not have an authoritative separator interpretation from those productions alone. There is a second defect in the same area: `trait_item = function_signature | type_alias | const_def`, but the EBNF contains no `function_signature` production.
+
+No implementation rule resolves these defects in 0.0.2.3-A. They remain explicit blockers for the affected trait/impl item-list productions. The normative EBNF is unchanged and Candidate 2 is not used to resolve them.
+
+### 0.0.2.3-A scope
+
+This wave is limited to parser infrastructure, lexer/parser contract evidence, generic-closer mechanics, recovery safety, and documentation of the two identified specification/contract blockers. `parse_item_stub` remains a placeholder and no Edition 1 grammar production is declared complete by this wave.
+
+### Lifetime lexer/parser boundary correction
+
+The normative grammar contains `lifetime = "'" identifier` and character literals use the same apostrophe introducer. The repository previously had no dedicated apostrophe punctuation token, so an input such as `'a` entered the character-literal error path.
+
+0.0.2.3-A now makes the smallest lexer-side correction: a quote followed immediately by an identifier-start is emitted as `Punct::Apostrophe` plus the ordinary identifier token, while a valid single-character literal remains `TokenKind::Char`. A malformed character literal such as `'ab'` remains one lexical `ErrorToken`, and `b'a'` remains `TokenKind::Byte`. A quote followed by trivia rather than an identifier remains on the existing character-literal path, so the lexer does not invent a lifetime across whitespace or comments.
+
+The parser does not claim the lifetime production itself is implemented in 0.0.2.3-A. It now receives the correct lexical boundary and preserves it losslessly; actual lifetime parsing remains later grammar work. No grammar text is changed.

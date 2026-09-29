@@ -193,7 +193,7 @@ fn probe_recovery_shapes() {
         "fn f() { /* unterminated",
         "fn f() { return 1; } /* unterminated",
         "fn f() { \"unterminated",
-        "fn f() { 'x",
+        "fn f() { 'ab'",
         "fn f() { @@@ /* inner */ @@@ }",
         "fn f() { @@@ // c\n @@@ }",
         "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ fn g() {}",
@@ -378,7 +378,7 @@ fn probe_diagnostic_spans_are_real_intervals() {
 
 #[test]
 fn probe_error_token_survives_into_the_cst() {
-    for src in ["fn f() { return 1; } /* unterminated", "fn f() { return \"abc", "fn f() { 'x"] {
+    for src in ["fn f() { return 1; } /* unterminated", "fn f() { return \"abc", "fn f() { 'ab'"] {
         let mut p = Parser::from_source(src);
         let r = p.parse_source();
         let kinds: Vec<SyntaxKind> = r

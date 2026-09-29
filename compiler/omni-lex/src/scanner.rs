@@ -126,7 +126,7 @@ impl<'a> Scanner<'a> {
             _ if self.starts_ascii(b"b\"") => self.scan_string_with_prefix(1),
             _ if self.starts_ascii(b"b'") => self.scan_char_or_byte(true),
             '"' => self.scan_string_with_prefix(0),
-            '\'' => self.scan_char_or_byte(false),
+            '\'' => self.scan_apostrophe(),
             'r' if c2 == Some('#') => self.scan_raw_identifier(),
             c if is_xid_start(c) || c == '_' => self.scan_ident_or_keyword(),
             _ => self.scan_punctuation(),
@@ -854,6 +854,48 @@ impl<'a> Scanner<'a> {
                 Ok(Some(_)) => {}
                 Ok(None) | Err(()) => return TokenKind::Error,
             }
+        }
+    }
+
+    /// Scan the Edition 1 apostrophe boundary without conflating it with
+    /// character literals.
+    ///
+    /// Valid character literals win when the source is unambiguously one
+    /// character followed by a closing quote. Otherwise, an apostrophe followed
+    /// immediately by an identifier is emitted as punctuation and the identifier
+    /// is scanned by the ordinary identifier path. A quote followed by anything
+    /// other than an identifier-start remains on the existing character-literal
+    /// error path, so malformed literals are not silently reinterpreted.
+    fn scan_apostrophe(&mut self) -> TokenKind {
+        let mut look = self.cursor;
+        debug_assert_eq!(look.peek(), Some('\''));
+        look.advance();
+
+        let Some(first) = look.peek() else {
+            return self.scan_char_or_byte(false);
+        };
+        if !(is_xid_start(first) || first == '_') {
+            return self.scan_char_or_byte(false);
+        }
+
+        look.advance();
+        let mut identifier_chars = 1usize;
+        while let Some(c) = look.peek() {
+            if is_xid_continue(c) || c == '_' {
+                look.advance();
+                identifier_chars += 1;
+            } else {
+                break;
+            }
+        }
+
+        match look.peek() {
+            Some('\'') => self.scan_char_or_byte(false),
+            _ if identifier_chars > 0 => {
+                self.cursor.advance();
+                TokenKind::Punct(Punct::Apostrophe)
+            }
+            _ => unreachable!("identifier_chars is always positive"),
         }
     }
 
