@@ -1229,6 +1229,13 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_executes_scalar_match_binding() {
+        let source = "fn main() -> i64 { let x = 42; return match x { y => y, }; }";
+        let object = compile_source_to_object(source).expect("scalar binding match native compilation");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
     fn source_pipeline_executes_literal_match() {
         let source = "fn main() -> i64 { let x = 2; return match x { 1 => 7, 2 => 42, _ => 0, }; }";
         let object = compile_source_to_object(source).expect("literal match native compilation");
