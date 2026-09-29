@@ -441,6 +441,29 @@ mod tests {
     use super::*;
     use omni_parse::Parser;
     #[test]
+    fn resolves_match_pattern_bindings_in_arm_scope() {
+        let mut p = Parser::from_source(
+            "enum Option<T> { Some(T), None } fn main(x: i64) -> i64 { match x { y => y, } }",
+        );
+        let parsed = p.parse_source();
+        assert!(parsed.is_ok(), "{:?}", parsed.diagnostics);
+        let mut resolver = Resolver::new(1, 2);
+        let resolved = resolver.resolve_source(&parsed.syntax()).expect("match binding resolution");
+        assert!(resolved.references.len() >= 2);
+    }
+
+    #[test]
+    fn declaration_types_and_struct_fields_are_not_runtime_references() {
+        let mut p = Parser::from_source(
+            "struct Pair { first: i64, second: i64 } fn main() -> i64 { let p = Pair { first: 1, second: 2 }; return 1; }",
+        );
+        let parsed = p.parse_source();
+        assert!(parsed.is_ok(), "{:?}", parsed.diagnostics);
+        let mut resolver = Resolver::new(1, 2);
+        assert!(resolver.resolve_source(&parsed.syntax()).is_ok());
+    }
+
+    #[test]
     fn resolves_forward_function_names_and_locals() {
         let mut p = Parser::from_source(
             "fn main() { let x = helper(); return x; } fn helper() { return 1; }",
