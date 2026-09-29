@@ -95,6 +95,9 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     for enum_def in semantic_enums_from_cst(&syntax, &enum_names)? {
         checker.register_enum(enum_def);
     }
+    for alias in semantic_type_aliases_from_cst(&syntax, &enum_names)? {
+        checker.register_type_alias(alias);
+    }
     for (name, spec, mutable) in semantic_globals_from_cst(&syntax, &enum_names)? {
         let ty = checker.lower_type_spec(&spec, &SubstEnv::new());
         checker.register_global(name, ty, mutable);
@@ -133,6 +136,32 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Monomorphization error: {:?}", e))?;
 
     omni_codegen::compile_monomorphized_program(&program)
+}
+
+fn semantic_type_aliases_from_cst(
+    root: &omni_syntax::SyntaxNode,
+    enum_names: &HashSet<String>,
+) -> Result<Vec<omni_types::ast::TypeAliasDef>, String> {
+    let mut aliases = Vec::new();
+    for node in root.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeAlias) {
+        let name = direct_name(&node)
+            .ok_or_else(|| "Semantic frontend error: type alias is missing a name".to_string())?;
+        let type_params = node
+            .children()
+            .find(|n| n.kind() == omni_syntax::SyntaxKind::GenericParams)
+            .into_iter()
+            .flat_map(|g| g.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeParam))
+            .filter_map(|p| direct_name(&p))
+            .collect::<Vec<_>>();
+        let generic_names = type_params.iter().cloned().collect::<HashSet<_>>();
+        let target = node
+            .children()
+            .find(|n| n.kind() == omni_syntax::SyntaxKind::Type)
+            .ok_or_else(|| format!("Semantic frontend error: type alias '{}' has no target type", name))
+            .and_then(|n| type_spec_from_cst_with_context(n, &generic_names, enum_names))?;
+        aliases.push(omni_types::ast::TypeAliasDef { name, type_params, target });
+    }
+    Ok(aliases)
 }
 
 fn semantic_globals_from_cst(
