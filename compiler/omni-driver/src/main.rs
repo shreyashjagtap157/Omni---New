@@ -600,6 +600,32 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 ty: type_spec_from_cst(ty)?,
             })
         }
+        omni_syntax::SyntaxKind::LoopExpr => {
+            let body = node
+                .children()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Block)
+                .ok_or_else(|| "Semantic frontend error: loop has no body".to_string())?;
+            Ok(Expr::Loop { body: Box::new(expr_from_node(&body)?) })
+        }
+        omni_syntax::SyntaxKind::WhileExpr => {
+            let mut children = node.children();
+            let condition = children.next().ok_or_else(|| "Semantic frontend error: while has no condition".to_string())?;
+            let body = children.last().ok_or_else(|| "Semantic frontend error: while has no body".to_string())?;
+            Ok(Expr::While {
+                condition: Box::new(expr_from_node(&condition)?),
+                body: Box::new(expr_from_node(&body)?),
+            })
+        }
+        omni_syntax::SyntaxKind::BreakExpr => {
+            let value = node
+                .children()
+                .next()
+                .map(|n| expr_from_node(&n))
+                .transpose()?
+                .map(Box::new);
+            Ok(Expr::Break(value))
+        }
+        omni_syntax::SyntaxKind::ContinueExpr => Ok(Expr::Continue),
         omni_syntax::SyntaxKind::MatchExpr => {
             let mut children = node.children();
             let scrutinee = children.next().ok_or_else(|| "Semantic frontend error: match has no scrutinee".to_string())?;
