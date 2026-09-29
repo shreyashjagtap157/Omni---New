@@ -1077,6 +1077,45 @@ fn test_enum_variant_constructors_validate_payloads() {
 }
 
 #[test]
+fn test_generic_type_alias_lowering_and_cycle_rejection() {
+    let mut checker = TypeChecker::new();
+    checker.register_type_alias(TypeAliasDef {
+        name: "PairInt".into(),
+        type_params: vec![],
+        target: TypeSpec::Tuple(vec![TypeSpec::Int, TypeSpec::Int]),
+    });
+    let aliased = checker.lower_type_spec(
+        &TypeSpec::Struct("PairInt".into(), Vec::new()),
+        &SubstEnv::new(),
+    );
+    assert!(matches!(checker.tcx.get(aliased), TyKind::Tuple(items) if items.len() == 2));
+
+    checker.register_type_alias(TypeAliasDef {
+        name: "Boxed".into(),
+        type_params: vec!["T".into()],
+        target: TypeSpec::Tuple(vec![TypeSpec::GenericParam("T".into())]),
+    });
+    let boxed = checker.lower_type_spec(
+        &TypeSpec::Struct("Boxed".into(), vec![TypeSpec::Int]),
+        &SubstEnv::new(),
+    );
+    assert!(matches!(checker.tcx.get(boxed), TyKind::Tuple(items) if items.len() == 1 && matches!(checker.tcx.get(items[0]), TyKind::Int)));
+
+    checker.register_type_alias(TypeAliasDef {
+        name: "A".into(),
+        type_params: vec![],
+        target: TypeSpec::Struct("B".into(), Vec::new()),
+    });
+    checker.register_type_alias(TypeAliasDef {
+        name: "B".into(),
+        type_params: vec![],
+        target: TypeSpec::Struct("A".into(), Vec::new()),
+    });
+    let cycle = checker.lower_type_spec(&TypeSpec::Struct("A".into(), Vec::new()), &SubstEnv::new());
+    assert!(matches!(checker.tcx.get(cycle), TyKind::Error));
+}
+
+#[test]
 fn test_generic_struct_literal_infers_substituted_fields() {
     let mut checker = TypeChecker::new();
     checker.register_struct(crate::ast::StructDef {
