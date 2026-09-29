@@ -522,6 +522,12 @@ fn lower_rvalue_to_cl(
                 omni_mir::ir::BinOp::Shr => Ok(builder.ins().sshr(l, r)),
             }
         }
+        omni_mir::ir::Rvalue::Cast { operand, .. } => {
+            // Int/Byte/Char all share the native i64 ABI in Edition 1's
+            // current backend, so a scalar cast is represented by the same
+            // machine value with a different verified MIR type.
+            lower_operand_to_cl(builder, operand, variables)
+        }
         omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
             let val = lower_operand_to_cl(builder, operand, variables)?;
             match op {
