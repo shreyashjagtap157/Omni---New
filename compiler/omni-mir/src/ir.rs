@@ -130,6 +130,8 @@ pub enum Rvalue {
     UnaryOp(UnOp, Operand),
     Cast { operand: Operand, from: Ty, to: Ty },
     Aggregate { kind: AggregateKind, operands: Vec<Operand>, ty: Ty },
+    Field { base: Operand, field: String, ty: Ty },
+    Index { base: Operand, index: Operand, ty: Ty },
 }
 
 /// A literal scalar value in MIR.
