@@ -372,6 +372,114 @@ impl<'a> FnMirBuilder<'a> {
         Ok(None)
     }
 
+    fn lower_for_expression(
+        &mut self,
+        label: Option<&str>,
+        pattern: &omni_types::ast::Pattern,
+        iterable: &omni_types::ast::Expr,
+        body: &omni_types::ast::Expr,
+    ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+        let omni_types::ast::Expr::Range { start, end, inclusive } = iterable else {
+            return Err("MIR lowering error: only integer ranges are currently supported by for iteration".into());
+        };
+        let (start_op, start_ty) = self
+            .lower_expr(start)?
+            .ok_or_else(|| "MIR lowering error: for-range start is Unit".to_string())?;
+        let (end_op, end_ty) = self
+            .lower_expr(end)?
+            .ok_or_else(|| "MIR lowering error: for-range end is Unit".to_string())?;
+        let int_ty = self.tcx.intern(TyKind::Int);
+        if start_ty != int_ty || end_ty != int_ty {
+            return Err("MIR lowering error: integer range iteration requires Int endpoints".into());
+        }
+
+        let entry = self
+            .current_block
+            .ok_or_else(|| "MIR lowering error: for loop has no live entry block".to_string())?;
+        let header = self.new_block();
+        let body_block = self.new_block();
+        let step_block = self.new_block();
+        let exit = self.new_block();
+        let index_local = self.new_temp(Some("_for_index".to_string()), int_ty);
+        let end_local = self.new_temp(Some("_for_end".to_string()), int_ty);
+
+        let index_place = crate::ir::Place { local: index_local };
+        let end_place = crate::ir::Place { local: end_local };
+        self.blocks[entry].statements.push(crate::ir::Statement::Assign(
+            index_place,
+            crate::ir::Rvalue::Use(start_op),
+        ));
+        self.blocks[entry].statements.push(crate::ir::Statement::Assign(
+            end_place,
+            crate::ir::Rvalue::Use(end_op),
+        ));
+        self.blocks[entry].terminator = Some(crate::ir::Terminator::Goto(header));
+
+        self.current_block = Some(header);
+        let cmp_temp = self.new_temp(Some("_for_cond".to_string()), self.tcx.intern(TyKind::Bool));
+        let cmp_place = crate::ir::Place { local: cmp_temp };
+        let cmp_op = if *inclusive {
+            crate::ir::BinOp::Le
+        } else {
+            crate::ir::BinOp::Lt
+        };
+        self.blocks[header].statements.push(crate::ir::Statement::Assign(
+            cmp_place,
+            crate::ir::Rvalue::BinaryOp(
+                cmp_op,
+                crate::ir::Operand::Copy(index_place),
+                crate::ir::Operand::Copy(end_place),
+            ),
+        ));
+        self.blocks[header].terminator = Some(crate::ir::Terminator::SwitchInt {
+            discr: crate::ir::Operand::Copy(cmp_place),
+            targets: vec![(1, body_block)],
+            otherwise: exit,
+        });
+
+        let bound_name = match pattern {
+            omni_types::ast::Pattern::Binding(name) => Some(name.clone()),
+            omni_types::ast::Pattern::Wildcard => None,
+            _ => return Err("MIR lowering error: for-range pattern must be a binding or wildcard".into()),
+        };
+
+        self.current_block = Some(body_block);
+        self.loops.push(LoopContext {
+            label: label.map(str::to_owned),
+            continue_block: step_block,
+            break_block: exit,
+            result_local: None,
+            result_ty: Some(int_ty),
+        });
+        let saved_scope = self.scope.clone();
+        if let Some(name) = bound_name {
+            self.scope.insert(name, index_local);
+        }
+        self.lower_expr(body)?;
+        self.scope = saved_scope;
+
+        if let Some(block) = self.current_block {
+            if self.blocks[block].terminator.is_none() {
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(step_block));
+            }
+        }
+        self.loops.pop().expect("for loop context balanced");
+
+        self.current_block = Some(step_block);
+        self.blocks[step_block].statements.push(crate::ir::Statement::Assign(
+            index_place,
+            crate::ir::Rvalue::BinaryOp(
+                crate::ir::BinOp::Add,
+                crate::ir::Operand::Copy(index_place),
+                crate::ir::Operand::Constant(crate::ir::Constant::Lit(omni_types::ast::Lit::Int(1))),
+            ),
+        ));
+        self.blocks[step_block].terminator = Some(crate::ir::Terminator::Goto(header));
+
+        self.current_block = Some(exit);
+        Ok(None)
+    }
+
     fn lower_if_expression(
         &mut self,
         condition: &omni_types::ast::Expr,
@@ -989,15 +1097,8 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Expr::While { label, condition, body } => {
                 self.lower_while_expression(label.as_deref(), condition, body)
             }
-            omni_types::ast::Expr::For { .. } => {
-                Err("MIR lowering error: for iteration requires aggregate/iterator lowering".into())
-            }
-
-            omni_types::ast::Expr::Break { label, value } => {
-                self.lower_break_expression(label.as_deref(), value.as_deref())
-            }
-            omni_types::ast::Expr::Continue { label } => {
-                self.lower_continue_expression(label.as_deref())
+            omni_types::ast::Expr::For { label, pattern, iterable, body } => {
+                self.lower_for_expression(label.as_deref(), pattern, iterable, body)
             }
             omni_types::ast::Expr::Match { expr, arms } => {
                 self.lower_match_expression(expr, arms)
