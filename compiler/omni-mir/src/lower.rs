@@ -303,14 +303,24 @@ impl<'a> FnMirBuilder<'a> {
         let block = self
             .current_block
             .ok_or_else(|| "MIR lowering error: break has no live block".to_string())?;
-        let loop_index = self.find_loop_index(label)?;
+        let loop_index = if let Some(label) = label {
+            self.loops
+                .iter()
+                .rposition(|ctx| ctx.label.as_deref() == Some(label))
+                .ok_or_else(|| format!("MIR lowering error: unknown break label '{}'", label))?
+        } else {
+            self.loops
+                .len()
+                .checked_sub(1)
+                .ok_or_else(|| "MIR lowering error: break outside loop".to_string())?
+        };
         let value_ty = value_result
             .as_ref()
             .map(|(_, ty)| *ty)
             .unwrap_or_else(|| self.tcx.intern(TyKind::Unit));
 
-        let break_target = self.loop_stack[loop_index].break_target;
-        if let Some(existing) = self.loop_stack[loop_index].break_ty {
+        let break_target = self.loops[loop_index].break_block;
+        if let Some(existing) = self.loops[loop_index].result_ty {
             if existing != value_ty {
                 return Err(format!(
                     "MIR lowering error: break type {:?} does not match loop break type {:?}",
@@ -318,15 +328,15 @@ impl<'a> FnMirBuilder<'a> {
                 ));
             }
         } else {
-            self.loop_stack[loop_index].break_ty = Some(value_ty);
+            self.loops[loop_index].result_ty = Some(value_ty);
         }
 
         if let Some((operand, _)) = value_result {
-            let result_local = if let Some(local) = self.loop_stack[loop_index].result_local {
+            let result_local = if let Some(local) = self.loops[loop_index].result_local {
                 local
             } else {
                 let local = self.new_temp(Some("_loop_result".to_string()), value_ty);
-                self.loop_stack[loop_index].result_local = Some(local);
+                self.loops[loop_index].result_local = Some(local);
                 local
             };
             let place = crate::ir::Place { local: result_local };
