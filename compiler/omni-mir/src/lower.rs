@@ -379,6 +379,29 @@ impl<'a> FnMirBuilder<'a> {
                     None => Ok(None),
                 }
             }
+            omni_types::ast::Expr::CompoundAssign { op, target, value } => {
+                let (target_op, target_ty) = self.lower_expr(target)?.ok_or_else(|| "MIR lowering error: compound assignment target is Unit".to_string())?;
+                let (value_op, value_ty) = self.lower_expr(value)?.ok_or_else(|| "MIR lowering error: compound assignment value is Unit".to_string())?;
+                if target_ty != value_ty {
+                    return Err(format!("MIR lowering error: compound assignment operands have incompatible types {:?} and {:?}", target_ty, value_ty));
+                }
+                let mir_op = match op {
+                    omni_types::ast::AssignOp::Add => crate::ir::BinOp::Add,
+                    omni_types::ast::AssignOp::Sub => crate::ir::BinOp::Sub,
+                    omni_types::ast::AssignOp::Mul => crate::ir::BinOp::Mul,
+                    omni_types::ast::AssignOp::Div => crate::ir::BinOp::Div,
+                    omni_types::ast::AssignOp::Rem => crate::ir::BinOp::Rem,
+                    _ => return Err(format!("MIR lowering error: unsupported compound assignment {:?}", op)),
+                };
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: compound assignment has no live block".to_string())?;
+                let tmp = self.new_temp(Some("_compound_tmp".to_string()), target_ty);
+                let place = crate::ir::Place { local: tmp };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::BinaryOp(mir_op, target_op, value_op),
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), target_ty)))
+            }
             omni_types::ast::Expr::Return(opt_expr) => {
                 let ret_result = if let Some(inner) = opt_expr {
                     let value = self.lower_expr(inner)?.ok_or_else(|| {
