@@ -495,7 +495,7 @@ impl TypeChecker {
                 }
                 Ok(target_ty)
             }
-            Expr::Loop { body } => {
+            Expr::Loop { label, body } => {
                 self.loop_break_types.push((label.clone(), None));
                 let body_result = self.infer_expr(body, env, local_vars)?;
                 let (_, break_ty) = self.loop_break_types.pop().expect("loop stack balanced");
@@ -510,7 +510,7 @@ impl TypeChecker {
                     }
                 }
             }
-            Expr::While { condition, body } => {
+            Expr::While { label, condition, body } => {
                 let condition_ty = self.infer_expr(condition, env, local_vars)?;
                 let bool_ty = self.tcx.intern(TyKind::Bool);
                 if condition_ty != bool_ty {
