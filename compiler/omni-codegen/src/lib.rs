@@ -279,7 +279,7 @@ fn compile_mir_program(
                                 place.local
                             )
                         })?;
-                        let val = lower_rvalue_to_cl(&mut builder, rval, &variables)?;
+                        let val = lower_rvalue_to_cl(&mut builder, rval, &variables, &mir.tcx)?;
                         builder.def_var(variable, val);
                     }
                     omni_mir::ir::Statement::Assume(_) | omni_mir::ir::Statement::Drop(_) => {}
@@ -471,6 +471,7 @@ fn lower_rvalue_to_cl(
     builder: &mut FunctionBuilder,
     rval: &omni_mir::ir::Rvalue,
     variables: &std::collections::HashMap<omni_mir::ir::Local, Variable>,
+    tcx: &omni_mir::TyCtxt,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match rval {
         omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, op, variables),
@@ -569,8 +570,8 @@ fn lower_rvalue_to_cl(
         }
         omni_mir::ir::Rvalue::Cast { operand, from, to } => {
             let value = lower_operand_to_cl(builder, operand, variables)?;
-            let from_float = matches!(mir_ty_kind(*from), omni_mir::TyKind::Float);
-            let to_float = matches!(mir_ty_kind(*to), omni_mir::TyKind::Float);
+            let from_float = matches!(tcx.get(*from), omni_mir::TyKind::Float);
+            let to_float = matches!(tcx.get(*to), omni_mir::TyKind::Float);
             match (from_float, to_float) {
                 (false, false) => Ok(value),
                 (false, true) => Ok(builder.ins().fcvt_from_sint(types::F64, value)),
