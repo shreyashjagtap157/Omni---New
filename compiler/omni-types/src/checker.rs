@@ -122,6 +122,7 @@ pub type TraitObligationChecker = Arc<
 /// The Type Checker is the authoritative source of truth for type inference and generic substitutions.
 pub struct TypeChecker {
     pub tcx: TyCtxt,
+    pub global_values: HashMap<String, (Ty, bool)>,
     pub solver: Solver,
     pub fn_defs: HashMap<String, GenericFnDef>,
     pub struct_defs: HashMap<String, crate::ast::StructDef>,
@@ -141,6 +142,7 @@ impl TypeChecker {
     pub fn new() -> Self {
         Self {
             tcx: TyCtxt::new(),
+            global_values: HashMap::new(),
             solver: Solver::new(),
             fn_defs: HashMap::new(),
             struct_defs: HashMap::new(),
@@ -157,6 +159,11 @@ impl TypeChecker {
 
     pub fn register_fn(&mut self, fn_def: GenericFnDef) {
         self.fn_defs.insert(fn_def.name.clone(), fn_def);
+    }
+
+    /// Register a module-level constant or static. The boolean marks mutable statics.
+    pub fn register_global(&mut self, name: String, ty: Ty, mutable: bool) {
+        self.global_values.insert(name, (ty, mutable));
     }
 
     pub fn register_struct(&mut self, struct_def: crate::ast::StructDef) {
@@ -345,6 +352,7 @@ impl TypeChecker {
             Expr::Var(name) => local_vars
                 .get(name)
                 .copied()
+                .or_else(|| self.global_values.get(name).map(|(ty, _)| *ty))
                 .ok_or_else(|| TypeError::VariableNotFound(name.clone())),
             Expr::Call { func, generic_args, args } => {
                 let (ret_ty, _, _, _) =
