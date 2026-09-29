@@ -1086,7 +1086,7 @@ fn test_let_binding_rejects_initializer_type_mismatch() {
 
     let result = checker.infer_expr(
         &Expr::Let {
-            name: "value".to_string(),
+            pattern: Pattern::Binding("value".to_string()),
             ty: Some(TypeSpec::Bool),
             init: Box::new(Expr::Literal(Lit::Int(1))),
             body: Box::new(Expr::Var("value".to_string())),
