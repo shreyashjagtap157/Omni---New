@@ -737,10 +737,16 @@ impl TypeChecker {
                 }
 
                 let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
+                let mut pat_checker =
+                    crate::pattern::PatternChecker::new(&mut self.tcx, &self.enum_defs);
+                pat_checker.check_match(scrutinee_ty, arms)?;
 
+                let mut result_ty = None;
                 for arm in arms {
+                    let mut arm_vars = local_vars.clone();
+                    self.bind_pattern(&arm.pattern, scrutinee_ty, &mut arm_vars)?;
                     if let Some(guard_expr) = &arm.guard {
-                        let guard_ty = self.infer_expr(guard_expr, env, local_vars)?;
+                        let guard_ty = self.infer_expr(guard_expr, env, &arm_vars)?;
                         let bool_ty = self.tcx.intern(TyKind::Bool);
                         if guard_ty != bool_ty {
                             return Err(TypeError::MismatchedTypes {
@@ -749,28 +755,19 @@ impl TypeChecker {
                             });
                         }
                     }
-                }
-
-                // Enforce pattern usefulness and exhaustiveness analysis
-                let mut pat_checker =
-                    crate::pattern::PatternChecker::new(&mut self.tcx, &self.enum_defs);
-                pat_checker.check_match(scrutinee_ty, arms)?;
-
-                if let Some(first_arm) = arms.first() {
-                    let first_ty = self.infer_expr(&first_arm.body, env, local_vars)?;
-                    for arm in &arms[1..] {
-                        let arm_ty = self.infer_expr(&arm.body, env, local_vars)?;
-                        if arm_ty != first_ty {
+                    let arm_ty = self.infer_expr(&arm.body, env, &arm_vars)?;
+                    if let Some(expected) = result_ty {
+                        if arm_ty != expected {
                             return Err(TypeError::MismatchedTypes {
-                                expected: self.tcx.mangle(first_ty),
+                                expected: self.tcx.mangle(expected),
                                 found: self.tcx.mangle(arm_ty),
                             });
                         }
+                    } else {
+                        result_ty = Some(arm_ty);
                     }
-                    Ok(first_ty)
-                } else {
-                    Ok(self.tcx.intern(TyKind::Unit))
                 }
+                Ok(result_ty.unwrap_or_else(|| self.tcx.intern(TyKind::Unit)))
             }
             Expr::Lambda { params, body } => {
                 let mut lambda_vars = local_vars.clone();
