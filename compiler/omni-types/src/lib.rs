@@ -12,7 +12,7 @@ mod tests;
 
 pub use ast::{
     AssignOp, BinOp, EnumDef, EnumVariantDef, Expr, GenericFnDef, ImplDef, Lit, MatchArm, MethodSig, Pattern, StructDef, StructFieldDef,
-    PatternRangeBoundary, TraitBound, TraitDef, TypeSpec, UnOp,
+    PatternRangeBoundary, TraitBound, TraitDef, TypeAliasDef, TypeSpec, UnOp,
 };
 pub use checker::{SpecializationKey, SubstEnv, TraitObligationChecker, TypeChecker, TypeError};
 pub use intern::{Ty, TyCtxt, TyKind};
