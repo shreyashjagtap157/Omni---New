@@ -530,9 +530,13 @@ impl<'a> Parser<'a> {
                     depth -= 2;
                 }
                 TokenKind::Punct(Punct::ShrEq) => {
-                    if depth < 2 { return false; }
+                    if depth < 2 {
+                        return false;
+                    }
                     depth -= 2;
-                    if depth == 0 { return false; }
+                    if depth == 0 {
+                        return true;
+                    }
                 }
                 TokenKind::Eof => return false,
                 _ => {}
@@ -2371,6 +2375,17 @@ mod tests {
             "comparison chaining must have a dedicated diagnostic: {:?}",
             r.diagnostics
         );
+    }
+
+    #[test]
+    fn nested_generic_closer_can_leave_assignment_equals() {
+        let src = "fn f() { let x = a::<b<c>>=d; }";
+        let mut p = Parser::from_source(src);
+        let r = p.parse_source();
+        assert!(r.is_ok(), "{src:?}: {:?}", r.diagnostics);
+        assert!(r.syntax().descendants().any(|n| n.kind() == K::TypeArgs));
+        assert!(r.syntax().descendants().any(|n| n.kind() == K::AssignExpr));
+        assert_eq!(r.syntax().text().to_string(), src);
     }
 
     #[test]
