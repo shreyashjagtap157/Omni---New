@@ -377,7 +377,7 @@ impl TypeChecker {
                         Ok(bool_ty)
                     }
                     crate::ast::BinOp::Eq | crate::ast::BinOp::Ne => {
-                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Bool) {
+                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Bool | TyKind::Float) {
                             return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
                         }
                         Ok(self.tcx.intern(TyKind::Bool))
@@ -386,7 +386,7 @@ impl TypeChecker {
                     | crate::ast::BinOp::Le
                     | crate::ast::BinOp::Gt
                     | crate::ast::BinOp::Ge => {
-                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char) {
+                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float) {
                             return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
                         }
                         Ok(self.tcx.intern(TyKind::Bool))
@@ -394,8 +394,13 @@ impl TypeChecker {
                     crate::ast::BinOp::Add
                     | crate::ast::BinOp::Sub
                     | crate::ast::BinOp::Mul
-                    | crate::ast::BinOp::Div
-                    | crate::ast::BinOp::Rem
+                    | crate::ast::BinOp::Div => {
+                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Float) {
+                            return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
+                        }
+                        Ok(l_ty)
+                    }
+                    crate::ast::BinOp::Rem
                     | crate::ast::BinOp::BitAnd
                     | crate::ast::BinOp::BitOr
                     | crate::ast::BinOp::BitXor
