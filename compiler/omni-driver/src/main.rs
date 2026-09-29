@@ -1154,6 +1154,38 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_executes_integer_range_for_loop() {
+        let source = "fn main() -> i64 { let mut sum = 0; for i in 0..5 { sum += i; } return sum; }";
+        let object = compile_source_to_object(source).expect("integer-range for-loop native compilation");
+        let dir = std::env::temp_dir();
+        static SEQ: AtomicU64 = AtomicU64::new(300);
+        let stem = format!(
+            "omni-driver-for-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let object_path = dir.join(format!("{stem}.o"));
+        let executable_path = dir.join(&stem);
+        fs::write(&object_path, object).expect("write object");
+
+        let status = std::process::Command::new("cc")
+            .arg(&object_path)
+            .arg("-o")
+            .arg(&executable_path)
+            .status()
+            .expect("system C linker is required for native for-loop E2E");
+        assert!(status.success(), "link failed with status {status}");
+
+        let run_status = std::process::Command::new(&executable_path)
+            .status()
+            .expect("linked native for-loop executable must run");
+        assert_eq!(run_status.code(), Some(10));
+
+        fs::remove_file(&object_path).ok();
+        fs::remove_file(&executable_path).ok();
+    }
+
+    #[test]
     fn source_pipeline_compiles_value_if_expression() {
         let source = "fn main(x: i64) -> i64 { let value = if x > 0 { 42 } else { 7 }; return value; }";
         let object = compile_source_to_object(source).expect("if-expression native compilation");
