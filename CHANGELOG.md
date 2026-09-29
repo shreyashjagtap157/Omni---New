@@ -236,3 +236,15 @@ No dependency version is changed by this work; `Cargo.lock` still matches
 `Cargo.toml` and the Foundation gate digest is unchanged. Dependabot will
 re-propose against the current `main`, at which point the cranelift migration
 can be scheduled as its own qualified task.
+### 0.0.2.3-A — Parser infrastructure and lexer/parser contract corrections
+
+This is an infrastructure wave for 0.0.2.3, not Edition 1 parser completion.
+
+- Added bounded parser lookahead, safe missing-token consumption, and delimiter pair helpers while retaining zero-width `MissingToken` recovery.
+- Added source-relative generic-closer infrastructure for `>`, `>>`, and `>>=`. Logical parts cover the original operator bytes exactly; source offsets and trivia remain owned by the original lexer token.
+- Added regression coverage for EOF, empty input, missing tokens, delimiter matching, generic-closer byte coverage, generic-closer trivia boundaries, and deterministic lexer lifetime behavior.
+- Confirmed and pinned the current lifetime boundary: the lexer has no lifetime token, so `'a` is currently one lexical-error token with `ErrorReason::Lexical`, while valid character and byte literals remain unchanged. The parser does not reinterpret the error token in this wave.
+- Recorded the unresolved trait/impl item-list separator ambiguity. No implementation-defined interpretation was introduced.
+- Candidate 2 remains disabled and the normative Edition 1 EBNF remains unchanged.
+
+The complete Edition 1 parser remains future 0.0.2.3-B+ work.
