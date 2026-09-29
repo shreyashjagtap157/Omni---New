@@ -35,11 +35,12 @@
 //!
 //! ## Scope
 //!
-//! This milestone establishes the CST substrate. It does **not** expand Edition 1
-//! grammar coverage — `block_expr`, the remaining binary operators, complete
-//! `struct`/`enum` bodies, `if`, `match`, loops, closures, arrays, tuples, and
-//! indexing remain 0.0.2.3's work, and `parse_item_stub` is a deliberate
-//! placeholder. Candidate 2 syntax is not implemented and not enabled.
+//! 0.0.2.3 now implements a substantial Edition 1 parser slice while preserving
+//! the lossless CST contracts established in 0.0.2.2. Remaining specification
+//! gaps are isolated rather than guessed: trait function signatures are
+//! undefined in the normative EBNF, `let_expr` and `deref_expr` are referenced
+//! without productions, and effect/capability bounds have no definitions.
+//! Candidate 2 syntax is not implemented and not enabled.
 
 use omni_lex::token::{Kw, Punct, Trivia};
 use omni_lex::{Scanner, Span, Token, TokenKind};
@@ -2296,6 +2297,21 @@ mod tests {
         }
     }
     #[test]
+    fn final_block_expressions_do_not_require_semicolons() {
+        for src in [
+            "fn f() { 1 }",
+            "fn f() { if true { 1 } else { 2 } }",
+            "fn f() { loop { break 1; } }",
+            "fn f() { match x { _ => 1, } }",
+        ] {
+            let mut p = Parser::from_source(src);
+            let r = p.parse_source();
+            assert!(r.is_ok(), "{src:?}: {:?}", r.diagnostics);
+            assert_eq!(r.syntax().text().to_string(), src);
+        }
+    }
+
+    #[test]
     fn reports_and_recovers() {
         let mut p = Parser::from_source("fn { let = 1 return 2; }");
         let r = p.parse_source();
@@ -2455,11 +2471,6 @@ mod tests {
             "fn f() { return r\"raw\"; }",
             "fn f() { return b'x'; }",
             "fn f() { return f\"hello ${name}\"; }",
-            // `struct`/`enum` are consumed by `parse_item_stub`, a deliberate
-            // placeholder until 0.0.2.3 adds the real productions. A bare keyword
-            // is therefore *accepted* today. That is a coverage gap, not a
-            // losslessness claim, so it is asserted as-is rather than quietly
-            // promoted to "rejected".
             "struct S {}",
             "enum E {}",
         ] {
