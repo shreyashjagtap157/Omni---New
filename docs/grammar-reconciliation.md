@@ -182,3 +182,11 @@ The normative grammar contains `lifetime = "'" identifier` and character literal
 0.0.2.3-A now makes the smallest lexer-side correction: a quote followed immediately by an identifier-start is emitted as `Punct::Apostrophe` plus the ordinary identifier token, while a valid single-character literal remains `TokenKind::Char`. A malformed character literal such as `'ab'` remains one lexical `ErrorToken`, and `b'a'` remains `TokenKind::Byte`. A quote followed by trivia rather than an identifier remains on the existing character-literal path, so the lexer does not invent a lifetime across whitespace or comments.
 
 The parser does not claim the lifetime production itself is implemented in 0.0.2.3-A. It now receives the correct lexical boundary and preserves it losslessly; actual lifetime parsing remains later grammar work. No grammar text is changed.
+
+### 0.0.2.3 parser implementation status
+
+The parser now implements substantial Edition 1 coverage: module items (functions, structs, enums, type aliases, const/static declarations, use/module/extern-crate declarations, attributes), generic parameters and arguments, paths and core type forms, blocks and statement/final-expression handling, control-flow expressions, pattern families, postfix calls/fields/indexing/method calls/await, casts, ranges, all Edition 1 binary and assignment operator tokens already emitted by the lexer, closures, async/unsafe/try blocks, and nested macro token trees.
+
+The implementation does not silently resolve specification holes. Trait function signatures remain blocked because `trait_item` references `function_signature` without defining that production; `let_expr` and `deref_expr` are referenced without productions; and `effect_bound`/`capability_bound` are referenced without definitions. The trait/impl comma-vs-function terminator ambiguity also remains recorded. These are specification blockers, not implementation-defined semantics.
+
+Candidate 2 syntax remains disabled and the normative Edition 1 EBNF remains unchanged.
