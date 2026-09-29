@@ -485,6 +485,50 @@ impl TypeChecker {
                     }),
                 }
             }
+            Expr::EnumVariant { enum_name, variant, generic_args, args } => {
+                let def = self.enum_defs.get(enum_name).cloned().ok_or_else(|| {
+                    TypeError::UnsupportedOperator(format!("unknown enum '{}'", enum_name))
+                })?;
+                if generic_args.len() != def.type_params.len() {
+                    return Err(TypeError::GenericArgumentCountMismatch {
+                        expected: def.type_params.len(),
+                        found: generic_args.len(),
+                    });
+                }
+                let variant_def = def
+                    .variants
+                    .iter()
+                    .find(|v| v.name == *variant)
+                    .ok_or_else(|| TypeError::UnsupportedPattern(format!(
+                        "unknown enum variant '{}::{}'",
+                        enum_name, variant
+                    )))?
+                    .clone();
+                let mut subst = SubstEnv::new();
+                let mut lowered_args = Vec::new();
+                for (param, spec) in def.type_params.iter().zip(generic_args) {
+                    let ty = self.lower_type_spec(spec, env);
+                    subst.insert(param.clone(), ty);
+                    lowered_args.push(ty);
+                }
+                if args.len() != variant_def.payload.len() {
+                    return Err(TypeError::ArgumentCountMismatch {
+                        expected: variant_def.payload.len(),
+                        found: args.len(),
+                    });
+                }
+                for (arg, payload_spec) in args.iter().zip(&variant_def.payload) {
+                    let expected = self.lower_type_spec(payload_spec, &subst);
+                    let actual = self.infer_expr(arg, env, local_vars)?;
+                    if expected != actual {
+                        return Err(TypeError::MismatchedTypes {
+                            expected: self.tcx.mangle(expected),
+                            found: self.tcx.mangle(actual),
+                        });
+                    }
+                }
+                Ok(self.tcx.intern(TyKind::Enum(enum_name.clone(), lowered_args)))
+            }
             Expr::Tuple(elems) => {
                 let elem_tys: Result<Vec<Ty>, TypeError> =
                     elems.iter().map(|e| self.infer_expr(e, env, local_vars)).collect();
@@ -933,6 +977,13 @@ impl TypeChecker {
             }
             Expr::Unary { expr, .. } | Expr::Field { expr, .. } => {
                 self.infer_expr_effects(expr, env, local_vars)
+            }
+            Expr::EnumVariant { args, .. } => {
+                let mut eff = EffectRow::pure();
+                for arg in args {
+                    eff = eff.union(&self.infer_expr_effects(arg, env, local_vars)?);
+                }
+                Ok(eff)
             }
             Expr::Struct { fields, .. } => {
                 let mut eff = EffectRow::pure();
