@@ -15,6 +15,13 @@ pub struct Diagnostic {
 enum Child {
     Node(Node),
     Token(usize),
+    /// A zero-width placeholder standing in for an absent token.
+    ///
+    /// This is deliberately a distinct variant rather than an index. Pointing a
+    /// `Token` at the EOF index (which is what `tokens.len() - 1` happens to be
+    /// at end of input) silently re-emits the terminal token and, worse, re-emits
+    /// the trivia it carries, duplicating source text in the tree.
+    Missing,
 }
 #[derive(Debug, Clone)]
 struct Node {
@@ -83,6 +90,17 @@ impl<'a> Parser<'a> {
         self.pos = 0;
         self.diagnostics.clear();
         let mut root = self.parse_source_file();
+        // The EOF token is appended exactly once, here, and never anywhere else:
+        // `parse_source_file` stops at EOF, and `expect_*` yields `Child::Missing`
+        // rather than re-consuming the terminal token. Appending it more than
+        // once would duplicate the trivia EOF carries.
+        debug_assert!(
+            !root
+                .children
+                .iter()
+                .any(|c| matches!(c, Child::Token(i) if self.tokens[*i].kind == TokenKind::Eof)),
+            "the EOF token must be appended exactly once"
+        );
         if let Some(i) = self.tokens.iter().position(|t| t.kind == TokenKind::Eof) {
             root.children.push(Child::Token(i));
         }
@@ -118,7 +136,7 @@ impl<'a> Parser<'a> {
     }
     fn parse_fn(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::FnDef);
-        n.children.push(Child::Token(self.expect_kw(Kw::Fn)));
+        n.children.push(self.expect_kw(Kw::Fn));
         if self.at_ident() {
             n.children.push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump())));
         } else {
@@ -134,7 +152,7 @@ impl<'a> Parser<'a> {
     }
     fn parse_params(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::ParamList);
-        n.children.push(Child::Token(self.expect_punct(Punct::LParen)));
+        n.children.push(self.expect_punct(Punct::LParen));
         while !self.eof() && !self.at_punct(Punct::RParen) {
             let mut p = Node::new(SyntaxKind::Param);
             if self.at_ident() {
@@ -160,7 +178,7 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        n.children.push(Child::Token(self.expect_punct(Punct::RParen)));
+        n.children.push(self.expect_punct(Punct::RParen));
         n
     }
     fn parse_type(&mut self) -> Node {
@@ -209,7 +227,7 @@ impl<'a> Parser<'a> {
     }
     fn parse_block(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::Block);
-        n.children.push(Child::Token(self.expect_punct(Punct::LBrace)));
+        n.children.push(self.expect_punct(Punct::LBrace));
         while !self.eof() && !self.at_punct(Punct::RBrace) {
             if self.at_kw(Kw::Let) {
                 n.children.push(Child::Node(self.parse_let()));
@@ -219,12 +237,12 @@ impl<'a> Parser<'a> {
                 n.children.push(Child::Node(self.parse_expr_stmt()));
             }
         }
-        n.children.push(Child::Token(self.expect_punct(Punct::RBrace)));
+        n.children.push(self.expect_punct(Punct::RBrace));
         n
     }
     fn parse_let(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::LetStmt);
-        n.children.push(Child::Token(self.expect_kw(Kw::Let)));
+        n.children.push(self.expect_kw(Kw::Let));
         if self.at_kw(Kw::Mut) {
             n.children.push(Child::Token(self.bump()));
         }
@@ -237,18 +255,18 @@ impl<'a> Parser<'a> {
             n.children.push(Child::Token(self.bump()));
             n.children.push(Child::Node(self.parse_type()));
         }
-        n.children.push(Child::Token(self.expect_punct(Punct::Eq)));
+        n.children.push(self.expect_punct(Punct::Eq));
         n.children.push(Child::Node(self.parse_expr_bp(0)));
-        n.children.push(Child::Token(self.expect_punct(Punct::Semicolon)));
+        n.children.push(self.expect_punct(Punct::Semicolon));
         n
     }
     fn parse_return(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::ReturnExpr);
-        n.children.push(Child::Token(self.expect_kw(Kw::Return)));
+        n.children.push(self.expect_kw(Kw::Return));
         if !self.at_punct(Punct::Semicolon) && !self.at_punct(Punct::RBrace) {
             n.children.push(Child::Node(self.parse_expr_bp(0)));
         }
-        n.children.push(Child::Token(self.expect_punct(Punct::Semicolon)));
+        n.children.push(self.expect_punct(Punct::Semicolon));
         n
     }
     fn parse_expr_stmt(&mut self) -> Node {
@@ -276,7 +294,7 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-                call.children.push(Child::Token(self.expect_punct(Punct::RParen)));
+                call.children.push(self.expect_punct(Punct::RParen));
                 lhs = call;
                 continue;
             }
@@ -307,7 +325,7 @@ impl<'a> Parser<'a> {
             let mut n = Node::new(SyntaxKind::UnaryExpr);
             n.children.push(Child::Token(self.bump()));
             n.children.push(Child::Node(self.parse_expr_bp(0)));
-            n.children.push(Child::Token(self.expect_punct(Punct::RParen)));
+            n.children.push(self.expect_punct(Punct::RParen));
             return n;
         }
         match self.current_kind() {
@@ -346,14 +364,16 @@ impl<'a> Parser<'a> {
             match child {
                 Child::Node(c) => self.emit_node(b, c),
                 Child::Token(i) => self.emit_token(b, *i),
+                // A missing token is zero-width and carries no trivia, so it can
+                // never affect the reconstructed text.
+                Child::Missing => {
+                    b.token(SyntaxKind::MissingToken.into(), "");
+                }
             }
         }
         b.finish_node();
     }
     fn emit_token(&self, b: &mut GreenNodeBuilder, index: usize) {
-        if index == usize::MAX {
-            return;
-        }
         let Some(t) = self.tokens.get(index) else {
             return;
         };
@@ -451,28 +471,31 @@ impl<'a> Parser<'a> {
         n.children.extend(tokens.into_iter().map(Child::Token));
         n
     }
-    fn expect_kw(&mut self, kw: Kw) -> usize {
+    /// Consumes the expected keyword, or records a diagnostic and yields a
+    /// zero-width [`Child::Missing`].
+    ///
+    /// At end of input this must *not* fall back to `tokens.len() - 1`: that is
+    /// the EOF token, and emitting it here would both duplicate the terminal
+    /// token and duplicate the EOF trivia it carries.
+    fn expect_kw(&mut self, kw: Kw) -> Child {
         if self.at_kw(kw) {
-            self.bump()
+            Child::Token(self.bump())
         } else {
             self.diagnostic("expected keyword");
-            self.bump_or_dummy()
+            self.missing()
         }
     }
-    fn expect_punct(&mut self, p: Punct) -> usize {
+    fn expect_punct(&mut self, p: Punct) -> Child {
         if self.at_punct(p) {
-            self.bump()
+            Child::Token(self.bump())
         } else {
             self.diagnostic("expected punctuation");
-            self.bump_or_dummy()
+            self.missing()
         }
     }
-    fn bump_or_dummy(&mut self) -> usize {
-        if self.eof() {
-            self.tokens.len().saturating_sub(1)
-        } else {
-            self.bump()
-        }
+    /// The zero-width stand-in for an absent token.
+    fn missing(&mut self) -> Child {
+        Child::Missing
     }
     fn bump(&mut self) -> usize {
         let i = self.pos;
@@ -515,6 +538,66 @@ pub fn desugar_node(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use omni_syntax::{SyntaxElement, SyntaxKind as K};
+
+    /// Parse `src` and assert every CST contract at once.
+    ///
+    /// String equality alone is not sufficient: two different trees can
+    /// concatenate to the same text (a token dropped here and an identical one
+    /// re-emitted there). So this also checks the *tiling* invariant, which pins
+    /// every leaf to its exact source interval and therefore catches both loss
+    /// and duplication.
+    fn assert_lossless(src: &str) {
+        let mut p = Parser::from_source(src);
+        let r = p.parse_source();
+        let syntax = r.syntax();
+
+        // Exact source preservation.
+        assert_eq!(syntax.text().to_string(), src, "reconstruction for {src:?}");
+
+        // The leaves exactly tile the source: no gap (a lost token or lost
+        // trivia), no overlap (a duplicated token), and spans stay aligned with
+        // the lexer's byte offsets.
+        let mut cursor: u32 = 0;
+        for el in syntax.descendants_with_tokens() {
+            if let SyntaxElement::Token(t) = el {
+                let start: u32 = t.text_range().start().into();
+                let end: u32 = t.text_range().end().into();
+                assert_eq!(
+                    start,
+                    cursor,
+                    "leaf {:?} starts at {start}, expected {cursor} (src={src:?})",
+                    t.text()
+                );
+                assert_eq!(
+                    &src[start as usize..end as usize],
+                    t.text(),
+                    "leaf text disagrees with source at {start}..{end} (src={src:?})"
+                );
+                cursor = end;
+            }
+        }
+        assert_eq!(cursor as usize, src.len(), "leaves cover {cursor} of {}", src.len());
+
+        // Determinism: the same source yields the same kind sequence.
+        let shape = |s: &omni_syntax::SyntaxNode| {
+            s.descendants_with_tokens().map(|e| e.kind().to_raw().0).collect::<Vec<_>>()
+        };
+        let first = shape(&syntax);
+        let mut p2 = Parser::from_source(src);
+        assert_eq!(first, shape(&p2.parse_source().syntax()), "nondeterministic for {src:?}");
+    }
+
+    /// Assert that `src` is lossless *and* still rejected.
+    ///
+    /// Losslessness must never be achieved by accepting everything, so every
+    /// malformed case is checked on both axes.
+    fn assert_malformed_is_lossless_and_diagnosed(src: &str) {
+        assert_lossless(src);
+        let mut p = Parser::from_source(src);
+        assert!(!p.parse_source().is_ok(), "{src:?} must still be reported, not silently accepted");
+    }
+
     #[test]
     fn parses_nested_expression_and_call() {
         let mut p =
@@ -551,6 +634,275 @@ mod tests {
         assert!(!r.is_ok());
         assert!(!r.syntax().text().is_empty());
     }
+    // ----------------------------------------------------------------------
+    // The regression that motivated 0.0.2.2.
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn trailing_trivia_after_an_unclosed_block_is_not_duplicated() {
+        // `bump_or_dummy` used to return `tokens.len() - 1`, which is the EOF
+        // token. Every unclosed construct therefore re-emitted EOF, and because
+        // EOF carries the trailing trivia, `// c` was emitted a second time:
+        // this source reconstructed as "fn f() {\n// c\n// c".
+        assert_malformed_is_lossless_and_diagnosed("fn f() {\n// c");
+    }
+
+    #[test]
+    fn eof_trivia_is_emitted_exactly_once_whatever_follows() {
+        for src in [
+            "fn f() {\n// c",
+            "fn f() {\n/// doc",
+            "fn f() {\n/* b */",
+            "fn f() {\n   ",
+            "fn f() {",
+            "fn f() { return 1;",
+            "fn f() { let x = 1;",
+            "fn f() { return",
+            "fn f() { let",
+            "fn f() ->",
+            "fn f(",
+            "fn",
+            "\u{FEFF}fn f() {\n// c",
+            "fn f() {}\n// trailing\n",
+            "fn f() {}\n// trailing",
+            "fn f() {} \n\n// a\n// b\n",
+        ] {
+            assert_lossless(src);
+        }
+    }
+
+    #[test]
+    fn degenerate_sources_round_trip() {
+        for src in [
+            "",
+            " ",
+            "   ",
+            "\n",
+            "\n\n\n",
+            "\t",
+            "\t\t\t",
+            "  \n\t\n  ",
+            "// line\n",
+            "/// doc\n",
+            "//! crate doc\n",
+            "/* block */",
+            "/* unterminated",
+            "\u{FEFF}",
+            "\u{FEFF}// doc\n",
+            "\u{FEFF}fn f() {}\n",
+            "\u{0}\u{1}",
+        ] {
+            assert_lossless(src);
+        }
+    }
+
+    // ----------------------------------------------------------------------
+    // The missing-token contract.
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn a_missing_token_is_zero_width_and_tagged() {
+        // An absent `;` must be represented, not fabricated from nearby bytes.
+        let mut p = Parser::from_source("fn f() { return 1 }");
+        let r = p.parse_source();
+        assert!(!r.is_ok());
+        assert!(
+            r.syntax()
+                .descendants_with_tokens()
+                .any(|e| { matches!(e, SyntaxElement::Token(t) if t.kind() == K::MissingToken) }),
+            "an absent token must be tagged MissingToken"
+        );
+        assert_eq!(r.syntax().text().to_string(), "fn f() { return 1 }");
+    }
+
+    #[test]
+    fn missing_tokens_are_zero_width() {
+        for src in ["fn f() { return 1 }", "fn f() { let x = 1 }", "fn f() { return"] {
+            let mut p = Parser::from_source(src);
+            for el in p.parse_source().syntax().descendants_with_tokens() {
+                if let SyntaxElement::Token(t) = el {
+                    if t.kind() == K::MissingToken {
+                        assert_eq!(
+                            t.text_range().start(),
+                            t.text_range().end(),
+                            "MissingToken must be zero-width in {src:?}"
+                        );
+                        assert!(t.text().is_empty());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recovery_is_still_tagged_as_an_error_node() {
+        // GRAM-0007: recovery nodes are tagged and non-translatable. Introducing
+        // `MissingToken` must not erode that.
+        let mut p = Parser::from_source("fn main( { return 1; }");
+        let r = p.parse_source();
+        assert!(!r.is_ok());
+        assert!(r.syntax().descendants().any(|n| n.kind() == K::ErrorNode));
+    }
+
+    // ----------------------------------------------------------------------
+    // Randomized differential check.
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn randomized_token_soup_always_tiles_the_source() {
+        // A deterministic LCG keeps any failure reproducible from this file
+        // alone, with no reliance on a stored seed.
+        let atoms = [
+            "fn", "main", "(", ")", "{", "}", "let", "return", "1", "x", "+", "*", ";", ",", ":",
+            "->", "=", "@", "struct", "enum", "mut", "true", "1.5", "&&", "// c\n",
+        ];
+        let mut seed: u64 = 0x2545F491_4F6CDD1D;
+        let mut next = move || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 33) as usize
+        };
+        for _ in 0..20_000 {
+            let n = next() % 12;
+            let mut s = String::new();
+            for _ in 0..n {
+                s.push_str(atoms[next() % atoms.len()]);
+                if next() % 3 == 0 {
+                    s.push(' ');
+                }
+            }
+            assert_lossless(&s);
+        }
+    }
+
+    #[test]
+    fn valid_source_round_trips_and_is_accepted() {
+        for src in [
+            "fn f() { return 1; }",
+            "fn main() { return 0; }",
+            "fn main(a: i32) -> i32 { let x = add(a, 2) * 3; return x; }",
+            "fn f() { let mut x = 1; return x; }",
+            "fn f() {\n    return 0;\n}\n\n// tail comment\n",
+            "\u{FEFF}fn f() {}\n",
+            "fn f() { /* c */ return /* d */ 1; }",
+            "fn f() { return r\"raw\"; }",
+            "fn f() { return b'x'; }",
+            "fn f() { return f\"hello ${name}\"; }",
+            // `struct`/`enum` are consumed by `parse_item_stub`, a deliberate
+            // placeholder until 0.0.2.3 adds the real productions. A bare keyword
+            // is therefore *accepted* today. That is a coverage gap, not a
+            // losslessness claim, so it is asserted as-is rather than quietly
+            // promoted to "rejected".
+            "struct",
+            "struct S",
+            "enum E",
+        ] {
+            assert_lossless(src);
+            let mut p = Parser::from_source(src);
+            assert!(p.parse_source().is_ok(), "{src:?} must parse cleanly");
+        }
+    }
+
+    /// A lexical error inside otherwise well-formed syntax must survive into the
+    /// CST as an error token, never be normalized into ordinary punctuation.
+    #[test]
+    fn lexical_errors_remain_lexical_errors() {
+        // An unterminated block comment is a lexical error: the lexer emits an
+        // `ErrorToken`, and the parser must carry that through rather than
+        // normalizing it into ordinary trivia or punctuation.
+        for src in ["fn f() { return 1; } /* unterminated", "/* unterminated"] {
+            assert_lossless(src);
+            let mut p = Parser::from_source(src);
+            let r = p.parse_source();
+            assert!(
+                r.syntax()
+                    .descendants_with_tokens()
+                    .any(|e| matches!(e, SyntaxElement::Token(t) if t.kind() == K::ErrorToken)),
+                "a lexical error must remain an ErrorToken in the CST for {src:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn adversarial_malformed_input_is_lossless_and_diagnosed() {
+        for src in [
+            // Malformed top-level declarations.
+            "let stray = 1",
+            "@@@ fn f() {}",
+            "@@@ fn f() {} @@@",
+            "}}}}",
+            "))",
+            "struct S }",
+            "enum E }",
+            "fn f() {} garbage fn g() {} garbage",
+            "@@@ ### $$$ %%% ^^^ &&& ***",
+            // Malformed function declarations.
+            "fn",
+            "fn ",
+            "fn f",
+            "fn { }",
+            "fn f()",
+            "fn f() {",
+            "fn f() ->",
+            "fn f() -> i32",
+            // Malformed parameter lists.
+            "fn f(",
+            "fn f(,) {}",
+            "fn f(a,) {}",
+            "fn f(,) -> i32 {}",
+            "fn f(a: ) {}",
+            "fn f(a i32) {}",
+            "fn f(a: i32, , b: i32) {}",
+            // Malformed bodies and statements.
+            "fn f() { let = 1; }",
+            "fn f() { let x = ; }",
+            "fn f() { let x 1; }",
+            "fn f() { let = ; }",
+            "fn f() { let mut = 1; }",
+            "fn f() { return 1 }",
+            "fn f() { 1 2 3 }",
+            "fn f() { + * ! }",
+            "fn f() { f(1 2 3); }",
+            "fn f() { f(,,,); }",
+            "fn f() { f(1,,2); }",
+            // Missing / extra / nested delimiters.
+            "fn f() {{}",
+            "fn f() {}}",
+            "fn f() {} }",
+            "fn f() { ((1); }",
+            "fn f() { (((( }",
+            "fn f() { 1 + * 2; }",
+            "fn f() { @@@ }",
+            // Recovery next to valid syntax, in both orders.
+            "fn f() { return 1; } @@@ fn g() { return 2; }",
+            "@@@ fn g() { return 2; } @@@ fn h() { return 3; }",
+            // Long skipped runs.
+            "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ fn g() {}",
+            "fn f() { @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ }",
+            // Comments inside recovery regions.
+            "fn f() { @@@ /* inner */ @@@ }",
+            // Valid syntax followed by malformed syntax.
+            "fn f() { return 1; } fn g( { return",
+        ] {
+            assert_malformed_is_lossless_and_diagnosed(src);
+        }
+    }
+
+    /// A trailing comment after otherwise-valid source is lossless and is *not*
+    /// an error: comments are trivia, so they cannot invalidate a program.
+    #[test]
+    fn trailing_comments_are_trivia_not_errors() {
+        for src in [
+            "fn f() { return 1; } // tail",
+            "fn f() { return 1; } /// tail\n",
+            "fn f() { return 1; } /* tail */",
+            "fn f() { return 1; }\n// tail\n// more\n",
+        ] {
+            assert_lossless(src);
+            let mut p = Parser::from_source(src);
+            assert!(p.parse_source().is_ok(), "{src:?} must parse cleanly");
+        }
+    }
+
     #[test]
     fn green_tree_text_is_the_original_source() {
         for src in [

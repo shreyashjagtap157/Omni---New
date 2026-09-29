@@ -4,6 +4,21 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### 0.0.2.2 — Lossless Concrete Syntax Tree
+
+The CST substrate is implemented and CI-qualified on `main`. This milestone establishes the CST's contracts and invariants; it deliberately does **not** expand Edition 1 grammar coverage, which remains 0.0.2.3's work.
+
+- **Fixed a losslessness defect in error recovery.** `bump_or_dummy` returned `tokens.len() - 1` as a "dummy" index, which is the EOF token. Every unclosed construct therefore re-emitted EOF, and because EOF carries the trailing trivia, that trivia was emitted a second time: `"fn f() {\n// c"` reconstructed as `"fn f() {\n// c\n// c"`. Recovery now yields a distinct zero-width `MissingToken` instead, so an absent token is represented without fabricating or duplicating source bytes.
+- Added `SyntaxKind::MissingToken`, a zero-width placeholder distinguishable from both a real token and from `ErrorNode` recovery, keeping GRAM-0007's recovery tagging intact.
+- Added `SyntaxKind::Unknown` and `SyntaxKind::ALL`. Rowan's reverse conversion is total, and it previously mapped *every* unrecognized raw kind to `ErrorNode` — which is the parser's recovery tag, so tooling could read a malformed tree as a recovered one. Unknown kinds now map to `Unknown`. Kinds were appended only; no existing discriminant was renumbered.
+- Established a mechanically testable accounting invariant: the CST's leaves must exactly tile the source, with no gap and no overlap. String equality alone cannot distinguish a correct tree from one that drops a token and re-emits an identical-looking one elsewhere.
+- Added a randomized differential suite (20,000 generated inputs, deterministic seed in-file) plus degenerate, adversarial-malformed, and trivia-only suites. Losslessness is asserted on both axes: malformed input must remain lossless **and** remain diagnosed, so the property cannot be satisfied by accepting everything.
+- Left `grammar_contract.rs`, `docs/grammar-reconciliation.md`, the normative EBNF, the specification digest, and the Candidate 2 feature-gate state unchanged.
+
+### Remaining 0.0.2.3 work
+
+The CST can represent the missing Edition 1 productions, but does not yet parse them. `block_expr`, the remaining binary operators, complete struct/enum bodies, `if`, `match`, loops, closures, arrays, tuples, indexing, and the other baseline productions recorded by `docs/grammar-reconciliation.md` are still absent. `parse_item_stub` remains a deliberate placeholder, so a bare `struct`/`enum` keyword is currently *accepted* rather than rejected; that is a coverage gap to close in 0.0.2.3, not a losslessness claim.
+
 ### 0.0.1.x — Source normalization, lexer, and source security
 
 The `0.0.1.x` source/lexer boundary is implemented and CI-qualified on `main`. This is repository state, not a release: no version has been published, no tag has been cut, and the Foundation release gate remains **not declared and not published**.
