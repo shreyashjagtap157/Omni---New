@@ -178,12 +178,14 @@ impl<'a> Parser<'a> {
         if self.at_punct(Punct::Hash) {
             return true;
         }
-        if self.at_kw(Kw::Pub)
-            || self.at_kw(Kw::Unsafe)
-            || self.at_kw(Kw::Async)
-            || self.at_kw(Kw::Const)
-        {
+        if self.at_kw(Kw::Pub) || self.at_kw(Kw::Const) {
             return true;
+        }
+        if self.at_kw(Kw::Unsafe) {
+            return matches!(self.peek_kind(1), Some(TokenKind::Keyword(Kw::Fn | Kw::Trait | Kw::Impl)));
+        }
+        if self.at_kw(Kw::Async) {
+            return self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn));
         }
         matches!(
             self.current_kind(),
@@ -342,15 +344,17 @@ impl<'a> Parser<'a> {
     fn parse_generic_params(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::GenericParams);
         n.children.push(self.expect_punct(Punct::Lt));
-        while !self.eof() && !self.at_logical_gt() {
+        if self.at_logical_gt() {
+            self.diagnostic("generic parameter list cannot be empty");
+        } else {
             n.children.push(Child::Node(self.parse_generic_param()));
-            if self.at_punct(Punct::Comma) {
+            while self.at_punct(Punct::Comma) {
                 n.children.push(self.bump_child());
                 if self.at_logical_gt() {
+                    self.diagnostic("trailing comma is not part of generic_params");
                     break;
                 }
-            } else {
-                break;
+                n.children.push(Child::Node(self.parse_generic_param()));
             }
         }
         n.children.push(self.consume_gt());
@@ -539,6 +543,16 @@ impl<'a> Parser<'a> {
     fn parse_type(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::Type);
         match self.current_kind() {
+            Some(TokenKind::Keyword(
+                Kw::Bf16 | Kw::Bool | Kw::Byte | Kw::Char | Kw::Dec128 | Kw::Dec32 | Kw::Dec64
+                    | Kw::F128 | Kw::F16 | Kw::F32 | Kw::F64 | Kw::I128 | Kw::I16 | Kw::I32
+                    | Kw::I64 | Kw::I8 | Kw::Isize | Kw::Str | Kw::U128 | Kw::U16 | Kw::U32
+                    | Kw::U64 | Kw::U8 | Kw::Usize | Kw::SelfKw | Kw::SelfRef | Kw::Never,
+            )) => {
+                let mut p = Node::new(SyntaxKind::PathType);
+                p.children.push(self.bump_child());
+                n.children.push(Child::Node(p));
+            }
             Some(TokenKind::Punct(Punct::Amp)) => {
                 let mut r = Node::new(SyntaxKind::ReferenceType);
                 r.children.push(self.bump_child());
@@ -1106,11 +1120,11 @@ impl<'a> Parser<'a> {
                 continue;
             }
             if self.at_punct(Punct::Dot) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
-                self.bump_child();
+                let dot = self.bump_child();
                 if self.at_kw(Kw::Await) {
                     let mut n = Node::new(SyntaxKind::AwaitExpr);
                     n.children.push(Child::Node(lhs));
-                    n.children.push(Child::Token(self.pos.saturating_sub(1)));
+                    n.children.push(dot);
                     n.children.push(self.bump_child());
                     lhs = n;
                     continue;
