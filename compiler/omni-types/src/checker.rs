@@ -341,7 +341,7 @@ impl TypeChecker {
                     self.infer_call(func, generic_args, args, env, local_vars)?;
                 Ok(ret_ty)
             }
-            Expr::Let { name, ty, init, body } => {
+            Expr::Let { pattern, ty, init, body } => {
                 let init_ty = self.infer_expr(init, env, local_vars)?;
                 let declared_ty =
                     if let Some(spec) = ty { self.lower_type_spec(spec, env) } else { init_ty };
@@ -352,7 +352,7 @@ impl TypeChecker {
                     });
                 }
                 let mut inner_vars = local_vars.clone();
-                inner_vars.insert(name.clone(), declared_ty);
+                self.bind_pattern(pattern, declared_ty, &mut inner_vars)?;
                 self.infer_expr(body, env, &inner_vars)
             }
             Expr::Binary { op, lhs, rhs } => {
