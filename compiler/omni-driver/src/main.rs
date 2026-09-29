@@ -1317,6 +1317,20 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_executes_value_loop_break() {
+        let source = "fn main() -> i64 { return loop { break 42; }; }";
+        let object = compile_source_to_object(source).expect("loop break native compilation");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
+    fn source_pipeline_executes_while_loop() {
+        let source = "fn main() -> i64 { let mut n = 0; while n < 3 { n += 1; } return n; }";
+        let object = compile_source_to_object(source).expect("while loop native compilation");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
     fn source_pipeline_executes_integer_range_for_loop() {
         let source = "fn main() -> i64 { let mut sum = 0; for i in 0..5 { sum += i; } return sum; }";
         let object = compile_source_to_object(source).expect("integer-range for-loop native compilation");
