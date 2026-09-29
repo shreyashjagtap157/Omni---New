@@ -1365,6 +1365,84 @@ mod tests {
     }
 
     #[test]
+    fn test_verifier_accepts_well_typed_tuple_aggregate() {
+        let mut tcx = TyCtxt::new();
+        let int = tcx.intern(TyKind::Int);
+        let tuple = tcx.intern(TyKind::Tuple(vec![int, int]));
+        let mut locals = IndexVec::new();
+        let ret = locals.push(LocalDecl { name: Some("_return".into()), ty: Some(tuple) });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place { local: ret },
+                Rvalue::Aggregate {
+                    kind: omni_mir::ir::AggregateKind::Tuple,
+                    operands: vec![
+                        Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(1))),
+                        Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(2))),
+                    ],
+                    ty: tuple,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let prog = MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "tuple_ok".into(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Tuple(vec![
+                    omni_mir::ast::TypeSpec::Int,
+                    omni_mir::ast::TypeSpec::Int,
+                ]),
+                body: Body { blocks, local_decls: locals },
+            }],
+        };
+        assert!(MirVerifier::verify_program(&prog).is_ok());
+    }
+
+    #[test]
+    fn test_verifier_rejects_mismatched_array_aggregate() {
+        let mut tcx = TyCtxt::new();
+        let int = tcx.intern(TyKind::Int);
+        let array = tcx.intern(TyKind::Array(int, 2));
+        let bool_ty = tcx.intern(TyKind::Bool);
+        let mut locals = IndexVec::new();
+        let ret = locals.push(LocalDecl { name: Some("_return".into()), ty: Some(array) });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place { local: ret },
+                Rvalue::Aggregate {
+                    kind: omni_mir::ir::AggregateKind::Array,
+                    operands: vec![
+                        Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(1))),
+                        Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Bool(true))),
+                    ],
+                    ty: array,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let prog = MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "array_bad".into(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Array(Box::new(omni_mir::ast::TypeSpec::Int), 2),
+                body: Body { blocks, local_decls: locals },
+            }],
+        };
+        let _ = bool_ty;
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::AggregateTypeMismatch { .. })
+        ));
+    }
+
+    #[test]
     fn test_verifier_rejects_bad_call_signature() {
         let mut tcx = TyCtxt::new();
         let int = tcx.intern(TyKind::Int);
