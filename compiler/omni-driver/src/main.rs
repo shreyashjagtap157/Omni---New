@@ -405,30 +405,43 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
     for (index, statement) in statements.iter().enumerate() {
         match statement.kind() {
             omni_syntax::SyntaxKind::LetStmt => {
-                let binding_name = direct_name(statement).ok_or_else(|| {
-                    "Semantic frontend error: let statement is missing a binding name".to_string()
-                })?;
+                let pattern_node = statement
+                    .children()
+                    .find(|n| matches!(
+                        n.kind(),
+                        omni_syntax::SyntaxKind::BindingPattern
+                            | omni_syntax::SyntaxKind::IdentifierPattern
+                            | omni_syntax::SyntaxKind::WildcardPattern
+                            | omni_syntax::SyntaxKind::TuplePattern
+                            | omni_syntax::SyntaxKind::SlicePattern
+                            | omni_syntax::SyntaxKind::StructPattern
+                            | omni_syntax::SyntaxKind::EnumPattern
+                            | omni_syntax::SyntaxKind::ReferencePattern
+                    ))
+                    .ok_or_else(|| "Semantic frontend error: let statement is missing a pattern".to_string())?;
+                let pattern = pattern_from_cst(&pattern_node)?;
                 let binding_type = direct_type(statement).map(type_spec_from_cst).transpose()?;
                 let initializer = statement
                     .children()
-                    .filter(|n| n.kind() != omni_syntax::SyntaxKind::PatternField)
                     .rev()
-                    .find(|n| {
-                        !matches!(
-                            n.kind(),
-                            omni_syntax::SyntaxKind::NameRef
-                                | omni_syntax::SyntaxKind::Type
-                                | omni_syntax::SyntaxKind::BindingPattern
-                                | omni_syntax::SyntaxKind::IdentifierPattern
-                        )
-                    })
-                    .ok_or_else(|| {
-                        format!("Semantic frontend error: let '{}' has no initializer", binding_name)
-                    })?;
+                    .find(|n| !matches!(
+                        n.kind(),
+                        omni_syntax::SyntaxKind::NameRef
+                            | omni_syntax::SyntaxKind::Type
+                            | omni_syntax::SyntaxKind::BindingPattern
+                            | omni_syntax::SyntaxKind::IdentifierPattern
+                            | omni_syntax::SyntaxKind::WildcardPattern
+                            | omni_syntax::SyntaxKind::TuplePattern
+                            | omni_syntax::SyntaxKind::SlicePattern
+                            | omni_syntax::SyntaxKind::StructPattern
+                            | omni_syntax::SyntaxKind::EnumPattern
+                            | omni_syntax::SyntaxKind::ReferencePattern
+                    ))
+                    .ok_or_else(|| "Semantic frontend error: let has no initializer".to_string())?;
                 let init = expr_from_node(&initializer)?;
                 let remaining = block_statements_to_expr(&statements[index + 1..])?;
                 return Ok(Expr::Let {
-                    name: binding_name,
+                    pattern,
                     ty: binding_type,
                     init: Box::new(init),
                     body: Box::new(remaining),
