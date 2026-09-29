@@ -2202,7 +2202,7 @@ mod tests {
                 effects: omni_effects::EffectRow::default(),
                 capabilities: vec![],
                 body: Expr::Let {
-                    name: "y".to_string(),
+                    pattern: omni_types::ast::Pattern::Binding("y".to_string()),
                     ty: None,
                     init: Box::new(Expr::Binary {
                         op: omni_types::ast::BinOp::Add,
@@ -2378,7 +2378,7 @@ mod tests {
                     effects: omni_effects::EffectRow::default(),
                     capabilities: vec![],
                     body: Expr::Let {
-                        name: "value".to_string(),
+                        pattern: omni_types::ast::Pattern::Binding("value".to_string()),
                         ty: None,
                         init: Box::new(Expr::Call {
                             func: "inc".to_string(),
@@ -2766,7 +2766,7 @@ mod tests {
                 effects: omni_effects::EffectRow::default(),
                 capabilities: vec![],
                 body: Expr::Let {
-                    name: "y".to_string(),
+                    pattern: omni_types::ast::Pattern::Binding("y".to_string()),
                     ty: None,
                     init: Box::new(Expr::Binary {
                         op: omni_types::ast::BinOp::Add,
@@ -2942,7 +2942,7 @@ mod tests {
                     effects: omni_effects::EffectRow::default(),
                     capabilities: vec![],
                     body: Expr::Let {
-                        name: "value".to_string(),
+                        pattern: omni_types::ast::Pattern::Binding("value".to_string()),
                         ty: None,
                         init: Box::new(Expr::Call {
                             func: "inc".to_string(),
