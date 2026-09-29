@@ -1150,11 +1150,58 @@ impl<'a> FnMirBuilder<'a> {
                 ));
                 Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
             }
-            omni_types::ast::Expr::Struct { .. } => {
-                Err("MIR lowering error: struct literal construction requires an aggregate storage/layout contract".into())
+            omni_types::ast::Expr::Struct { name, generic_args, fields } => {
+                let args = generic_args
+                    .iter()
+                    .map(|spec| self.tcx.lower_type_spec(spec, self.subst))
+                    .collect::<Vec<_>>();
+                let ty = self.tcx.intern(TyKind::Struct(name.clone(), args));
+                let mut lowered_fields = Vec::with_capacity(fields.len());
+                for (field_name, value) in fields {
+                    let (operand, _) = self
+                        .lower_expr(value)?
+                        .ok_or_else(|| format!("MIR lowering error: struct field '{}' is Unit", field_name))?;
+                    lowered_fields.push((field_name.clone(), operand));
+                }
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: struct literal has no live block".to_string())?;
+                let local = self.new_temp(Some("_struct_tmp".to_string()), ty);
+                let place = crate::ir::Place { local };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Struct {
+                        name: name.clone(),
+                        fields: lowered_fields,
+                        ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), ty)))
             }
-            omni_types::ast::Expr::EnumVariant { .. } => {
-                Err("MIR lowering error: enum variant construction requires tagged aggregate storage/layout".into())
+            omni_types::ast::Expr::EnumVariant { enum_name, variant, generic_args, args } => {
+                let generic_tys = generic_args
+                    .iter()
+                    .map(|spec| self.tcx.lower_type_spec(spec, self.subst))
+                    .collect::<Vec<_>>();
+                let ty = self.tcx.intern(TyKind::Enum(enum_name.clone(), generic_tys));
+                let mut operands = Vec::with_capacity(args.len());
+                for arg in args {
+                    let (operand, _) = self
+                        .lower_expr(arg)?
+                        .ok_or_else(|| format!("MIR lowering error: enum constructor '{}::{}' contains Unit payload", enum_name, variant))?;
+                    operands.push(operand);
+                }
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: enum constructor has no live block".to_string())?;
+                let local = self.new_temp(Some("_enum_tmp".to_string()), ty);
+                let place = crate::ir::Place { local };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::EnumVariant {
+                        enum_name: enum_name.clone(),
+                        variant: variant.clone(),
+                        operands,
+                        ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), ty)))
             }
             omni_types::ast::Expr::Call { func, generic_args: _, args } => {
                 let (param_tys, ret_ty) = self.fn_sigs.get(func).cloned().ok_or_else(|| {
