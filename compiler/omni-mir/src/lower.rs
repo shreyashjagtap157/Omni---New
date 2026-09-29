@@ -577,6 +577,38 @@ mod tests {
     use omni_types::ast::{Expr, GenericFnDef, Lit, TypeSpec};
 
     #[test]
+    fn short_circuit_boolean_lowering_creates_branch_and_join() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "logic".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![
+                    ("a".to_string(), TypeSpec::Bool),
+                    ("b".to_string(), TypeSpec::Bool),
+                ],
+                return_type: TypeSpec::Bool,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Binary {
+                    op: omni_types::ast::BinOp::LogicalAnd,
+                    lhs: Box::new(Expr::Var("a".to_string())),
+                    rhs: Box::new(Expr::Var("b".to_string())),
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&prog).expect("logical lowering");
+        assert!(mir.functions[0].body.blocks.len() >= 4);
+        assert!(mir.functions[0].body.blocks.iter().any(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::SwitchInt { .. }))
+        }));
+        assert!(mir.functions[0].body.blocks.iter().any(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::Goto(_)))
+        }));
+    }
+
+    #[test]
     fn test_mir_lowering_concrete_gate_pass() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
