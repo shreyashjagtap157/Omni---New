@@ -626,6 +626,24 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             Ok(Expr::Break(value))
         }
         omni_syntax::SyntaxKind::ContinueExpr => Ok(Expr::Continue),
+        omni_syntax::SyntaxKind::IfExpr => {
+            let mut children = node.children();
+            let condition = children.next().ok_or_else(|| "Semantic frontend error: if has no condition".to_string())?;
+            let then_branch = children.next().ok_or_else(|| "Semantic frontend error: if has no then branch".to_string())?;
+            let else_branch = children.next().map(|n| expr_from_node(&n)).transpose()?.map(Box::new);
+            Ok(Expr::If {
+                condition: Box::new(expr_from_node(&condition)?),
+                then_branch: Box::new(expr_from_node(&then_branch)?),
+                else_branch,
+            })
+        }
+        omni_syntax::SyntaxKind::CastExpr => {
+            let mut children = node.children();
+            let expr = children.next().ok_or_else(|| "Semantic frontend error: cast has no source expression".to_string())?;
+            let ty = children.next().ok_or_else(|| "Semantic frontend error: cast has no target type".to_string())
+                .and_then(type_spec_from_cst)?;
+            Ok(Expr::Cast { expr: Box::new(expr_from_node(&expr)?), ty })
+        }
         omni_syntax::SyntaxKind::MatchExpr => {
             let mut children = node.children();
             let scrutinee = children.next().ok_or_else(|| "Semantic frontend error: match has no scrutinee".to_string())?;
