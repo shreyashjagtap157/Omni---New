@@ -1089,7 +1089,12 @@ impl<'a> Parser<'a> {
             } else {
                 let expr = self.parse_expression();
                 if self.at_punct(Punct::Semicolon) {
-                    let mut s = Node::new(SyntaxKind::ExprStmt);
+                    let stmt_kind = if expr.kind == SyntaxKind::MacroInvocation {
+                        SyntaxKind::MacroStmt
+                    } else {
+                        SyntaxKind::ExprStmt
+                    };
+                    let mut s = Node::new(stmt_kind);
                     s.children.push(Child::Node(expr));
                     s.children.push(self.bump_child());
                     n.children.push(Child::Node(s));
