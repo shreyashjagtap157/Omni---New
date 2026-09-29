@@ -81,6 +81,14 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     }
 
     let mut checker = omni_types::TypeChecker::new();
+    let enum_names = root
+        .children()
+        .filter(|n| n.kind() == omni_syntax::SyntaxKind::EnumDef)
+        .filter_map(|n| direct_name(&n))
+        .collect::<HashSet<_>>();
+    for enum_def in semantic_enums_from_cst(root, &enum_names)? {
+        checker.register_enum(enum_def);
+    }
     for func in &functions {
         checker.register_fn(func.clone());
     }
@@ -115,6 +123,39 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Monomorphization error: {:?}", e))?;
 
     omni_codegen::compile_monomorphized_program(&program)
+}
+
+fn semantic_enums_from_cst(
+    root: &omni_syntax::SyntaxNode,
+    enum_names: &HashSet<String>,
+) -> Result<Vec<omni_types::ast::EnumDef>, String> {
+    let mut enums = Vec::new();
+    for node in root.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::EnumDef) {
+        let name = direct_name(&node)
+            .ok_or_else(|| "Semantic frontend error: enum is missing a name".to_string())?;
+        let type_params = node
+            .children()
+            .find(|n| n.kind() == omni_syntax::SyntaxKind::GenericParams)
+            .into_iter()
+            .flat_map(|g| g.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::GenericParam))
+            .filter_map(|g| g.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeParam))
+            .filter_map(|p| direct_name(&p))
+            .collect::<Vec<_>>();
+        let generic_names = type_params.iter().cloned().collect::<HashSet<_>>();
+        let mut variants = Vec::new();
+        for variant in node.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::EnumVariant) {
+            let variant_name = direct_name(&variant)
+                .ok_or_else(|| format!("Semantic frontend error: enum '{}' has an unnamed variant", name))?;
+            let payload = variant
+                .children()
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::Type)
+                .map(|n| type_spec_from_cst_with_context(n, &generic_names, enum_names))
+                .collect::<Result<Vec<_>, _>>()?;
+            variants.push(omni_types::ast::EnumVariantDef { name: variant_name, payload });
+        }
+        enums.push(omni_types::ast::EnumDef { name, type_params, variants });
+    }
+    Ok(enums)
 }
 
 fn semantic_functions_from_cst(
