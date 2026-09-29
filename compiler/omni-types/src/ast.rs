@@ -19,6 +19,7 @@ pub enum TypeSpec {
     Fn(Vec<TypeSpec>, Box<TypeSpec>),
     Struct(String, Vec<TypeSpec>),
     Enum(String, Vec<TypeSpec>),
+    TraitObject { trait_name: String, args: Vec<TypeSpec> },
     Never,
     Known(Ty),
 }
