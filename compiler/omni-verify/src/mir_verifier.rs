@@ -371,6 +371,16 @@ impl MirVerifier {
                                     Self::check_operand(fn_name, operand, num_locals)?;
                                 }
                             }
+                            Rvalue::Struct { fields, .. } => {
+                                for (_, operand) in fields {
+                                    Self::check_operand(fn_name, operand, num_locals)?;
+                                }
+                            }
+                            Rvalue::EnumVariant { operands, .. } => {
+                                for operand in operands {
+                                    Self::check_operand(fn_name, operand, num_locals)?;
+                                }
+                            }
                             Rvalue::Field { base, .. } => Self::check_operand(fn_name, base, num_locals)?,
                             Rvalue::Index { base, index, .. } => {
                                 Self::check_operand(fn_name, base, num_locals)?;
@@ -778,7 +788,33 @@ impl MirVerifier {
                     }
                 }
                 Ok(*ty)
-            }            Rvalue::Field { base, field, ty } => {
+            }            Rvalue::Struct { name, fields, ty } => {
+                match tcx.get(*ty) {
+                    TyKind::Struct(actual_name, _) if actual_name == name => {}
+                    _ => return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!("struct constructor '{}' does not match its declared MIR type", name),
+                    }),
+                }
+                for (_, operand) in fields {
+                    let _ = Self::operand_type(tcx, func, operand)?;
+                }
+                Ok(*ty)
+            }
+            Rvalue::EnumVariant { enum_name, variant: _, operands, ty } => {
+                match tcx.get(*ty) {
+                    TyKind::Enum(actual_name, _) if actual_name == enum_name => {}
+                    _ => return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!("enum constructor '{}' does not match its declared MIR type", enum_name),
+                    }),
+                }
+                for operand in operands {
+                    let _ = Self::operand_type(tcx, func, operand)?;
+                }
+                Ok(*ty)
+            }
+            Rvalue::Field { base, field, ty } => {
                 let base_ty = Self::operand_type(tcx, func, base)?;
                 let expected = match tcx.get(base_ty) {
                     TyKind::Struct(name, _) => {
