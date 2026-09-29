@@ -115,7 +115,7 @@ impl MonomorphizedProgram {
                 }
                 Ok(())
             }
-            Expr::Range { start, end } => {
+            Expr::Range { start, end, .. } => {
                 Self::verify_expr_concrete(start, enclosing_fn)?;
                 Self::verify_expr_concrete(end, enclosing_fn)
             }
@@ -378,10 +378,10 @@ impl<'a> Monomorphizer<'a> {
                 }
                 Ok(Expr::Array(mono_elems))
             }
-            Expr::Range { start, end } => {
+            Expr::Range { start, end, inclusive } => {
                 let mono_start = self.monomorphize_expr(start, env, local_vars)?;
                 let mono_end = self.monomorphize_expr(end, env, local_vars)?;
-                Ok(Expr::Range { start: Box::new(mono_start), end: Box::new(mono_end) })
+                Ok(Expr::Range { start: Box::new(mono_start), end: Box::new(mono_end), inclusive: *inclusive })
             }
             Expr::If { condition, then_branch, else_branch } => {
                 let mono_condition = self.monomorphize_expr(condition, env, local_vars)?;
