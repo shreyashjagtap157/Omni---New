@@ -677,10 +677,19 @@ impl MirVerifier {
                     });
                 }
                 Ok(match op {
-                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                         tcx.intern(TyKind::Bool)
                     }
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => lhs_ty,
+                    BinOp::Add
+                    | BinOp::Sub
+                    | BinOp::Mul
+                    | BinOp::Div
+                    | BinOp::Rem
+                    | BinOp::BitAnd
+                    | BinOp::BitOr
+                    | BinOp::BitXor
+                    | BinOp::Shl
+                    | BinOp::Shr => lhs_ty,
                 })
             }
             Rvalue::UnaryOp(op, operand) => {
