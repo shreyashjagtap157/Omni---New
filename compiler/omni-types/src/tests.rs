@@ -885,6 +885,35 @@ fn test_effect_capability_semantic_model_slice() {
 }
 
 #[test]
+fn test_enum_variant_constructors_validate_payloads() {
+    let mut checker = TypeChecker::new();
+    checker.register_enum(crate::ast::EnumDef {
+        name: "Option".to_string(),
+        type_params: vec!["T".to_string()],
+        variants: vec![
+            crate::ast::EnumVariantDef { name: "Some".to_string(), payload: vec![TypeSpec::GenericParam("T".to_string())] },
+            crate::ast::EnumVariantDef { name: "None".to_string(), payload: vec![] },
+        ],
+    });
+    let env = SubstEnv::new();
+    let some = Expr::EnumVariant {
+        enum_name: "Option".to_string(),
+        variant: "Some".to_string(),
+        generic_args: vec![TypeSpec::Int],
+        args: vec![Expr::Literal(Lit::Int(9))],
+    };
+    let none = Expr::EnumVariant {
+        enum_name: "Option".to_string(),
+        variant: "None".to_string(),
+        generic_args: vec![TypeSpec::Int],
+        args: vec![],
+    };
+    let expected = checker.tcx.intern(TyKind::Enum("Option".to_string(), vec![checker.tcx.intern(TyKind::Int)]));
+    assert_eq!(checker.infer_expr(&some, &env, &HashMap::new()).expect("Some constructor"), expected);
+    assert_eq!(checker.infer_expr(&none, &env, &HashMap::new()).expect("None constructor"), expected);
+}
+
+#[test]
 fn test_generic_struct_literal_infers_substituted_fields() {
     let mut checker = TypeChecker::new();
     checker.register_struct(crate::ast::StructDef {
