@@ -19,6 +19,7 @@ pub enum TyKind {
     Tuple(Vec<Ty>),
     Array(Ty, usize),
     Range(Ty),
+    Reference { lifetime: Option<String>, mutable: bool, inner: Ty },
     Fn(Vec<Ty>, Ty),
     Struct(String, Vec<Ty>),
     Enum(String, Vec<Ty>),
@@ -154,6 +155,14 @@ impl TyCtxt {
             crate::ast::TypeSpec::Range(elem_spec) => {
                 let elem_ty = self.lower_type_spec(elem_spec, env);
                 self.intern(TyKind::Range(elem_ty))
+            }
+            crate::ast::TypeSpec::Reference { lifetime, mutable, inner } => {
+                let inner = self.lower_type_spec(inner, env);
+                self.intern(TyKind::Reference {
+                    lifetime: lifetime.clone(),
+                    mutable: *mutable,
+                    inner,
+                })
             }
             crate::ast::TypeSpec::Fn(param_specs, ret_spec) => {
                 let param_tys: Vec<Ty> =
