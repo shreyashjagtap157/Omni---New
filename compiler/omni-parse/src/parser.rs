@@ -643,9 +643,9 @@ mod tests {
         let token = p.peek().expect("shift-assignment token");
         assert_eq!(&p.source[token.span.start as usize..token.span.end as usize], ">>=");
         let parts = crate::precedence::split_generic_closer(Punct::ShrEq).expect("split");
-        assert_eq!(parts[0].byte_offset, 0);
-        assert_eq!(parts[1].byte_offset, 1);
-        assert_eq!(parts[2].byte_offset, 2);
+        assert_eq!(parts[0].expect("first").byte_offset, 0);
+        assert_eq!(parts[1].expect("second").byte_offset, 1);
+        assert_eq!(parts[2].expect("third").byte_offset, 2);
         assert_eq!(token.leading_trivia.len(), 1);
         assert_eq!(token.trailing_trivia.len(), 1);
     }
