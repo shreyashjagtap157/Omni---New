@@ -1168,7 +1168,7 @@ impl<'a> Parser<'a> {
                         n.children.push(Child::Node(lhs));
                         n.children.push(Child::Token(name));
                         n.children.push(Child::Node(args));
-                        n.children.push(Child::Node(self.parse_call_args()));
+                        self.append_call_arguments(&mut n);
                         lhs = n;
                         continue;
                     }
@@ -1183,7 +1183,7 @@ impl<'a> Parser<'a> {
                     let mut n = Node::new(SyntaxKind::MethodCallExpr);
                     n.children.push(Child::Node(lhs));
                     n.children.push(Child::Token(name));
-                    n.children.push(Child::Node(self.parse_call_args()));
+                    self.append_call_arguments(&mut n);
                     lhs = n;
                 } else {
                     let mut n = Node::new(SyntaxKind::FieldExpr);
@@ -1244,13 +1244,12 @@ impl<'a> Parser<'a> {
     fn parse_call(&mut self, lhs: Node) -> Node {
         let mut n = Node::new(SyntaxKind::CallExpr);
         n.children.push(Child::Node(lhs));
-        n.children.push(Child::Node(self.parse_call_args()));
+        self.append_call_arguments(&mut n);
         n
     }
 
-    fn parse_call_args(&mut self) -> Node {
-        let mut n = Node::new(SyntaxKind::CallExpr);
-        n.children.push(self.bump_child());
+    fn append_call_arguments(&mut self, n: &mut Node) {
+        n.children.push(self.expect_punct(Punct::LParen));
         if !self.at_punct(Punct::RParen) {
             loop {
                 n.children.push(Child::Node(self.parse_expression()));
@@ -1265,7 +1264,6 @@ impl<'a> Parser<'a> {
             }
         }
         n.children.push(self.expect_punct(Punct::RParen));
-        n
     }
 
     fn parse_prefix(&mut self) -> Node {
