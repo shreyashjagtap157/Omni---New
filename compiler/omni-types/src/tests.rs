@@ -885,6 +885,44 @@ fn test_effect_capability_semantic_model_slice() {
 }
 
 #[test]
+fn test_reference_and_dereference_types() {
+    let mut checker = TypeChecker::new();
+    let env = SubstEnv::new();
+    let mut locals = HashMap::new();
+    locals.insert("x".to_string(), checker.tcx.intern(TyKind::Int));
+
+    let shared = Expr::Unary {
+        op: BinTestUnOp::BorrowShared,
+        expr: Box::new(Expr::Var("x".to_string())),
+    };
+    let shared_ty = checker
+        .infer_expr(&shared, &env, &locals)
+        .expect("shared borrow");
+    assert!(matches!(
+        checker.tcx.get(shared_ty),
+        TyKind::Reference { mutable: false, inner, .. } if *inner == checker.tcx.intern(TyKind::Int)
+    ));
+
+    let mutable = Expr::Unary {
+        op: BinTestUnOp::BorrowMut,
+        expr: Box::new(Expr::Var("x".to_string())),
+    };
+    let mutable_ty = checker
+        .infer_expr(&mutable, &env, &locals)
+        .expect("mutable borrow");
+    assert!(matches!(checker.tcx.get(mutable_ty), TyKind::Reference { mutable: true, .. }));
+
+    let deref = Expr::Unary {
+        op: BinTestUnOp::Deref,
+        expr: Box::new(shared),
+    };
+    assert_eq!(
+        checker.infer_expr(&deref, &env, &locals).expect("dereference"),
+        checker.tcx.intern(TyKind::Int)
+    );
+}
+
+#[test]
 fn test_float_arithmetic_and_comparison_types() {
     let mut checker = TypeChecker::new();
     let env = SubstEnv::new();
