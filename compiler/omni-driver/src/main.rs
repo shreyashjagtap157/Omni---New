@@ -615,10 +615,13 @@ fn bin_op_from_text(text: &str) -> Result<BinOp, String> {
         "-" => Ok(BinOp::Sub),
         "*" => Ok(BinOp::Mul),
         "/" => Ok(BinOp::Div),
+        "%" => Ok(BinOp::Rem),
         "==" => Ok(BinOp::Eq),
         "!=" => Ok(BinOp::Ne),
         "<" => Ok(BinOp::Lt),
+        "<=" => Ok(BinOp::Le),
         ">" => Ok(BinOp::Gt),
+        ">=" => Ok(BinOp::Ge),
         other => Err(format!("Semantic frontend error: unsupported binary operator '{}'", other)),
     }
 }
