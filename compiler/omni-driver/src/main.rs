@@ -518,9 +518,13 @@ fn call_target_from_cst(node: &omni_syntax::SyntaxNode) -> Result<(String, Vec<T
         .ok_or_else(|| "Semantic frontend error: call target has no path segment".to_string())?;
     let name = direct_name(&segment)
         .ok_or_else(|| "Semantic frontend error: call target has no name".to_string())?;
-    let generic_args = node
-        .descendants()
-        .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg)
+    let args_node = node
+        .children()
+        .find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs)
+        .or_else(|| segment.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs));
+    let generic_args = args_node
+        .into_iter()
+        .flat_map(|args| args.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg))
         .filter_map(|arg| arg.children().next())
         .map(type_spec_from_cst)
         .collect::<Result<Vec<_>, _>>()?;
