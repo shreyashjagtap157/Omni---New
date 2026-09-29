@@ -601,6 +601,40 @@ fn type_spec_from_cst_with_context(
     }
 
     match node.kind() {
+        omni_syntax::SyntaxKind::TraitRef => {
+            let mut children = node.children();
+            let _dyn = children.next();
+            let path = children
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Path)
+                .ok_or_else(|| "Semantic frontend error: trait object is missing its trait path".to_string())?;
+            let segments = path
+                .children()
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+                .collect::<Vec<_>>();
+            let last = segments
+                .last()
+                .ok_or_else(|| "Semantic frontend error: trait object path is empty".to_string())?;
+            let trait_name = direct_name(last)
+                .ok_or_else(|| "Semantic frontend error: trait object path has no trait name".to_string())?
+                .text()
+                .to_string()
+                .trim()
+                .to_string();
+            let args = last
+                .children()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs)
+                .map(|type_args| {
+                    type_args
+                        .children()
+                        .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg)
+                        .filter_map(|arg| arg.children().next())
+                        .map(type_spec_from_cst)
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?
+                .unwrap_or_default();
+            Ok(TypeSpec::TraitObject { trait_name, args })
+        }
         omni_syntax::SyntaxKind::PathType => {
             let path = node.children().find(|n| n.kind() == omni_syntax::SyntaxKind::Path);
             let text = path
