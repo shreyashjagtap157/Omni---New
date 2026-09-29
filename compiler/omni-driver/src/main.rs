@@ -1042,7 +1042,35 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
     match node.kind() {
         omni_syntax::SyntaxKind::WildcardPattern => Ok(omni_types::ast::Pattern::Wildcard),
         omni_syntax::SyntaxKind::IdentifierPattern | omni_syntax::SyntaxKind::BindingPattern => {
-            let name = direct_name(node).ok_or_else(|| "Semantic frontend error: pattern has no binding name".to_string())?;
+            if node.kind() == omni_syntax::SyntaxKind::IdentifierPattern {
+                if let Some(path) = node.children().find(|n| n.kind() == omni_syntax::SyntaxKind::Path) {
+                    let segments = path
+                        .children()
+                        .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+                        .collect::<Vec<_>>();
+                    if segments.len() >= 2 {
+                        let enum_name = direct_name(&segments[segments.len() - 2])
+                            .ok_or_else(|| "Semantic frontend error: enum pattern has no enum name".to_string())?
+                            .text()
+                            .to_string()
+                            .trim()
+                            .to_string();
+                        let variant = direct_name(&segments[segments.len() - 1])
+                            .ok_or_else(|| "Semantic frontend error: enum pattern has no variant name".to_string())?
+                            .text()
+                            .to_string()
+                            .trim()
+                            .to_string();
+                        return Ok(omni_types::ast::Pattern::Variant {
+                            enum_name,
+                            variant,
+                            subpatterns: Vec::new(),
+                        });
+                    }
+                }
+            }
+            let name = direct_name(node)
+                .ok_or_else(|| "Semantic frontend error: pattern has no binding name".to_string())?;
             Ok(omni_types::ast::Pattern::Binding(name))
         }
         omni_syntax::SyntaxKind::LiteralPattern => {
@@ -1054,36 +1082,41 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
         omni_syntax::SyntaxKind::OrPattern => Ok(omni_types::ast::Pattern::Or(node.children().map(|n| pattern_from_cst(&n)).collect::<Result<Vec<_>, _>>()?)),
         omni_syntax::SyntaxKind::RangePattern => {
             let parts = node.children().collect::<Vec<_>>();
-            let start = parts
-                .first()
-                .ok_or_else(|| "Semantic frontend error: range pattern has no start".to_string())?;
-            let start_token = start
-                .first_token()
-                .ok_or_else(|| "Semantic frontend error: range pattern start has no token".to_string())?;
-            let start_lit = lit_from_text(start_token.text())?;
             let operator = node
                 .children_with_tokens()
                 .filter_map(|e| e.into_token())
                 .find(|t| t.kind() == omni_syntax::SyntaxKind::Punct && (t.text() == ".." || t.text() == "..="))
                 .map(|t| t.text().to_string())
                 .ok_or_else(|| "Semantic frontend error: range pattern has no range operator".to_string())?;
-            let end = parts.get(1);
-            let end_boundary = match end {
+
+            let start_boundary = parts
+                .first()
+                .map(|start| {
+                    let token = start
+                        .first_token()
+                        .ok_or_else(|| "Semantic frontend error: range pattern start has no token".to_string())?;
+                    Ok(omni_types::ast::PatternRangeBoundary::Inclusive(lit_from_text(token.text())?))
+                })
+                .transpose()?
+                .unwrap_or(omni_types::ast::PatternRangeBoundary::Unbounded);
+
+            let end_boundary = match parts.get(1) {
                 Some(end) => {
                     let token = end
                         .first_token()
                         .ok_or_else(|| "Semantic frontend error: range pattern end has no token".to_string())?;
                     let lit = lit_from_text(token.text())?;
-                    if operator == ".." {
-                        omni_types::ast::PatternRangeBoundary::Exclusive(lit)
-                    } else {
+                    if operator == "..=" {
                         omni_types::ast::PatternRangeBoundary::Inclusive(lit)
+                    } else {
+                        omni_types::ast::PatternRangeBoundary::Exclusive(lit)
                     }
-                },
+                }
                 None => omni_types::ast::PatternRangeBoundary::Unbounded,
             };
+
             Ok(omni_types::ast::Pattern::Range {
-                start: omni_types::ast::PatternRangeBoundary::Inclusive(start_lit),
+                start: start_boundary,
                 end: end_boundary,
             })
         }
