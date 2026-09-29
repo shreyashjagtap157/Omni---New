@@ -1950,9 +1950,13 @@ mod tests {
                 effects: omni_effects::EffectRow::pure(),
                 capabilities: vec![],
                 body: Expr::Loop {
-                    body: Box::new(Expr::Break(Some(Box::new(Expr::Literal(
-                        omni_types::ast::Lit::Int(7),
-                    ))))),
+                    label: None,
+                    body: Box::new(Expr::Break {
+                        label: None,
+                        value: Some(Box::new(Expr::Literal(
+                            omni_types::ast::Lit::Int(7),
+                        ))),
+                    }),
                 },
             }],
         };
@@ -1977,7 +1981,7 @@ mod tests {
                 capabilities: vec![],
                 body: Expr::While {
                     condition: Box::new(Expr::Literal(omni_types::ast::Lit::Bool(true))),
-                    body: Box::new(Expr::Continue),
+                    body: Box::new(Expr::Continue { label: None }),
                 },
             }],
         };
@@ -2014,6 +2018,44 @@ mod tests {
             matches!(b.terminator, Some(crate::ir::Terminator::Goto(_)))
         }));
         assert!(mir.functions[0].body.local_decls.iter().any(|d| d.name.as_deref() == Some("_loop_result")));
+    }
+
+    #[test]
+    fn integer_range_for_lowering_creates_condition_step_and_exit() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "sum".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("sum".to_string(), TypeSpec::Int)],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::For {
+                    label: None,
+                    pattern: omni_types::ast::Pattern::Binding("i".to_string()),
+                    iterable: Box::new(Expr::Range {
+                        start: Box::new(Expr::Literal(omni_types::ast::Lit::Int(0))),
+                        end: Box::new(Expr::Literal(omni_types::ast::Lit::Int(3))),
+                        inclusive: false,
+                    }),
+                    body: Box::new(Expr::CompoundAssign {
+                        op: omni_types::ast::AssignOp::Add,
+                        target: Box::new(Expr::Var("sum".to_string())),
+                        value: Box::new(Expr::Var("i".to_string())),
+                    }),
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&prog).expect("for lowering");
+        assert!(mir.functions[0].body.blocks.iter().any(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::SwitchInt { .. }))
+        }));
+        assert!(mir.functions[0].body.blocks.iter().filter(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::Goto(_)))
+        }).count() >= 3);
+        assert!(mir.functions[0].body.local_decls.iter().any(|d| d.name.as_deref() == Some("_for_index")));
     }
 
     #[test]
