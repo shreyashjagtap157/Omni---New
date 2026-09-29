@@ -707,7 +707,25 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
             }).collect::<Result<Vec<_>, String>>()?;
             Ok(omni_types::ast::Pattern::Struct { name: path.text().to_string().trim().to_string(), fields })
         }
-        omni_syntax::SyntaxKind::EnumPattern => Err("Semantic frontend error: enum pattern lowering is not yet defined for the current AST shape".into()),
+        omni_syntax::SyntaxKind::EnumPattern => {
+            let mut parts = node.children();
+            let path = parts
+                .next()
+                .ok_or_else(|| "Semantic frontend error: enum pattern has no path".to_string())?;
+            let path_text = path.text().to_string().trim().to_string();
+            let (enum_name, variant) = path_text
+                .rsplit_once("::")
+                .map(|(e, v)| (e.to_string(), v.to_string()))
+                .unwrap_or_else(|| (path_text.clone(), path_text.clone()));
+            let subpatterns = parts
+                .map(|n| pattern_from_cst(&n))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(omni_types::ast::Pattern::Variant {
+                enum_name,
+                variant,
+                subpatterns,
+            })
+        },
         omni_syntax::SyntaxKind::ReferencePattern
         | omni_syntax::SyntaxKind::SlicePattern
         | omni_syntax::SyntaxKind::GuardPattern => Err(format!("Semantic frontend error: pattern lowering does not yet support {:?}", node.kind())),
