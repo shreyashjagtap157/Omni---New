@@ -357,6 +357,22 @@ impl<'a> Monomorphizer<'a> {
                 let mono_index = self.monomorphize_expr(index, env, local_vars)?;
                 Ok(Expr::Index { expr: Box::new(mono_expr), index: Box::new(mono_index) })
             }
+            Expr::EnumVariant { enum_name, variant, generic_args, args } => {
+                let generic_args = generic_args
+                    .iter()
+                    .map(|a| self.substitute_type_spec(a, env))
+                    .collect::<Vec<_>>();
+                let args = args
+                    .iter()
+                    .map(|arg| self.monomorphize_expr(arg, env, local_vars))
+                    .collect::<Result<Vec<_>, TypeError>>()?;
+                Ok(Expr::EnumVariant {
+                    enum_name: enum_name.clone(),
+                    variant: variant.clone(),
+                    generic_args,
+                    args,
+                })
+            }
             Expr::Struct { name, generic_args, fields } => {
                 let args = generic_args
                     .iter()
