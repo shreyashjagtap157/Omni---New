@@ -232,6 +232,10 @@ impl TypeChecker {
                 let args = args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
                 self.tcx.intern(TyKind::Enum(name.clone(), args))
             }
+            TypeSpec::TraitObject { trait_name, args } => {
+                let args = args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                self.tcx.intern(TyKind::TraitObject { trait_name: trait_name.clone(), args })
+            }
             TypeSpec::GenericParam(name) => env.bindings.get(name).copied().unwrap_or_else(|| self.tcx.intern(TyKind::GenericParam(name.clone()))),
             _ => self.tcx.lower_type_spec(spec, env),
         }
