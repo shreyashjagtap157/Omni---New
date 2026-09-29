@@ -2326,6 +2326,26 @@ mod tests {
     }
 
     #[test]
+    fn borrow_and_deref_unary_forms_parse_losslessly() {
+        for src in [
+            "fn f(x: i64) { let r = &x; let y = *r; return y; }",
+            "fn f(x: i64) { let r = &mut x; let y = *r; return y; }",
+        ] {
+            let mut p = Parser::from_source(src);
+            let r = p.parse_source();
+            assert!(r.is_ok(), "{src:?}: {:?}", r.diagnostics);
+            assert_eq!(r.syntax().text().to_string(), src);
+            assert_eq!(
+                r.syntax()
+                    .descendants()
+                    .filter(|n| n.kind() == K::UnaryExpr)
+                    .count(),
+                2
+            );
+        }
+    }
+
+    #[test]
     fn labeled_loop_forms_preserve_label_and_colon() {
         for src in [
             "fn f() { 'outer: loop { break 'outer; } }",
