@@ -587,6 +587,49 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         }
         omni_syntax::SyntaxKind::ArrayExpr => Ok(Expr::Array(node.children().map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?)),
         omni_syntax::SyntaxKind::TupleExpr => Ok(Expr::Tuple(node.children().map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?)),
+        omni_syntax::SyntaxKind::StructExpr => {
+            let mut children = node.children();
+            let path = children.next().ok_or_else(|| "Semantic frontend error: struct literal has no type path".to_string())?;
+            let mut generic_args = Vec::new();
+            for seg in path
+                .descendants()
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+            {
+                if let Some(args) = seg.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs) {
+                    generic_args.extend(
+                        args.children()
+                            .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg)
+                            .filter_map(|a| a.children().next())
+                            .map(type_spec_from_cst)
+                            .collect::<Result<Vec<_>, _>>()?
+                    );
+                }
+            }
+            let name = path
+                .descendants()
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+                .last()
+                .and_then(|n| direct_name(&n))
+                .map(|n| n.text().to_string().trim().to_string())
+                .ok_or_else(|| "Semantic frontend error: struct literal path has no type name".to_string())?;
+            let fields = children
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::StructExprField)
+                .map(|field| {
+                    let field_name = direct_name(&field)
+                        .ok_or_else(|| "Semantic frontend error: struct literal field has no name".to_string())?
+                        .text()
+                        .to_string()
+                        .trim()
+                        .to_string();
+                    let value = field.children().nth(1)
+                        .ok_or_else(|| format!("Semantic frontend error: field '{}' has no value", field_name))
+                        .and_then(|n| expr_from_node(&n))?;
+                    Ok((field_name, value))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(Expr::Struct { name, generic_args, fields })
+        }
+
         omni_syntax::SyntaxKind::IfExpr => {
             let children = node.children().collect::<Vec<_>>();
             if children.len() < 2 || children.len() > 3 {
