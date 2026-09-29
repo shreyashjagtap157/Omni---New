@@ -133,6 +133,11 @@ impl MonomorphizedProgram {
                     else_branch: mono_else,
                 })
             }
+            Expr::Cast { expr, ty } => {
+                let mono_expr = self.monomorphize_expr(expr, env, local_vars)?;
+                let mono_ty = self.substitute_type_spec(ty, env);
+                Ok(Expr::Cast { expr: Box::new(mono_expr), ty: mono_ty })
+            }
             Expr::Match { expr, arms } => {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
                 for arm in arms {
