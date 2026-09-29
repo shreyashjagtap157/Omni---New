@@ -129,7 +129,6 @@ pub enum Expr {
     Assign { target: Box<Expr>, value: Box<Expr> },
     CompoundAssign { op: AssignOp, target: Box<Expr>, value: Box<Expr> },
     Block(Vec<Expr>),
-    If { condition: Box<Expr>, then_branch: Box<Expr>, else_branch: Option<Box<Expr>> },
     Loop { label: Option<String>, body: Box<Expr> },
     While { label: Option<String>, condition: Box<Expr>, body: Box<Expr> },
     Break { label: Option<String>, value: Option<Box<Expr>> },
