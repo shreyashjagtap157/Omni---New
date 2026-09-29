@@ -123,6 +123,14 @@ fn semantic_functions_from_cst(
     let mut functions = Vec::new();
     let mut names = HashSet::new();
 
+    let enum_names: HashSet<String> = root
+        .children()
+        .filter(|n| n.kind() == omni_syntax::SyntaxKind::EnumDef)
+        .filter_map(|n| direct_name(&n))
+        .collect();
+
+
+
     for node in root.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::FnDef) {
         let name = direct_name(&node)
             .ok_or_else(|| "Semantic frontend error: function is missing a name".to_string())?;
@@ -153,13 +161,13 @@ fn semantic_functions_from_cst(
             let param_type = direct_type(&param).ok_or_else(|| {
                 format!("Semantic frontend error: parameter '{}' has no type", param_name)
             })?;
-            params.push((param_name, type_spec_from_cst_with_generics(param_type, &generic_names)?));
+            params.push((param_name, type_spec_from_cst_with_context(param_type, &generic_names, &enum_names)?));
         }
 
         let return_type = node
             .children()
             .find(|n| n.kind() == omni_syntax::SyntaxKind::Type)
-            .map(|n| type_spec_from_cst_with_generics(n, &generic_names))
+            .map(|n| type_spec_from_cst_with_context(n, &generic_names, &enum_names))
             .transpose()?
             .unwrap_or(TypeSpec::Unit);
 
@@ -199,19 +207,27 @@ fn direct_type(node: &omni_syntax::SyntaxNode) -> Option<omni_syntax::SyntaxNode
 }
 
 fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String> {
-    type_spec_from_cst_with_generics(node, &HashSet::new())
+    type_spec_from_cst_with_context(node, &HashSet::new(), &HashSet::new())
 }
 
 fn type_spec_from_cst_with_generics(
     node: omni_syntax::SyntaxNode,
     generic_names: &HashSet<String>,
 ) -> Result<TypeSpec, String> {
+    type_spec_from_cst_with_context(node, generic_names, &HashSet::new())
+}
+
+fn type_spec_from_cst_with_context(
+    node: omni_syntax::SyntaxNode,
+    generic_names: &HashSet<String>,
+    enum_names: &HashSet<String>,
+) -> Result<TypeSpec, String> {
     if node.kind() == omni_syntax::SyntaxKind::Type {
         return node
             .children()
             .next()
             .ok_or_else(|| "Semantic frontend error: empty type node".to_string())
-            .and_then(|n| type_spec_from_cst_with_generics(n, generic_names));
+            .and_then(|n| type_spec_from_cst_with_context(n, generic_names, enum_names));
     }
 
     match node.kind() {
@@ -242,7 +258,7 @@ fn type_spec_from_cst_with_generics(
                                 .filter_map(|seg| seg.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs))
                                 .flat_map(|args| args.children())
                                 .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg)
-                                .map(|arg| arg.children().next().map(|n| type_spec_from_cst_with_generics(n, generic_names)).transpose())
+                                .map(|arg| arg.children().next().map(|n| type_spec_from_cst_with_context(n, generic_names, enum_names)).transpose())
                                 .collect::<Result<Vec<_>, _>>()
                         })
                         .transpose()?
@@ -250,7 +266,11 @@ fn type_spec_from_cst_with_generics(
                         .into_iter()
                         .flatten()
                         .collect::<Vec<_>>();
-                    Ok(TypeSpec::Struct(other.to_string(), args))
+                    if enum_names.contains(other) {
+                        Ok(TypeSpec::Enum(other.to_string(), args))
+                    } else {
+                        Ok(TypeSpec::Struct(other.to_string(), args))
+                    }
                 }
             }
         }
