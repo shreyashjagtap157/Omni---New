@@ -134,6 +134,13 @@ mod tests {
     }
 
     #[test]
+    fn generic_paths_do_not_capture_comparison_operators() {
+        ok("fn f() { let x = Foo<Bar<Baz>>; return x; }");
+        ok("fn f() { return a < b; }");
+        assert!(rejected("fn f() { return a < b > c; }") > 0);
+    }
+
+    #[test]
     fn assignment_is_right_associative_and_binaries_are_left() {
         // Structural check: the CST nests `a - (b - c)` for the right-associative
         // assignment and `(a - b) - c` for the left-associative binary, which is
