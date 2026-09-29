@@ -15,6 +15,7 @@ pub enum TypeSpec {
     Tuple(Vec<TypeSpec>),
     Array(Box<TypeSpec>, usize),
     Range(Box<TypeSpec>),
+    Reference { lifetime: Option<String>, mutable: bool, inner: Box<TypeSpec> },
     Fn(Vec<TypeSpec>, Box<TypeSpec>),
     Struct(String, Vec<TypeSpec>),
     Enum(String, Vec<TypeSpec>),
