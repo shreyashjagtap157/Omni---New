@@ -219,14 +219,32 @@ impl<'a> Parser<'a> {
             n.children.insert(0, Child::Node(attr));
             return n;
         }
-        if self.at_kw(Kw::Pub) || self.at_kw(Kw::Unsafe) || self.at_kw(Kw::Async) || self.at_kw(Kw::Const) {
+        if self.at_kw(Kw::Pub) {
             let modifier = self.bump_child();
-            if self.eof() {
-                let mut n = Node::new(SyntaxKind::ErrorNode);
-                n.children.push(modifier);
-                self.diagnostic("expected item after modifier");
-                return n;
-            }
+            let mut n = self.parse_item();
+            n.children.insert(0, modifier);
+            return n;
+        }
+        if self.at_kw(Kw::Async)
+            && self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn))
+        {
+            let modifier = self.bump_child();
+            let mut n = self.parse_item();
+            n.children.insert(0, modifier);
+            return n;
+        }
+        if self.at_kw(Kw::Unsafe)
+            && matches!(self.peek_kind(1), Some(TokenKind::Keyword(Kw::Fn | Kw::Trait | Kw::Impl)))
+        {
+            let modifier = self.bump_child();
+            let mut n = self.parse_item();
+            n.children.insert(0, modifier);
+            return n;
+        }
+        if self.at_kw(Kw::Const)
+            && self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn))
+        {
+            let modifier = self.bump_child();
             let mut n = self.parse_item();
             n.children.insert(0, modifier);
             return n;
@@ -970,8 +988,6 @@ impl<'a> Parser<'a> {
                 n.children.push(Child::Node(self.parse_item()));
             }
             n.children.push(self.expect_punct(Punct::RBrace));
-        } else {
-            n.children.push(self.expect_punct(Punct::Semicolon));
         }
         n
     }
@@ -1265,6 +1281,8 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Keyword(Kw::Try)) => self.parse_try_expr(),
             Some(TokenKind::Keyword(Kw::Async)) => self.parse_async_block(),
             Some(TokenKind::Keyword(Kw::Unsafe)) => self.parse_unsafe_block(),
+            Some(TokenKind::Keyword(Kw::Move)) => self.parse_move_closure(),
+            Some(TokenKind::Punct(Punct::Apostrophe)) => self.parse_labeled_expr(),
             Some(TokenKind::Punct(Punct::LBrace)) => self.parse_block_expr(),
             Some(TokenKind::Punct(Punct::LParen)) => self.parse_paren_expr(),
             Some(TokenKind::Punct(Punct::LBracket)) => self.parse_array_expr(),
@@ -1421,8 +1439,11 @@ impl<'a> Parser<'a> {
         n.children.push(self.expect_punct(close));
     }
 
-    fn parse_closure_expr(&mut self) -> Node {
+0    fn parse_closure_expr(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::ClosureExpr);
+        if self.at_kw(Kw::Move) {
+            n.children.push(self.bump_child());
+        }
         n.children.push(self.bump_child());
         if self.at_punct(Punct::Pipe) {
             n.children.push(self.bump_child());
@@ -1583,6 +1604,16 @@ impl<'a> Parser<'a> {
 
     fn parse_pattern_atom(&mut self) -> Node {
         match self.current_kind() {
+            Some(TokenKind::Keyword(Kw::Mut)) => {
+                let mut n = Node::new(SyntaxKind::BindingPattern);
+                n.children.push(self.bump_child());
+                n.children.push(self.expect_ident_node("expected binding name"));
+                if self.at_punct(Punct::At) {
+                    n.children.push(self.bump_child());
+                    n.children.push(Child::Node(self.parse_pattern()));
+                }
+                n
+            }
             Some(TokenKind::Punct(Punct::Underscore)) => {
                 let mut n = Node::new(SyntaxKind::WildcardPattern);
                 n.children.push(self.bump_child());
