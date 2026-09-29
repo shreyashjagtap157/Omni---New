@@ -122,6 +122,7 @@ pub enum Expr {
     Array(Vec<Expr>),
     Range { start: Box<Expr>, end: Box<Expr> },
     Match { expr: Box<Expr>, arms: Vec<MatchArm> },
+    If { condition: Box<Expr>, then_branch: Box<Expr>, else_branch: Option<Box<Expr>> },
     Lambda { params: Vec<(String, TypeSpec)>, body: Box<Expr> },
     Interpolation(Vec<Expr>),
     Assign { target: Box<Expr>, value: Box<Expr> },
