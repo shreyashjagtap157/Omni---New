@@ -1062,7 +1062,7 @@ impl<'a> FnMirBuilder<'a> {
                     .lower_expr(expr)?
                     .ok_or_else(|| "MIR lowering error: cast source is Unit".to_string())?;
                 let to_ty = self.tcx.lower_type_spec(ty, self.subst);
-                let scalar = |t: Ty, tcx: &TyCtxt| matches!(tcx.get(t), TyKind::Int | TyKind::Byte | TyKind::Char);
+                let scalar = |t: Ty, tcx: &TyCtxt| matches!(tcx.get(t), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float);
                 if !scalar(from_ty, self.tcx) || !scalar(to_ty, self.tcx) {
                     return Err(format!("MIR lowering error: unsupported non-scalar cast {:?} -> {:?}", from_ty, to_ty));
                 }
