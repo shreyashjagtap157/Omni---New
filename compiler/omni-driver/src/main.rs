@@ -86,6 +86,9 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
         .filter(|n| n.kind() == omni_syntax::SyntaxKind::EnumDef)
         .filter_map(|n| direct_name(&n))
         .collect::<HashSet<_>>();
+    for struct_def in semantic_structs_from_cst(&syntax, &enum_names)? {
+        checker.register_struct(struct_def);
+    }
     for enum_def in semantic_enums_from_cst(&syntax, &enum_names)? {
         checker.register_enum(enum_def);
     }
@@ -123,6 +126,37 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Monomorphization error: {:?}", e))?;
 
     omni_codegen::compile_monomorphized_program(&program)
+}
+
+fn semantic_structs_from_cst(
+    root: &omni_syntax::SyntaxNode,
+    enum_names: &HashSet<String>,
+) -> Result<Vec<omni_types::ast::StructDef>, String> {
+    let mut structs = Vec::new();
+    for node in root.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::StructDef) {
+        let name = direct_name(&node)
+            .ok_or_else(|| "Semantic frontend error: struct is missing a name".to_string())?;
+        let type_params = node
+            .children()
+            .find(|n| n.kind() == omni_syntax::SyntaxKind::GenericParams)
+            .into_iter()
+            .flat_map(|g| g.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::GenericParam))
+            .filter_map(|g| g.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeParam))
+            .filter_map(|p| direct_name(&p))
+            .collect::<Vec<_>>();
+        let generic_names = type_params.iter().cloned().collect::<HashSet<_>>();
+        let mut fields = Vec::new();
+        for field in node.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::StructField) {
+            let field_name = direct_name(&field)
+                .ok_or_else(|| format!("Semantic frontend error: struct '{}' has unnamed field", name))?;
+            let field_ty = direct_type(&field)
+                .ok_or_else(|| format!("Semantic frontend error: field '{}' has no type", field_name))
+                .and_then(|n| type_spec_from_cst_with_context(n, &generic_names, enum_names))?;
+            fields.push(omni_types::ast::StructFieldDef { name: field_name, ty: field_ty });
+        }
+        structs.push(omni_types::ast::StructDef { name, type_params, fields });
+    }
+    Ok(structs)
 }
 
 fn semantic_enums_from_cst(
