@@ -361,6 +361,7 @@ impl MirVerifier {
                                 Self::check_operand(fn_name, op2, num_locals)?;
                             }
                             Rvalue::UnaryOp(_, op) => Self::check_operand(fn_name, op, num_locals)?,
+                            Rvalue::Cast { operand, .. } => Self::check_operand(fn_name, operand, num_locals)?,
                         }
                         Self::check_rvalue_type(prog, func, place, rval)?;
                     }
