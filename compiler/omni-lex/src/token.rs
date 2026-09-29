@@ -138,6 +138,9 @@ pub enum Punct {
     PipeArrow,
     Bang,
     Dot,
+    /// The apostrophe punctuation used by Edition 1 lifetime and label syntax.
+    /// Character literals are recognized by the lexer before this token is emitted.
+    Apostrophe,
     DotDot,
     DotDotEq,
     Question,
