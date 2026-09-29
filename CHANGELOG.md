@@ -244,7 +244,7 @@ This is an infrastructure wave for 0.0.2.3, not Edition 1 parser completion.
 - Added source-relative generic-closer infrastructure for `>`, `>>`, and `>>=`. Logical parts cover the original operator bytes exactly; source offsets and trivia remain owned by the original lexer token.
 - Added regression coverage for EOF, empty input, missing tokens, delimiter matching, generic-closer byte coverage, generic-closer trivia boundaries, and deterministic lexer lifetime behavior.
 - Corrected the lexer/parser lifetime boundary: a quote followed immediately by an identifier-start is now `Punct::Apostrophe` plus the ordinary identifier token, while valid character/byte literals remain unchanged and malformed character literals such as `'ab'` remain lexical errors. The parser does not claim lifetime grammar completion in this wave.
-- Recorded the unresolved trait/impl item-list separator ambiguity. No implementation-defined interpretation was introduced.
+- Recorded the unresolved trait/impl item-list separator ambiguity and the separate undefined `function_signature` production referenced by `trait_item`. No implementation-defined interpretation was introduced.
 - Candidate 2 remains disabled and the normative Edition 1 EBNF remains unchanged.
 
 The complete Edition 1 parser remains future 0.0.2.3-B+ work.
