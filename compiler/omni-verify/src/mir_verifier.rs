@@ -713,7 +713,7 @@ impl MirVerifier {
             Rvalue::UnaryOp(op, operand) => {
                 let actual = Self::operand_type(tcx, func, operand)?;
                 let expected = match op {
-                    UnOp::Neg => tcx.intern(TyKind::Int),
+                    UnOp::Neg | UnOp::BitNot => tcx.intern(TyKind::Int),
                     UnOp::Not => tcx.intern(TyKind::Bool),
                 };
                 if actual != expected {
