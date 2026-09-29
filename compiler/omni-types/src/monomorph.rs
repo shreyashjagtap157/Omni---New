@@ -318,18 +318,15 @@ impl<'a> Monomorphizer<'a> {
 
                 Ok(Expr::Call { func: mangled_target, generic_args: vec![], args: mono_args })
             }
-            Expr::Let { name, ty, init, body } => {
+            Expr::Let { pattern, ty, init, body } => {
                 let sub_ty = ty.as_ref().map(|t| self.substitute_type_spec(t, env));
                 let mono_init = self.monomorphize_expr(init, env, local_vars)?;
-
                 let init_ty = self.checker.infer_expr(&mono_init, env, local_vars)?;
                 let mut inner_vars = local_vars.clone();
-                inner_vars.insert(name.clone(), init_ty);
-
+                self.checker.bind_pattern(pattern, init_ty, &mut inner_vars)?;
                 let mono_body = self.monomorphize_expr(body, env, &inner_vars)?;
-
                 Ok(Expr::Let {
-                    name: name.clone(),
+                    pattern: pattern.clone(),
                     ty: sub_ty,
                     init: Box::new(mono_init),
                     body: Box::new(mono_body),
