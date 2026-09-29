@@ -22,6 +22,9 @@ pub enum TypeError {
     UnsupportedOperator(String),
     FieldNotFound { ty: String, field: String },
     UnsupportedCast { from: String, to: String },
+    BreakOutsideLoop,
+    ContinueOutsideLoop,
+    InvalidLoopBreakType { expected: String, found: String },
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
@@ -122,6 +125,7 @@ pub struct TypeChecker {
     pub fn_defs: HashMap<String, GenericFnDef>,
     pub struct_defs: HashMap<String, crate::ast::StructDef>,
     pub enum_defs: HashMap<String, crate::ast::EnumDef>,
+    loop_break_types: Vec<Option<Ty>>,
     pub trait_checker: Option<TraitObligationChecker>,
     pub cap_context: CapabilityContext,
 }
@@ -140,6 +144,7 @@ impl TypeChecker {
             fn_defs: HashMap::new(),
             struct_defs: HashMap::new(),
             enum_defs: HashMap::new(),
+            loop_break_types: Vec::new(),
             trait_checker: None,
             cap_context: CapabilityContext::new(),
         }
@@ -490,6 +495,61 @@ impl TypeChecker {
                 }
                 Ok(target_ty)
             }
+            Expr::Loop { body } => {
+                self.loop_break_types.push(None);
+                let body_result = self.infer_expr(body, env, local_vars)?;
+                let break_ty = self.loop_break_types.pop().expect("loop stack balanced");
+                match break_ty {
+                    Some(ty) => Ok(ty),
+                    None => {
+                        if matches!(self.tcx.get(body_result), TyKind::Never) {
+                            Ok(self.tcx.intern(TyKind::Never))
+                        } else {
+                            Ok(self.tcx.intern(TyKind::Never))
+                        }
+                    }
+                }
+            }
+            Expr::While { condition, body } => {
+                let condition_ty = self.infer_expr(condition, env, local_vars)?;
+                let bool_ty = self.tcx.intern(TyKind::Bool);
+                if condition_ty != bool_ty {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: "bool".to_string(),
+                        found: self.tcx.mangle(condition_ty),
+                    });
+                }
+                self.loop_break_types.push(Some(self.tcx.intern(TyKind::Unit)));
+                self.infer_expr(body, env, local_vars)?;
+                self.loop_break_types.pop();
+                Ok(self.tcx.intern(TyKind::Unit))
+            }
+            Expr::Break(value) => {
+                let loop_index = self.loop_break_types.len().checked_sub(1).ok_or(TypeError::BreakOutsideLoop)?;
+                let value_ty = if let Some(expr) = value {
+                    self.infer_expr(expr, env, local_vars)?
+                } else {
+                    self.tcx.intern(TyKind::Unit)
+                };
+                if let Some(expected) = self.loop_break_types[loop_index] {
+                    if expected != value_ty {
+                        return Err(TypeError::InvalidLoopBreakType {
+                            expected: self.tcx.mangle(expected),
+                            found: self.tcx.mangle(value_ty),
+                        });
+                    }
+                } else {
+                    self.loop_break_types[loop_index] = Some(value_ty);
+                }
+                Ok(self.tcx.intern(TyKind::Never))
+            }
+            Expr::Continue => {
+                if self.loop_break_types.is_empty() {
+                    Err(TypeError::ContinueOutsideLoop)
+                } else {
+                    Ok(self.tcx.intern(TyKind::Never))
+                }
+            }
             Expr::Match { expr, arms } => {
                 let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
 
@@ -641,6 +701,18 @@ impl TypeChecker {
                 let e_eff = self.infer_expr_effects(end, env, local_vars)?;
                 Ok(s_eff.union(&e_eff))
             }
+            Expr::Loop { body } => self.infer_expr_effects(body, env, local_vars),
+            Expr::While { condition, body } => {
+                let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
+                eff = eff.union(&self.infer_expr_effects(body, env, local_vars)?);
+                Ok(eff)
+            }
+            Expr::Break(value) => value
+                .as_ref()
+                .map(|e| self.infer_expr_effects(e, env, local_vars))
+                .transpose()
+                .map(|e| e.unwrap_or_else(EffectRow::pure)),
+            Expr::Continue => Ok(EffectRow::pure()),
             Expr::If { condition, then_branch, else_branch } => {
                 let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
                 eff = eff.union(&self.infer_expr_effects(then_branch, env, local_vars)?);
