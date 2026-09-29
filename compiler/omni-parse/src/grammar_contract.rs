@@ -122,6 +122,18 @@ mod tests {
     }
 
     #[test]
+    fn edition1_binary_operator_families_parse() {
+        ok("fn f() { let x = a || b && c ?? d == e | f ^ g & h << i + j * k % l; }");
+        ok("fn f() { x += 1; x -= 2; x *= 3; x /= 4; x %= 5; x &= 6; x |= 7; x ^= 8; x <<= 1; x >>= 1; }");
+    }
+
+    #[test]
+    fn edition1_postfix_and_macro_forms_parse() {
+        ok("fn f() { let x = a.b(c)[0].d.await; foo!(a, (b, [c, { d }])); }");
+        ok("fn f() { let x = S { a: 1, b: 2 }; let y = [1, 2, 3]; let z = (x, y); }");
+    }
+
+    #[test]
     fn assignment_is_right_associative_and_binaries_are_left() {
         // Structural check: the CST nests `a - (b - c)` for the right-associative
         // assignment and `(a - b) - c` for the left-associative binary, which is
