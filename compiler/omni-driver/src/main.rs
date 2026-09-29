@@ -1090,23 +1090,35 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
         omni_syntax::SyntaxKind::StructPattern => {
             let mut parts = node.children();
             let path = parts.next().ok_or_else(|| "Semantic frontend error: struct pattern has no path".to_string())?;
+            let name = path
+                .descendants()
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+                .last()
+                .and_then(|n| direct_name(&n))
+                .ok_or_else(|| "Semantic frontend error: struct pattern has no nominal type name".to_string())?;
             let fields = parts.map(|f| {
                 let name = direct_name(&f).ok_or_else(|| "Semantic frontend error: pattern field has no name".to_string())?;
                 let sub = f.children().nth(1).map(|n| pattern_from_cst(&n)).transpose()?.unwrap_or(omni_types::ast::Pattern::Binding(name.clone()));
                 Ok((name, sub))
             }).collect::<Result<Vec<_>, String>>()?;
-            Ok(omni_types::ast::Pattern::Struct { name: path.text().to_string().trim().to_string(), fields })
+            Ok(omni_types::ast::Pattern::Struct { name, fields })
         }
         omni_syntax::SyntaxKind::EnumPattern => {
             let mut parts = node.children();
             let path = parts
                 .next()
                 .ok_or_else(|| "Semantic frontend error: enum pattern has no path".to_string())?;
-            let path_text = path.text().to_string().trim().to_string();
-            let (enum_name, variant) = path_text
-                .rsplit_once("::")
-                .map(|(e, v)| (e.to_string(), v.to_string()))
-                .unwrap_or_else(|| (path_text.clone(), path_text.clone()));
+            let segments = path
+                .descendants()
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+                .collect::<Vec<_>>();
+            if segments.len() < 2 {
+                return Err("Semantic frontend error: enum pattern requires Enum::Variant".into());
+            }
+            let enum_name = direct_name(&segments[segments.len() - 2])
+                .ok_or_else(|| "Semantic frontend error: enum pattern has no enum name".to_string())?;
+            let variant = direct_name(&segments[segments.len() - 1])
+                .ok_or_else(|| "Semantic frontend error: enum pattern has no variant name".to_string())?;
             let subpatterns = parts
                 .map(|n| pattern_from_cst(&n))
                 .collect::<Result<Vec<_>, _>>()?;
