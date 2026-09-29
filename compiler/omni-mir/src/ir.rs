@@ -50,6 +50,7 @@ pub struct LocalDecl {
 pub enum UnOp {
     Neg,
     Not,
+    BitNot,
 }
 
 /// Binary arithmetic and logical operations supported in MIR.
