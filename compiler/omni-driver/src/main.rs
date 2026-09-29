@@ -1189,6 +1189,38 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_executes_explicit_generic_call() {
+        let source = "fn id<T>(x: T) -> T { return x; } fn main() -> i64 { let value = id<i64>(41); return value; }";
+        let object = compile_source_to_object(source).expect("generic call native compilation");
+        let dir = std::env::temp_dir();
+        static SEQ: AtomicU64 = AtomicU64::new(500);
+        let stem = format!(
+            "omni-driver-generic-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let object_path = dir.join(format!("{stem}.o"));
+        let executable_path = dir.join(&stem);
+        fs::write(&object_path, object).expect("write object");
+
+        let status = std::process::Command::new("cc")
+            .arg(&object_path)
+            .arg("-o")
+            .arg(&executable_path)
+            .status()
+            .expect("system C linker is required for generic E2E");
+        assert!(status.success(), "link failed with status {status}");
+
+        let run_status = std::process::Command::new(&executable_path)
+            .status()
+            .expect("linked generic executable must run");
+        assert_eq!(run_status.code(), Some(41));
+
+        fs::remove_file(&object_path).ok();
+        fs::remove_file(&executable_path).ok();
+    }
+
+    #[test]
     fn source_pipeline_executes_integer_call_semantics() {
         let source = "fn inc(x: i64) -> i64 { return x + 1; } fn main() -> i64 { let value = inc(41); return value; }";
         let object = compile_source_to_object(source).expect("native compilation");
