@@ -922,6 +922,13 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
+    fn source_pipeline_compiles_explicit_turbofish_generic_call() {
+        let source = "fn id<T>(x: T) -> T { x } fn main() -> i64 { return id::<i64>(41); }";
+        let object = compile_source_to_object(source).expect("explicit generic call must compile");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
     fn source_pipeline_compiles_generic_specialization() {
         let source = "fn id<T>(x: T) -> T { x } fn main() -> i64 { return id(41); }";
         let object = compile_source_to_object(source).expect("generic specialization must compile");
