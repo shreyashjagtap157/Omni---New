@@ -530,10 +530,19 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                         })
                     }
                 },
-                omni_syntax::SyntaxKind::RangeExpr => Ok(Expr::Range {
-                    start: Box::new(expr_from_node(&parts[0])?),
-                    end: Box::new(expr_from_node(&parts[1])?),
-                }),
+                omni_syntax::SyntaxKind::RangeExpr => {
+                    let inclusive = node
+                        .children_with_tokens()
+                        .filter_map(|e| e.into_token())
+                        .find(|t| t.kind() == omni_syntax::SyntaxKind::Punct && (t.text() == ".." || t.text() == "..="))
+                        .map(|t| t.text() == "..=")
+                        .ok_or_else(|| "Semantic frontend error: range has no range operator".to_string())?;
+                    Ok(Expr::Range {
+                        start: Box::new(expr_from_node(&parts[0])?),
+                        end: Box::new(expr_from_node(&parts[1])?),
+                        inclusive,
+                    })
+                },
                 _ => Ok(Expr::Binary {
                     op: bin_op_from_text(&op)?,
                     lhs: Box::new(expr_from_node(&parts[0])?),
