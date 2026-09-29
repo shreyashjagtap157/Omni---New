@@ -1074,6 +1074,54 @@ mod tests {
     }
 
     #[test]
+    fn loop_lowering_creates_back_edge_and_break_exit() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "count".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Loop {
+                    body: Box::new(Expr::Break(Some(Box::new(Expr::Literal(
+                        omni_types::ast::Lit::Int(7),
+                    ))))),
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&prog).expect("loop lowering");
+        assert!(mir.functions[0].body.blocks.iter().any(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::Goto(_)))
+        }));
+        assert!(mir.functions[0].body.local_decls.iter().any(|l| l.name.as_deref() == Some("_loop_result")));
+    }
+
+    #[test]
+    fn continue_lowering_targets_current_loop_header() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "spin".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::While {
+                    condition: Box::new(Expr::Literal(omni_types::ast::Lit::Bool(true))),
+                    body: Box::new(Expr::Continue),
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&prog).expect("continue lowering");
+        assert!(mir.functions[0].body.blocks.len() >= 3);
+    }
+
+    #[test]
     fn test_mir_lowering_concrete_gate_pass() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
