@@ -96,6 +96,10 @@ impl TyCtxt {
                 let a: Vec<String> = args.iter().map(|&t| self.mangle(t)).collect();
                 format!("enum_{}_{name}_{}_{}_end", name.len(), args.len(), a.join("_"))
             }
+            TyKind::TraitObject { trait_name, args } => {
+                let a: Vec<String> = args.iter().map(|&t| self.mangle(t)).collect();
+                format!("dyn_{}_{trait_name}_{}_{}_end", trait_name.len(), args.len(), a.join("_"))
+            }
             TyKind::Never => "never".to_string(),
             TyKind::Infer(id) => format!("var_{id}"),
         }
