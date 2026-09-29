@@ -115,7 +115,7 @@ pub enum Expr {
     Literal(Lit),
     Var(String),
     Call { func: String, generic_args: Vec<TypeSpec>, args: Vec<Expr> },
-    Let { name: String, ty: Option<TypeSpec>, init: Box<Expr>, body: Box<Expr> },
+    Let { pattern: Pattern, ty: Option<TypeSpec>, init: Box<Expr>, body: Box<Expr> },
     Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
     Unary { op: UnOp, expr: Box<Expr> },
     Field { expr: Box<Expr>, field: String },
