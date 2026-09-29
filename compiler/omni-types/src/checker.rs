@@ -20,6 +20,7 @@ pub enum TypeError {
     ArgumentCountMismatch { expected: usize, found: usize },
     GenericArgumentCountMismatch { expected: usize, found: usize },
     UnsupportedOperator(String),
+    FieldNotFound { ty: String, field: String },
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
@@ -118,6 +119,7 @@ pub struct TypeChecker {
     pub tcx: TyCtxt,
     pub solver: Solver,
     pub fn_defs: HashMap<String, GenericFnDef>,
+    pub struct_defs: HashMap<String, crate::ast::StructDef>,
     pub enum_defs: HashMap<String, crate::ast::EnumDef>,
     pub trait_checker: Option<TraitObligationChecker>,
     pub cap_context: CapabilityContext,
@@ -135,6 +137,7 @@ impl TypeChecker {
             tcx: TyCtxt::new(),
             solver: Solver::new(),
             fn_defs: HashMap::new(),
+            struct_defs: HashMap::new(),
             enum_defs: HashMap::new(),
             trait_checker: None,
             cap_context: CapabilityContext::new(),
@@ -147,6 +150,10 @@ impl TypeChecker {
 
     pub fn register_fn(&mut self, fn_def: GenericFnDef) {
         self.fn_defs.insert(fn_def.name.clone(), fn_def);
+    }
+
+    pub fn register_struct(&mut self, struct_def: crate::ast::StructDef) {
+        self.struct_defs.insert(struct_def.name.clone(), struct_def);
     }
 
     pub fn register_enum(&mut self, enum_def: crate::ast::EnumDef) {
@@ -386,14 +393,34 @@ impl TypeChecker {
                 }
                 Ok(expected)
             }
-            Expr::Field { expr, field: _ } => {
+            Expr::Field { expr, field } => {
                 let struct_ty = self.infer_expr(expr, env, local_vars)?;
-                if let TyKind::Struct(_, args) = self.tcx.get(struct_ty).clone() {
-                    if let Some(&first_arg) = args.first() {
-                        return Ok(first_arg);
-                    }
+                let TyKind::Struct(name, args) = self.tcx.get(struct_ty).clone() else {
+                    return Err(TypeError::FieldNotFound {
+                        ty: self.tcx.mangle(struct_ty),
+                        field: field.clone(),
+                    });
+                };
+                let def = self
+                    .struct_defs
+                    .get(&name)
+                    .ok_or_else(|| TypeError::FieldNotFound {
+                        ty: name.clone(),
+                        field: field.clone(),
+                    })?;
+                let field_def = def
+                    .fields
+                    .iter()
+                    .find(|f| f.name == *field)
+                    .ok_or_else(|| TypeError::FieldNotFound {
+                        ty: name.clone(),
+                        field: field.clone(),
+                    })?;
+                let mut field_env = SubstEnv::new();
+                for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                    field_env.insert(param.clone(), *arg);
                 }
-                Ok(self.tcx.intern(TyKind::Int))
+                Ok(self.lower_type_spec(&field_def.ty, &field_env))
             }
             Expr::Index { expr, index: _ } => {
                 let arr_ty = self.infer_expr(expr, env, local_vars)?;
