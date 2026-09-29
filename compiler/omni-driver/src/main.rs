@@ -276,13 +276,14 @@ fn effects_from_fn_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_effects::E
         return Ok(omni_effects::EffectRow::pure());
     };
 
-    let effect_params = generic_params
+    if generic_params
         .children()
-        .filter(|n| n.kind() == omni_syntax::SyntaxKind::EffectParam)
-        .filter_map(|n| direct_name(&n))
-        .collect::<Vec<_>>();
-    if effect_params.len() > 1 {
-        return Err("Semantic frontend error: multiple effect parameters require an effect-row tuple representation".into());
+        .any(|n| n.kind() == omni_syntax::SyntaxKind::EffectParam)
+    {
+        return Err(
+            "Semantic frontend error: generic effect parameters require effect-argument specialization before MIR"
+                .into(),
+        );
     }
 
     if generic_params
@@ -292,10 +293,7 @@ fn effects_from_fn_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_effects::E
         return Err("Semantic frontend error: generic capability parameters are not representable by the current semantic capability model".into());
     }
 
-    Ok(match effect_params.first() {
-        Some(name) => omni_effects::EffectRow::open([], name),
-        None => omni_effects::EffectRow::pure(),
-    })
+    Ok(omni_effects::EffectRow::pure())
 }
 
 fn bound_trait_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
