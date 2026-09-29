@@ -647,14 +647,8 @@ impl TypeChecker {
                 self.bind_pattern(pattern, element_ty, &mut loop_vars)?;
                 let unit_ty = self.tcx.intern(TyKind::Unit);
                 self.loop_break_types.push((label.clone(), Some(unit_ty)));
-                let body_ty = self.infer_expr(body, env, &loop_vars)?;
+                let _body_ty = self.infer_expr(body, env, &loop_vars)?;
                 self.loop_break_types.pop();
-                if body_ty != unit_ty && body_ty != self.tcx.intern(TyKind::Never) {
-                    return Err(TypeError::MismatchedTypes {
-                        expected: self.tcx.mangle(unit_ty),
-                        found: self.tcx.mangle(body_ty),
-                    });
-                }
                 Ok(unit_ty)
             }
             Expr::Match { expr, arms } => {
