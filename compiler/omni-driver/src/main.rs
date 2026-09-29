@@ -81,12 +81,12 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     }
 
     let mut checker = omni_types::TypeChecker::new();
-    let enum_names = root
+    let enum_names = syntax
         .children()
         .filter(|n| n.kind() == omni_syntax::SyntaxKind::EnumDef)
         .filter_map(|n| direct_name(&n))
         .collect::<HashSet<_>>();
-    for enum_def in semantic_enums_from_cst(root, &enum_names)? {
+    for enum_def in semantic_enums_from_cst(&syntax, &enum_names)? {
         checker.register_enum(enum_def);
     }
     for func in &functions {
