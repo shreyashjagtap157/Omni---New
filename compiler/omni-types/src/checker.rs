@@ -357,7 +357,9 @@ impl TypeChecker {
                     | crate::ast::BinOp::Lt
                     | crate::ast::BinOp::Le
                     | crate::ast::BinOp::Gt
-                    | crate::ast::BinOp::Ge => Ok(self.tcx.intern(TyKind::Bool)),
+                    | crate::ast::BinOp::Ge
+                    | crate::ast::BinOp::LogicalAnd
+                    | crate::ast::BinOp::LogicalOr => Ok(self.tcx.intern(TyKind::Bool)),
                     crate::ast::BinOp::Add
                     | crate::ast::BinOp::Sub
                     | crate::ast::BinOp::Mul
