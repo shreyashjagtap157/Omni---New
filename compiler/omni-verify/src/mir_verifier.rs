@@ -692,6 +692,24 @@ impl MirVerifier {
                     | BinOp::Shr => lhs_ty,
                 })
             }
+            Rvalue::Cast { operand, from, to } => {
+                let actual = Self::operand_type(tcx, func, operand)?;
+                if actual != *from {
+                    return Err(MirVerificationError::TypeMismatch {
+                        func: func.name.clone(),
+                        context: "cast source type does not match its declared source".to_string(),
+                        expected: *from,
+                        actual,
+                    });
+                }
+                if !tcx.contains(*to) {
+                    return Err(MirVerificationError::InvalidTypeSpec {
+                        func: func.name.clone(),
+                        context: format!("cast target type handle {:?} is not present", to),
+                    });
+                }
+                Ok(*to)
+            }
             Rvalue::UnaryOp(op, operand) => {
                 let actual = Self::operand_type(tcx, func, operand)?;
                 let expected = match op {
