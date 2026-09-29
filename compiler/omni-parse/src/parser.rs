@@ -58,6 +58,10 @@ pub struct Diagnostic {
 enum Child {
     Node(Node),
     Token(usize),
+    /// A source-relative logical piece of a physical lexer token, used only
+    /// when generic parsing splits `>>`/`>>=` into closers without mutating the
+    /// lexer stream.
+    Piece { token: usize, byte_offset: u8, byte_len: u8 },
     /// A zero-width placeholder standing in for an absent token.
     ///
     /// This is deliberately a distinct variant rather than an index. Pointing a
@@ -96,6 +100,7 @@ pub struct Parser<'a> {
     tokens: Vec<Token>,
     diagnostics: Vec<Diagnostic>,
     pos: usize,
+    split_token: Option<(usize, u8)>,
 }
 impl<'a> Parser<'a> {
     pub fn from_source(source: &'a str) -> Self {
@@ -112,7 +117,7 @@ impl<'a> Parser<'a> {
             trailing_trivia: Vec::new(),
             error_reason: None,
         });
-        Self { source, tokens, diagnostics: Vec::new(), pos: 0 }
+        Self { source, tokens, diagnostics: Vec::new(), pos: 0, split_token: None }
     }
     pub fn new(tokens: Vec<String>) -> Parser<'static> {
         let source = Box::leak(tokens.join(" ").into_boxed_str());
@@ -131,6 +136,7 @@ impl<'a> Parser<'a> {
     }
     pub fn parse_source(&mut self) -> ParseResult {
         self.pos = 0;
+        self.split_token = None;
         self.diagnostics.clear();
         let mut root = self.parse_source_file();
         // The EOF token is appended exactly once, here, and never anywhere else:
@@ -430,6 +436,7 @@ impl<'a> Parser<'a> {
             match child {
                 Child::Node(c) => self.emit_node(b, c),
                 Child::Token(i) => self.emit_token(b, *i),
+                Child::Piece { token, byte_offset, byte_len } => self.emit_piece(b, *token, *byte_offset, *byte_len),
                 // A missing token is zero-width and carries no trivia, so it can
                 // never affect the reconstructed text.
                 Child::Missing => {
@@ -439,6 +446,36 @@ impl<'a> Parser<'a> {
         }
         b.finish_node();
     }
+    fn emit_piece(
+        &self,
+        b: &mut GreenNodeBuilder,
+        index: usize,
+        byte_offset: u8,
+        byte_len: u8,
+    ) {
+        let Some(t) = self.tokens.get(index) else {
+            return;
+        };
+        let start = t.span.start as usize;
+        let piece_start = start + byte_offset as usize;
+        let piece_end = piece_start + byte_len as usize;
+        if byte_offset == 0 {
+            for tr in &t.leading_trivia {
+                self.emit_trivia(b, tr);
+            }
+        }
+        let kind = match t.kind {
+            TokenKind::Punct(_) => SyntaxKind::Punct,
+            _ => SyntaxKind::ErrorToken,
+        };
+        b.token(kind.into(), &self.source[piece_start..piece_end]);
+        if piece_end == t.span.end as usize {
+            for tr in &t.trailing_trivia {
+                self.emit_trivia(b, tr);
+            }
+        }
+    }
+
     fn emit_token(&self, b: &mut GreenNodeBuilder, index: usize) {
         let Some(t) = self.tokens.get(index) else {
             return;
@@ -572,6 +609,12 @@ impl<'a> Parser<'a> {
     /// Return a token kind at a relative cursor offset without indexing past
     /// EOF. Lookahead never mutates parser state.
     fn peek_kind(&self, offset: usize) -> Option<TokenKind> {
+        if offset == 0 {
+            return self.current_kind();
+        }
+        if self.split_token.is_some() {
+            return Some(TokenKind::Eof);
+        }
         self.tokens.get(self.pos.checked_add(offset)?).map(|t| t.kind)
     }
 
@@ -591,13 +634,7 @@ impl<'a> Parser<'a> {
     /// Consume one token or return the deterministic zero-width missing-token
     /// representation. This prevents EOF from ever being aliased as a missing
     /// source-bearing token.
-    fn bump_child(&mut self) -> Child {
-        if self.eof() {
-            Child::Missing
-        } else {
-            Child::Token(self.bump_index())
-        }
-    }
+false
 
     /// Consume an expected opening delimiter. Pair identity is delegated to
     /// the single delimiter-pair authority in precedence.rs.
@@ -620,8 +657,24 @@ impl<'a> Parser<'a> {
         matching_open(close) == Some(open)
     }
 
+    fn logical_current_kind(&self) -> Option<TokenKind> {
+        let Some((token, offset)) = self.split_token else {
+            return self.current_kind_physical();
+        };
+        let kind = self.tokens.get(token)?.kind;
+        let pieces = crate::precedence::split_generic_closer(match kind {
+            TokenKind::Punct(p) => p,
+            _ => return self.current_kind_physical(),
+        })?;
+        pieces.get(offset as usize).and_then(|p| *p).map(|p| TokenKind::Punct(p.kind))
+    }
+
+    fn current_kind_physical(&self) -> Option<TokenKind> {
+        self.tokens.get(self.pos).map(|t| t.kind)
+    }
+
     fn current_kind(&self) -> Option<TokenKind> {
-        self.peek().map(|t| t.kind)
+        self.logical_current_kind()
     }
     fn at_kw(&self, kw: Kw) -> bool {
         self.current_kind() == Some(TokenKind::Keyword(kw))
@@ -633,7 +686,7 @@ impl<'a> Parser<'a> {
         self.current_kind() == Some(TokenKind::Ident)
     }
     fn eof(&self) -> bool {
-        match self.tokens.get(self.pos) {
+        self.split_token.is_none() && match self.tokens.get(self.pos) {
             Some(t) => t.kind == TokenKind::Eof,
             None => true,
         }
