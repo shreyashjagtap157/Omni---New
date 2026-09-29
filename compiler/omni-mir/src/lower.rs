@@ -841,6 +841,44 @@ mod tests {
     }
 
     #[test]
+    fn scalar_match_lowering_creates_switch_and_join() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "choose".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("x".to_string(), TypeSpec::Int)],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Match {
+                    expr: Box::new(Expr::Var("x".to_string())),
+                    arms: vec![
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Lit(omni_types::ast::Lit::Int(0)),
+                            guard: None,
+                            body: Expr::Literal(omni_types::ast::Lit::Int(10)),
+                        },
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Wildcard,
+                            guard: None,
+                            body: Expr::Literal(omni_types::ast::Lit::Int(20)),
+                        },
+                    ],
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&prog).expect("scalar match lowering");
+        assert!(mir.functions[0].body.blocks.iter().any(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::SwitchInt { .. }))
+        }));
+        assert!(mir.functions[0].body.blocks.iter().filter(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::Goto(_)))
+        }).count() >= 2);
+    }
+
+    #[test]
     fn test_mir_lowering_concrete_gate_pass() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
