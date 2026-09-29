@@ -888,7 +888,7 @@ impl<'a> FnMirBuilder<'a> {
 
     fn lower_loop_expression(
         &mut self,
-        label: &Option<String>,
+        label: Option<&str>,
         body: &omni_types::ast::Expr,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         let entry = self
@@ -900,7 +900,7 @@ impl<'a> FnMirBuilder<'a> {
 
         self.current_block = Some(header);
         self.loops.push(LoopContext {
-            label: label.clone(),
+            label: label.map(str::to_owned),
             continue_block: header,
             break_block,
             result_local: None,
@@ -932,7 +932,7 @@ impl<'a> FnMirBuilder<'a> {
 
     fn lower_while_expression(
         &mut self,
-        label: &Option<String>,
+        label: Option<&str>,
         condition: &omni_types::ast::Expr,
         body: &omni_types::ast::Expr,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
@@ -963,7 +963,7 @@ impl<'a> FnMirBuilder<'a> {
 
         self.current_block = Some(body_block);
         self.loops.push(LoopContext {
-            label: label.clone(),
+            label: label.map(str::to_owned),
             continue_block: condition_block,
             break_block,
             result_local: None,
