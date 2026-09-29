@@ -1189,6 +1189,14 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            if self.at_kw(Kw::As) && 26 >= min_bp {
+                let mut n = Node::new(SyntaxKind::CastExpr);
+                n.children.push(Child::Node(lhs));
+                n.children.push(self.bump_child());
+                n.children.push(Child::Node(self.parse_type()));
+                lhs = n;
+                continue;
+            }
             let Some((op, left_bp, right_bp)) = self.infix() else { break };
             if left_bp < min_bp {
                 break;
@@ -1215,13 +1223,6 @@ impl<'a> Parser<'a> {
             bin.children.push(self.bump_child());
             bin.children.push(Child::Node(self.parse_expr_bp(right_bp)));
             lhs = bin;
-        }
-        if self.at_kw(Kw::As) && 26 >= min_bp {
-            let mut n = Node::new(SyntaxKind::CastExpr);
-            n.children.push(Child::Node(lhs));
-            n.children.push(self.bump_child());
-            n.children.push(Child::Node(self.parse_type()));
-            lhs = n;
         }
         lhs
     }
@@ -1583,6 +1584,15 @@ impl<'a> Parser<'a> {
 
     fn parse_pattern(&mut self) -> Node {
         let mut lhs = self.parse_pattern_atom();
+        if self.at_punct(Punct::DotDot) || self.at_punct(Punct::DotDotEq) {
+            let mut n = Node::new(SyntaxKind::RangePattern);
+            n.children.push(Child::Node(lhs));
+            n.children.push(self.bump_child());
+            if !self.at_punct(Punct::Comma) && !self.at_kw(Kw::If) && !self.at_punct(Punct::RParen) && !self.at_punct(Punct::RBracket) {
+                n.children.push(Child::Node(self.parse_expression()));
+            }
+            lhs = n;
+        }
         if self.at_punct(Punct::Pipe) {
             let mut n = Node::new(SyntaxKind::OrPattern);
             n.children.push(Child::Node(lhs));
