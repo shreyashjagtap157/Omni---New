@@ -40,10 +40,13 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    Rem,
     Eq,
     Ne,
     Lt,
+    Le,
     Gt,
+    Ge,
 }
 
 /// Unary operators.
