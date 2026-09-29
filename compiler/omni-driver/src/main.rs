@@ -642,17 +642,20 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             })
         }
         omni_syntax::SyntaxKind::ForExpr => {
-            let children = node.children().collect::<Vec<_>>();
+            let label = node
+                .children()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
+                .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
+            let children = node
+                .children()
+                .filter(|n| n.kind() != omni_syntax::SyntaxKind::Lifetime)
+                .collect::<Vec<_>>();
             if children.len() != 3 {
                 return Err("Semantic frontend error: malformed for expression".into());
             }
             let pattern = pattern_from_cst(&children[0])?;
             let iterable = expr_from_node(&children[1])?;
             let body = expr_from_node(&children[2])?;
-            let label = node
-                .children()
-                .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
-                .map(|n| n.text().to_string().trim().trim_start_matches(''').to_string());
             Ok(Expr::For {
                 label,
                 pattern,
