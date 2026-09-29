@@ -8,6 +8,7 @@ use omni_effects::{CapabilityContext, EffectRow};
 /// Errors encountered during type checking and substitution resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeError {
+    ImmutableGlobalAssignment(String),
     UnresolvedSubstitution(String),
     MismatchedTypes { expected: String, found: String },
     FunctionNotFound(String),
@@ -341,6 +342,25 @@ impl TypeChecker {
     }
 
     /// Infers the type of an expression under environment and local variables.
+    fn ensure_assignable(
+        &self,
+        target: &crate::ast::Expr,
+        local_vars: &HashMap<String, Ty>,
+    ) -> Result<(), TypeError> {
+        if let crate::ast::Expr::Var(name) = target {
+            if local_vars.contains_key(name) {
+                return Ok(());
+            }
+            if let Some((_, mutable)) = self.global_values.get(name) {
+                if *mutable {
+                    return Ok(());
+                }
+                return Err(TypeError::ImmutableGlobalAssignment(name.clone()));
+            }
+        }
+        Ok(())
+    }
+
     pub fn infer_expr(
         &mut self,
         expr: &Expr,
@@ -806,6 +826,7 @@ impl TypeChecker {
                 Ok(self.tcx.intern(TyKind::String))
             }
             Expr::Assign { target, value } => {
+                self.ensure_assignable(target, local_vars)?;
                 let target_ty = self.infer_expr(target, env, local_vars)?;
                 let value_ty = self.infer_expr(value, env, local_vars)?;
                 if target_ty != value_ty {
@@ -817,6 +838,7 @@ impl TypeChecker {
                 Ok(target_ty)
             }
             Expr::CompoundAssign { op, target, value } => {
+                self.ensure_assignable(target, local_vars)?;
                 let target_ty = self.infer_expr(target, env, local_vars)?;
                 let value_ty = self.infer_expr(value, env, local_vars)?;
                 if target_ty != value_ty {
