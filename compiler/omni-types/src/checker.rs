@@ -509,7 +509,7 @@ impl TypeChecker {
                 }
                 Ok(self.tcx.intern(TyKind::Array(element_ty, elems.len())))
             }
-            Expr::Range { start, end } => {
+            Expr::Range { start, end, .. } => {
                 let start_ty = self.infer_expr(start, env, local_vars)?;
                 let end_ty = self.infer_expr(end, env, local_vars)?;
                 if start_ty != end_ty {
@@ -950,7 +950,7 @@ impl TypeChecker {
                 }
                 Ok(eff)
             }
-            Expr::Range { start, end } => {
+            Expr::Range { start, end, .. } => {
                 let s_eff = self.infer_expr_effects(start, env, local_vars)?;
                 let e_eff = self.infer_expr_effects(end, env, local_vars)?;
                 Ok(s_eff.union(&e_eff))
