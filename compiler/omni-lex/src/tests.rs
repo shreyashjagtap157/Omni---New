@@ -598,8 +598,9 @@ fn quoted_strings(s: &str) -> Vec<&str> {
 }
 
 fn normative_keywords() -> Vec<String> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/grammar/omni-edition1.ebnf");
-    let ebnf = std::fs::read_to_string(path).expect("the spec grammar must be readable");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR set");
+    let path = std::path::PathBuf::from(manifest_dir).join("../../spec/grammar/omni-edition1.ebnf");
+    let ebnf = std::fs::read_to_string(&path).expect("the spec grammar must be readable");
     let start = ebnf.find("keyword =").expect("the spec declares a keyword production");
     let rest = &ebnf[start..];
     let end = rest.find(';').expect("the keyword production is terminated");

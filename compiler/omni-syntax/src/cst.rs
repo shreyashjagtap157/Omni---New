@@ -45,6 +45,118 @@ pub enum SyntaxKind {
     /// is the parser's recovery tag (GRAM-0007), and aliasing an unknown kind
     /// onto it would let tooling read a malformed tree as a recovered one.
     Unknown,
+
+    // ------------------------------------------------------------------
+    // 0.0.2.3 — Edition 1 grammar coverage.
+    //
+    // Everything below is appended, never inserted: the discriminants above are
+    // the Rowan wire values, so renumbering them would silently reinterpret
+    // kinds for any consumer holding an older tree.
+    // ------------------------------------------------------------------
+
+    // Items.
+    StructDef,
+    StructField,
+    EnumDef,
+    EnumVariant,
+    TraitDef,
+    TraitItem,
+    ImplDef,
+    ImplItem,
+    TypeAlias,
+    ConstDef,
+    StaticDef,
+    UseDecl,
+    UseTree,
+    ModuleDecl,
+    ExternCrateDecl,
+    AttributeItem,
+    Attribute,
+    FunctionSignature,
+
+    // Generics and types.
+    GenericParams,
+    GenericParam,
+    LifetimeParam,
+    TypeParam,
+    ConstParam,
+    EffectParam,
+    CapabilityParam,
+    WhereClause,
+    WherePredicate,
+    TypeBound,
+    TraitRef,
+    TypeArgs,
+    TypeArg,
+    ConstArg,
+    LifetimeArg,
+    Lifetime,
+    Path,
+    PathSegment,
+    TupleType,
+    ArrayType,
+    SliceType,
+    ReferenceType,
+    RawPointerType,
+    PathType,
+    NeverType,
+    ParenthesizedType,
+    FunctionType,
+    Visibility,
+
+    // Statements.
+    ItemDeclStmt,
+    MacroStmt,
+    FinalExpr,
+
+    // Patterns.
+    LiteralPattern,
+    IdentifierPattern,
+    WildcardPattern,
+    TuplePattern,
+    SlicePattern,
+    StructPattern,
+    EnumPattern,
+    ReferencePattern,
+    OrPattern,
+    BindingPattern,
+    RangePattern,
+    GuardPattern,
+    PatternField,
+
+    // Expressions.
+    IfExpr,
+    MatchExpr,
+    MatchArm,
+    LoopExpr,
+    WhileExpr,
+    ForExpr,
+    TryExpr,
+    CatchClause,
+    BreakExpr,
+    ContinueExpr,
+    YieldExpr,
+    AwaitExpr,
+    AssignExpr,
+    MethodCallExpr,
+    FieldExpr,
+    IndexExpr,
+    RangeExpr,
+    CastExpr,
+    PathExpr,
+    MacroInvocation,
+    TokenTree,
+    ParenthesizedExpr,
+    StructExpr,
+    StructExprField,
+    ArrayExpr,
+    TupleExpr,
+    ClosureExpr,
+    ClosureParam,
+    AsyncBlock,
+    UnsafeBlock,
+    TryBlock,
+    Label,
 }
 
 impl SyntaxKind {
@@ -53,6 +165,13 @@ impl SyntaxKind {
     /// `#[repr(u16)]` discriminants are the Rowan wire values, so the ordering
     /// is load-bearing and must not be reshuffled. Appending is safe; inserting
     /// is not.
+    ///
+    /// The reverse conversion indexes this slice by raw value, so this list must
+    /// stay in lockstep with the enum: forgetting an entry would silently
+    /// misread every kind after it (reading a `Block` as a `LetStmt`, say).
+    /// `all_lists_every_declared_kind_exactly_once` and
+    /// `every_kind_round_trips_through_its_raw_discriminant` enforce that, so a
+    /// desynchronized list fails the build rather than misparsing silently.
     pub const ALL: &'static [SyntaxKind] = &[
         SyntaxKind::Ident,
         SyntaxKind::Int,
@@ -83,6 +202,100 @@ impl SyntaxKind {
         SyntaxKind::ErrorNode,
         SyntaxKind::MissingToken,
         SyntaxKind::Unknown,
+        SyntaxKind::StructDef,
+        SyntaxKind::StructField,
+        SyntaxKind::EnumDef,
+        SyntaxKind::EnumVariant,
+        SyntaxKind::TraitDef,
+        SyntaxKind::TraitItem,
+        SyntaxKind::ImplDef,
+        SyntaxKind::ImplItem,
+        SyntaxKind::TypeAlias,
+        SyntaxKind::ConstDef,
+        SyntaxKind::StaticDef,
+        SyntaxKind::UseDecl,
+        SyntaxKind::UseTree,
+        SyntaxKind::ModuleDecl,
+        SyntaxKind::ExternCrateDecl,
+        SyntaxKind::AttributeItem,
+        SyntaxKind::Attribute,
+        SyntaxKind::FunctionSignature,
+        SyntaxKind::GenericParams,
+        SyntaxKind::GenericParam,
+        SyntaxKind::LifetimeParam,
+        SyntaxKind::TypeParam,
+        SyntaxKind::ConstParam,
+        SyntaxKind::EffectParam,
+        SyntaxKind::CapabilityParam,
+        SyntaxKind::WhereClause,
+        SyntaxKind::WherePredicate,
+        SyntaxKind::TypeBound,
+        SyntaxKind::TraitRef,
+        SyntaxKind::TypeArgs,
+        SyntaxKind::TypeArg,
+        SyntaxKind::ConstArg,
+        SyntaxKind::LifetimeArg,
+        SyntaxKind::Lifetime,
+        SyntaxKind::Path,
+        SyntaxKind::PathSegment,
+        SyntaxKind::TupleType,
+        SyntaxKind::ArrayType,
+        SyntaxKind::SliceType,
+        SyntaxKind::ReferenceType,
+        SyntaxKind::RawPointerType,
+        SyntaxKind::PathType,
+        SyntaxKind::NeverType,
+        SyntaxKind::ParenthesizedType,
+        SyntaxKind::FunctionType,
+        SyntaxKind::Visibility,
+        SyntaxKind::ItemDeclStmt,
+        SyntaxKind::MacroStmt,
+        SyntaxKind::FinalExpr,
+        SyntaxKind::LiteralPattern,
+        SyntaxKind::IdentifierPattern,
+        SyntaxKind::WildcardPattern,
+        SyntaxKind::TuplePattern,
+        SyntaxKind::SlicePattern,
+        SyntaxKind::StructPattern,
+        SyntaxKind::EnumPattern,
+        SyntaxKind::ReferencePattern,
+        SyntaxKind::OrPattern,
+        SyntaxKind::BindingPattern,
+        SyntaxKind::RangePattern,
+        SyntaxKind::GuardPattern,
+        SyntaxKind::PatternField,
+        SyntaxKind::IfExpr,
+        SyntaxKind::MatchExpr,
+        SyntaxKind::MatchArm,
+        SyntaxKind::LoopExpr,
+        SyntaxKind::WhileExpr,
+        SyntaxKind::ForExpr,
+        SyntaxKind::TryExpr,
+        SyntaxKind::CatchClause,
+        SyntaxKind::BreakExpr,
+        SyntaxKind::ContinueExpr,
+        SyntaxKind::YieldExpr,
+        SyntaxKind::AwaitExpr,
+        SyntaxKind::AssignExpr,
+        SyntaxKind::MethodCallExpr,
+        SyntaxKind::FieldExpr,
+        SyntaxKind::IndexExpr,
+        SyntaxKind::RangeExpr,
+        SyntaxKind::CastExpr,
+        SyntaxKind::PathExpr,
+        SyntaxKind::MacroInvocation,
+        SyntaxKind::TokenTree,
+        SyntaxKind::ParenthesizedExpr,
+        SyntaxKind::StructExpr,
+        SyntaxKind::StructExprField,
+        SyntaxKind::ArrayExpr,
+        SyntaxKind::TupleExpr,
+        SyntaxKind::ClosureExpr,
+        SyntaxKind::ClosureParam,
+        SyntaxKind::AsyncBlock,
+        SyntaxKind::UnsafeBlock,
+        SyntaxKind::TryBlock,
+        SyntaxKind::Label,
     ];
 
     /// The raw Rowan discriminant for this kind.
@@ -173,10 +386,14 @@ mod tests {
     /// kind onto it would make tooling read a malformed tree as a recovered one.
     #[test]
     fn an_unknown_raw_kind_is_not_an_error_node() {
-        // `ErrorNode` is the last of the pre-existing kinds; 27/28 are the
-        // appended kinds, and anything at or beyond `ALL.len()` is genuinely
-        // unrecognized.
-        for raw in [SyntaxKind::MissingToken as u16 + 1, 99, u16::MAX] {
+        // Anything at or beyond `ALL.len()` is genuinely unrecognized. This is
+        // derived rather than hardcoded: `ALL` grows every milestone, so both a
+        // literal "the kind after MissingToken" and a fixed literal like 99
+        // eventually name a legitimate kind and assert that a real node is
+        // `Unknown`. Both failed exactly this way once `ALL` passed 99 kinds.
+        let first_unrecognized = SyntaxKind::ALL.len() as u16;
+        assert!(first_unrecognized > SyntaxKind::Unknown as u16, "ALL must extend past Unknown");
+        for raw in [first_unrecognized, first_unrecognized + 1, u16::MAX] {
             let kind = SyntaxKind::from(rowan::SyntaxKind(raw));
             assert_eq!(kind, SyntaxKind::Unknown, "raw {raw} should be Unknown");
             assert_ne!(kind, SyntaxKind::ErrorNode);
