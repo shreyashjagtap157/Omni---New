@@ -886,6 +886,38 @@ fn test_effect_capability_semantic_model_slice() {
 }
 
 #[test]
+fn test_reference_unification_respects_mutability_and_inner_type() {
+    let mut checker = TypeChecker::new();
+    let int_ty = checker.tcx.intern(TyKind::Int);
+    let float_ty = checker.tcx.intern(TyKind::Float);
+    let expected = checker.tcx.intern(TyKind::Reference {
+        lifetime: Some("a".to_string()),
+        mutable: false,
+        inner: int_ty,
+    });
+    let found = checker.tcx.intern(TyKind::Reference {
+        lifetime: Some("a".to_string()),
+        mutable: false,
+        inner: float_ty,
+    });
+    assert!(checker.unify_types(expected, found, &mut SubstEnv::new()).is_err());
+
+    let mutable = checker.tcx.intern(TyKind::Reference {
+        lifetime: Some("a".to_string()),
+        mutable: true,
+        inner: int_ty,
+    });
+    assert!(checker.unify_types(expected, mutable, &mut SubstEnv::new()).is_err());
+
+    let same = checker.tcx.intern(TyKind::Reference {
+        lifetime: Some("a".to_string()),
+        mutable: false,
+        inner: int_ty,
+    });
+    assert!(checker.unify_types(expected, same, &mut SubstEnv::new()).is_ok());
+}
+
+#[test]
 fn test_reference_patterns_require_matching_reference_mutability() {
     let mut checker = TypeChecker::new();
     let int_ty = checker.tcx.intern(TyKind::Int);
