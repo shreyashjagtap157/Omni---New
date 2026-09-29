@@ -21,6 +21,9 @@ fn native_abi_type_from_ty(
         | omni_mir::TyKind::Byte
         | omni_mir::TyKind::Char => Ok(Some(types::I64)),
         omni_mir::TyKind::Float => Ok(Some(types::F64)),
+        omni_mir::TyKind::Reference { .. } => Err(
+            "Codegen error: reference ABI requires pointer storage and ownership lowering".into()
+        ),
         other => Err(format!(
             "Codegen error: native backend does not yet support MIR ABI type {:?}",
             other
