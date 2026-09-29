@@ -697,7 +697,10 @@ impl<'a> Parser<'a> {
             n.children.push(self.bump_child());
         }
         n.children.push(Child::Node(self.parse_path_segment()));
-        while self.at_punct(Punct::ColonColon) && self.peek_kind(1) != Some(TokenKind::Punct(Punct::LBrace)) {
+        while self.at_punct(Punct::ColonColon)
+            && self.peek_kind(1) != Some(TokenKind::Punct(Punct::LBrace))
+            && self.peek_kind(1) != Some(TokenKind::Punct(Punct::Lt))
+        {
             n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_path_segment()));
         }
@@ -1030,6 +1033,14 @@ impl<'a> Parser<'a> {
                     s.children.push(Child::Node(expr));
                     s.children.push(self.bump_child());
                     n.children.push(Child::Node(s));
+                } else if matches!(
+                    expr.kind,
+                    SyntaxKind::ReturnExpr
+                        | SyntaxKind::BreakExpr
+                        | SyntaxKind::ContinueExpr
+                        | SyntaxKind::YieldExpr
+                ) {
+                    n.children.push(Child::Node(expr));
                 } else if self.at_punct(Punct::RBrace) || self.eof() {
                     n.children.push(Child::Node(Node {
                         kind: SyntaxKind::FinalExpr,
@@ -1122,7 +1133,7 @@ impl<'a> Parser<'a> {
     fn parse_expr_bp(&mut self, min_bp: u8) -> Node {
         let mut lhs = self.parse_prefix();
         loop {
-            if self.at_punct(Punct::LParen) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
+                if self.at_punct(Punct::LParen) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
                 lhs = self.parse_call(lhs);
                 continue;
             }
@@ -1388,16 +1399,28 @@ impl<'a> Parser<'a> {
 
     fn parse_path_expr_or_macro(&mut self) -> Node {
         let path = self.parse_path();
+        let mut path_node = path;
+        if self.at_punct(Punct::ColonColon) && self.peek_kind(1) == Some(TokenKind::Punct(Punct::Lt)) {
+            let mut p = Node::new(SyntaxKind::PathExpr);
+            p.children.push(Child::Node(path_node));
+            p.children.push(self.bump_child());
+            p.children.push(Child::Node(self.parse_type_args()));
+            path_node = p;
+        }
         if self.at_punct(Punct::Bang) {
             let mut n = Node::new(SyntaxKind::MacroInvocation);
-            n.children.push(Child::Node(path));
+            n.children.push(Child::Node(path_node));
             n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_macro_args()));
             return n;
         }
-        Node {
-            kind: SyntaxKind::PathExpr,
-            children: vec![Child::Node(path)],
+        if path_node.kind == SyntaxKind::PathExpr {
+            path_node
+        } else {
+            Node {
+                kind: SyntaxKind::PathExpr,
+                children: vec![Child::Node(path_node)],
+            }
         }
     }
 
@@ -1588,7 +1611,13 @@ impl<'a> Parser<'a> {
             let mut n = Node::new(SyntaxKind::RangePattern);
             n.children.push(Child::Node(lhs));
             n.children.push(self.bump_child());
-            if !self.at_punct(Punct::Comma) && !self.at_kw(Kw::If) && !self.at_punct(Punct::RParen) && !self.at_punct(Punct::RBracket) {
+            if !self.at_punct(Punct::Comma)
+                && !self.at_kw(Kw::If)
+                && !self.at_punct(Punct::RParen)
+                && !self.at_punct(Punct::RBracket)
+                && !self.at_punct(Punct::RBrace)
+                && !self.at_punct(Punct::FatArrow)
+            {
                 n.children.push(Child::Node(self.parse_expression()));
             }
             lhs = n;
