@@ -577,6 +577,16 @@ fn lower_rvalue_to_cl(
                 kind
             ));
         }
+        omni_mir::ir::Rvalue::Field { field, .. } => {
+            return Err(format!(
+                "Codegen error: field projection '{}' requires aggregate layout metadata",
+                field
+            ));
+        }
+        omni_mir::ir::Rvalue::Index { .. } => {
+            return Err("Codegen error: index projection requires aggregate layout metadata".into());
+        }
+
         omni_mir::ir::Rvalue::Cast { operand, from, to } => {
             let value = lower_operand_to_cl(builder, operand, variables)?;
             let from_float = matches!(tcx.get(*from), omni_mir::TyKind::Float);
