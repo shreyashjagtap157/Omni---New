@@ -215,8 +215,7 @@ fn semantic_functions_from_cst(
             .children()
             .find(|n| n.kind() == omni_syntax::SyntaxKind::GenericParams)
             .into_iter()
-            .flat_map(|g| g.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::GenericParam))
-            .filter_map(|g| g.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeParam))
+            .flat_map(|g| g.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeParam))
             .filter_map(|p| direct_name(&p))
             .collect::<Vec<_>>();
         let generic_names: HashSet<String> = type_params.iter().cloned().collect();
