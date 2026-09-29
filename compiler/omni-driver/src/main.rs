@@ -95,6 +95,10 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
     for enum_def in semantic_enums_from_cst(&syntax, &enum_names)? {
         checker.register_enum(enum_def);
     }
+    for (name, spec, mutable) in semantic_globals_from_cst(&syntax, &enum_names)? {
+        let ty = checker.lower_type_spec(&spec, &SubstEnv::new());
+        checker.register_global(name, ty, mutable);
+    }
     for func in &functions {
         checker.register_fn(func.clone());
     }
@@ -129,6 +133,39 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Monomorphization error: {:?}", e))?;
 
     omni_codegen::compile_monomorphized_program(&program)
+}
+
+fn semantic_globals_from_cst(
+    root: &omni_syntax::SyntaxNode,
+    enum_names: &HashSet<String>,
+) -> Result<Vec<(String, TypeSpec, bool)>, String> {
+    let mut globals = Vec::new();
+    for node in root.children() {
+        let (name, mutable) = match node.kind() {
+            omni_syntax::SyntaxKind::ConstDef => {
+                let name = direct_name(&node)
+                    .ok_or_else(|| "Semantic frontend error: const is missing a name".to_string())?;
+                (name, false)
+            }
+            omni_syntax::SyntaxKind::StaticDef => {
+                let name = direct_name(&node)
+                    .ok_or_else(|| "Semantic frontend error: static is missing a name".to_string())?;
+                let mutable = node
+                    .children_with_tokens()
+                    .filter_map(|e| e.into_token())
+                    .any(|t| t.kind() == omni_syntax::SyntaxKind::Keyword && t.text() == "mut");
+                (name, mutable)
+            }
+            _ => continue,
+        };
+        let ty_node = node
+            .children()
+            .find(|n| n.kind() == omni_syntax::SyntaxKind::Type)
+            .ok_or_else(|| format!("Semantic frontend error: global '{}' has no type", name))?;
+        let ty = type_spec_from_cst_with_context(ty_node, &HashSet::new(), enum_names)?;
+        globals.push((name, ty, mutable));
+    }
+    Ok(globals)
 }
 
 fn semantic_structs_from_cst(
