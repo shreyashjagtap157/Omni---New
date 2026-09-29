@@ -131,6 +131,16 @@ impl MonomorphizedProgram {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
                 Self::verify_type_spec_concrete(ty, enclosing_fn)
             }
+            Expr::Loop { body } | Expr::While { body, .. } => {
+                Self::verify_expr_concrete(body, enclosing_fn)
+            }
+            Expr::Break(value) => {
+                if let Some(value) = value {
+                    Self::verify_expr_concrete(value, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Continue => Ok(()),
             Expr::Match { expr, arms } => {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
                 for arm in arms {
@@ -375,6 +385,25 @@ impl<'a> Monomorphizer<'a> {
                 let mono_ty = self.substitute_type_spec(ty, env);
                 Ok(Expr::Cast { expr: Box::new(mono_expr), ty: mono_ty })
             }
+            Expr::Loop { body } => {
+                Ok(Expr::Loop {
+                    body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
+                })
+            }
+            Expr::While { condition, body } => {
+                Ok(Expr::While {
+                    condition: Box::new(self.monomorphize_expr(condition, env, local_vars)?),
+                    body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
+                })
+            }
+            Expr::Break(value) => Ok(Expr::Break(
+                value
+                    .as_ref()
+                    .map(|v| self.monomorphize_expr(v, env, local_vars))
+                    .transpose()?
+                    .map(Box::new),
+            )),
+            Expr::Continue => Ok(Expr::Continue),
             Expr::Match { expr, arms } => {
                 let mono_expr = self.monomorphize_expr(expr, env, local_vars)?;
                 let mut mono_arms = Vec::new();
