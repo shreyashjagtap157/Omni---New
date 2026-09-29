@@ -23,6 +23,7 @@ pub enum TyKind {
     Fn(Vec<Ty>, Ty),
     Struct(String, Vec<Ty>),
     Enum(String, Vec<Ty>),
+    TraitObject { trait_name: String, args: Vec<Ty> },
     Never,
     Infer(u32),
 }
