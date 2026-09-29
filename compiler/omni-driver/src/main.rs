@@ -950,6 +950,13 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_compiles_integer_match() {
+        let source = "fn choose(x: i64) -> i64 { match x { 0 => 10, _ => 20 } } fn main() -> i64 { return choose(0); }";
+        let object = compile_source_to_object(source).expect("integer match must compile");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
     fn rejects_invalid_optimization_level() {
         let args = vec![
             "omni-driver".to_string(),
