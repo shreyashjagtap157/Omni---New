@@ -429,12 +429,22 @@ impl TypeChecker {
                 }
                 Ok(self.lower_type_spec(&field_def.ty, &field_env))
             }
-            Expr::Index { expr, index: _ } => {
+            Expr::Index { expr, index } => {
                 let arr_ty = self.infer_expr(expr, env, local_vars)?;
-                if let TyKind::Array(elem, _) = self.tcx.get(arr_ty).clone() {
-                    return Ok(elem);
+                let index_ty = self.infer_expr(index, env, local_vars)?;
+                if index_ty != self.tcx.intern(TyKind::Int) {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: "int".to_string(),
+                        found: self.tcx.mangle(index_ty),
+                    });
                 }
-                Ok(self.tcx.intern(TyKind::Int))
+                match self.tcx.get(arr_ty).clone() {
+                    TyKind::Array(elem, _) => Ok(elem),
+                    other => Err(TypeError::MismatchedTypes {
+                        expected: "array".to_string(),
+                        found: self.tcx.mangle(self.tcx.intern(other)),
+                    }),
+                }
             }
             Expr::Tuple(elems) => {
                 let elem_tys: Result<Vec<Ty>, TypeError> =
@@ -442,16 +452,34 @@ impl TypeChecker {
                 Ok(self.tcx.intern(TyKind::Tuple(elem_tys?)))
             }
             Expr::Array(elems) => {
-                let first_ty = if let Some(first) = elems.first() {
-                    self.infer_expr(first, env, local_vars)?
-                } else {
-                    self.tcx.intern(TyKind::Int)
-                };
-                Ok(self.tcx.intern(TyKind::Array(first_ty, elems.len())))
+                if elems.is_empty() {
+                    return Ok(self.tcx.intern(TyKind::Array(
+                        self.tcx.intern(TyKind::Never),
+                        0,
+                    )));
+                }
+                let element_ty = self.infer_expr(&elems[0], env, local_vars)?;
+                for elem in &elems[1..] {
+                    let ty = self.infer_expr(elem, env, local_vars)?;
+                    if ty != element_ty {
+                        return Err(TypeError::MismatchedTypes {
+                            expected: self.tcx.mangle(element_ty),
+                            found: self.tcx.mangle(ty),
+                        });
+                    }
+                }
+                Ok(self.tcx.intern(TyKind::Array(element_ty, elems.len())))
             }
-            Expr::Range { start, end: _ } => {
-                let elem_ty = self.infer_expr(start, env, local_vars)?;
-                Ok(self.tcx.intern(TyKind::Range(elem_ty)))
+            Expr::Range { start, end } => {
+                let start_ty = self.infer_expr(start, env, local_vars)?;
+                let end_ty = self.infer_expr(end, env, local_vars)?;
+                if start_ty != end_ty {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(start_ty),
+                        found: self.tcx.mangle(end_ty),
+                    });
+                }
+                Ok(self.tcx.intern(TyKind::Range(start_ty)))
             }
             Expr::If { condition, then_branch, else_branch } => {
                 let condition_ty = self.infer_expr(condition, env, local_vars)?;
