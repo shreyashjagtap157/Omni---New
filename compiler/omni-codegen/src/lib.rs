@@ -515,6 +515,11 @@ fn lower_rvalue_to_cl(
                     l,
                     r,
                 ),
+                omni_mir::ir::BinOp::BitAnd => Ok(builder.ins().band(l, r)),
+                omni_mir::ir::BinOp::BitOr => Ok(builder.ins().bor(l, r)),
+                omni_mir::ir::BinOp::BitXor => Ok(builder.ins().bxor(l, r)),
+                omni_mir::ir::BinOp::Shl => Ok(builder.ins().ishl(l, r)),
+                omni_mir::ir::BinOp::Shr => Ok(builder.ins().sshr(l, r)),
             }
         }
         omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
