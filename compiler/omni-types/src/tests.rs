@@ -955,10 +955,9 @@ fn test_annotated_empty_array_uses_declared_type() {
     let ty = checker
         .infer_expr(&expr, &SubstEnv::new(), &HashMap::new())
         .expect("annotated empty array");
-    assert_eq!(
-        ty,
-        checker.tcx.intern(TyKind::Array(checker.tcx.intern(TyKind::Int), 0))
-    );
+    let int_ty = checker.tcx.intern(TyKind::Int);
+    let expected = checker.tcx.intern(TyKind::Array(int_ty, 0));
+    assert_eq!(ty, expected);
 }
 
 #[test]
