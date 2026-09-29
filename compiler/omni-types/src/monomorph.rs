@@ -402,25 +402,36 @@ impl<'a> Monomorphizer<'a> {
                 let mono_ty = self.substitute_type_spec(ty, env);
                 Ok(Expr::Cast { expr: Box::new(mono_expr), ty: mono_ty })
             }
-            Expr::Loop { body } => {
+            Expr::Loop { label, body } => {
                 Ok(Expr::Loop {
+                    label: label.clone(),
                     body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
                 })
             }
-            Expr::While { condition, body } => {
+            Expr::While { label, condition, body } => {
                 Ok(Expr::While {
+                    label: label.clone(),
                     condition: Box::new(self.monomorphize_expr(condition, env, local_vars)?),
                     body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
                 })
             }
-            Expr::Break(value) => Ok(Expr::Break(
-                value
+            Expr::For { label, pattern, iterable, body } => {
+                Ok(Expr::For {
+                    label: label.clone(),
+                    pattern: pattern.clone(),
+                    iterable: Box::new(self.monomorphize_expr(iterable, env, local_vars)?),
+                    body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
+                })
+            }
+            Expr::Break { label, value } => Ok(Expr::Break {
+                label: label.clone(),
+                value: value
                     .as_ref()
                     .map(|v| self.monomorphize_expr(v, env, local_vars))
                     .transpose()?
                     .map(Box::new),
-            )),
-            Expr::Continue => Ok(Expr::Continue),
+            }),
+            Expr::Continue { label } => Ok(Expr::Continue { label: label.clone() }),
             Expr::Match { expr, arms } => {
                 let mono_expr = self.monomorphize_expr(expr, env, local_vars)?;
                 let mut mono_arms = Vec::new();
