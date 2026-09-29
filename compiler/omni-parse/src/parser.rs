@@ -1186,6 +1186,20 @@ impl<'a> Parser<'a> {
         self.parse_expr_bp(0)
     }
 
+    fn infix(&self) -> Option<(Punct, u8, u8)> {
+        let kind = self.current_kind()?;
+        let TokenKind::Punct(punct) = kind else {
+            return None;
+        };
+        let (left, right) = crate::precedence::binding_power(kind);
+        if (left, right) == crate::precedence::NO_BINDING {
+            None
+        } else {
+            Some((punct, left, right))
+        }
+    }
+
+
     fn parse_expr_bp(&mut self, min_bp: u8) -> Node {
         let mut lhs = self.parse_prefix();
         loop {
