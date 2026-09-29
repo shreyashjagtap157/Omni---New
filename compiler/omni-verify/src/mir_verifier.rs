@@ -371,6 +371,11 @@ impl MirVerifier {
                                     Self::check_operand(fn_name, operand, num_locals)?;
                                 }
                             }
+                            Rvalue::Field { base, .. } => Self::check_operand(fn_name, base, num_locals)?,
+                            Rvalue::Index { base, index, .. } => {
+                                Self::check_operand(fn_name, base, num_locals)?;
+                                Self::check_operand(fn_name, index, num_locals)?;
+                            }
 
                         }
                         Self::check_rvalue_type(prog, func, place, rval)?;
@@ -773,7 +778,72 @@ impl MirVerifier {
                     }
                 }
                 Ok(*ty)
+            }            Rvalue::Field { base, field, ty } => {
+                let base_ty = Self::operand_type(tcx, func, base)?;
+                let expected = match tcx.get(base_ty) {
+                    TyKind::Struct(name, _) => {
+                        // MIR currently retains only the semantic field name; the declaration
+                        // type is reconstructed by the frontend-owned type context.
+                        let _ = name;
+                        return Err(MirVerificationError::InvalidTypeSpec {
+                            func: func.name.clone(),
+                            context: format!("field projection '{}' requires registered aggregate layout", field),
+                        });
+                    }
+                    TyKind::Tuple(types) => {
+                        let index = field.parse::<usize>().map_err(|_| MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: "tuple field projection index is not numeric".to_string(),
+                        })?;
+                        *types.get(index).ok_or_else(|| MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: "tuple field projection index is out of bounds".to_string(),
+                        })?
+                    }
+                    _ => return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: "field projection base is not an aggregate".to_string(),
+                    }),
+                };
+                if *ty != expected {
+                    return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!("field projection '{}' has incorrect result type", field),
+                    });
+                }
+                Ok(*ty)
             }
+            Rvalue::Index { base, index, ty } => {
+                let base_ty = Self::operand_type(tcx, func, base)?;
+                let index_ty = Self::operand_type(tcx, func, index)?;
+                if index_ty != tcx.intern(TyKind::Int) {
+                    return Err(MirVerificationError::TypeMismatch {
+                        func: func.name.clone(),
+                        context: "index projection requires Int index".to_string(),
+                        expected: tcx.intern(TyKind::Int),
+                        actual: index_ty,
+                    });
+                }
+                let expected = match tcx.get(base_ty) {
+                    TyKind::Array(elem, _) => *elem,
+                    TyKind::Tuple(_) => return Err(MirVerificationError::InvalidTypeSpec {
+                        func: func.name.clone(),
+                        context: "dynamic tuple indexing requires a constant projection".to_string(),
+                    }),
+                    _ => return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: "index projection base is not an array or tuple".to_string(),
+                    }),
+                };
+                if *ty != expected {
+                    return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: "index projection result type does not match its base aggregate".to_string(),
+                    });
+                }
+                Ok(*ty)
+            }
+
             Rvalue::Cast { operand, from, to } => {
                 let actual = Self::operand_type(tcx, func, operand)?;
                 if actual != *from {
