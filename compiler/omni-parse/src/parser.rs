@@ -346,6 +346,7 @@ impl<'a> Parser<'a> {
                     if self.at_punct(Punct::Comma) {
                         n.children.push(self.bump_child());
                         if self.at_punct(Punct::RParen) {
+                            self.diagnostic("trailing comma is not part of attribute_args");
                             break;
                         }
                     } else {
@@ -670,6 +671,7 @@ impl<'a> Parser<'a> {
                 if self.at_punct(Punct::Comma) {
                     n.children.push(self.bump_child());
                     if self.at_punct(Punct::RParen) {
+                        self.diagnostic("trailing comma is not part of function_type");
                         break;
                     }
                 } else {
