@@ -902,10 +902,10 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
             let start = parts
                 .first()
                 .ok_or_else(|| "Semantic frontend error: range pattern has no start".to_string())?;
-            let start_lit = match expr_from_node(start)? {
-                Expr::Literal(l) => l,
-                _ => return Err("Semantic frontend error: non-literal range pattern unsupported".into()),
-            };
+            let start_token = start
+                .first_token()
+                .ok_or_else(|| "Semantic frontend error: range pattern start has no token".to_string())?;
+            let start_lit = lit_from_text(start_token.text())?;
             let operator = node
                 .children_with_tokens()
                 .filter_map(|e| e.into_token())
@@ -914,10 +914,16 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
                 .ok_or_else(|| "Semantic frontend error: range pattern has no range operator".to_string())?;
             let end = parts.get(1);
             let end_boundary = match end {
-                Some(end) => match expr_from_node(end)? {
-                    Expr::Literal(l) if operator == ".." => omni_types::ast::PatternRangeBoundary::Exclusive(l),
-                    Expr::Literal(l) => omni_types::ast::PatternRangeBoundary::Inclusive(l),
-                    _ => return Err("Semantic frontend error: non-literal range pattern unsupported".into()),
+                Some(end) => {
+                    let token = end
+                        .first_token()
+                        .ok_or_else(|| "Semantic frontend error: range pattern end has no token".to_string())?;
+                    let lit = lit_from_text(token.text())?;
+                    if operator == ".." {
+                        omni_types::ast::PatternRangeBoundary::Exclusive(lit)
+                    } else {
+                        omni_types::ast::PatternRangeBoundary::Inclusive(lit)
+                    }
                 },
                 None => omni_types::ast::PatternRangeBoundary::Unbounded,
             };
