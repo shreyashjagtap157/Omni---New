@@ -61,6 +61,7 @@ pub enum BinOp {
 pub enum UnOp {
     Neg,
     Not,
+    BitNot,
 }
 
 /// Range boundaries for pattern matching.
