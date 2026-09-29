@@ -136,6 +136,11 @@ impl MonomorphizedProgram {
                 Self::verify_expr_concrete(condition, enclosing_fn)?;
                 Self::verify_expr_concrete(body, enclosing_fn)
             }
+            Expr::For { iterable, body, .. } => {
+                Self::verify_expr_concrete(iterable, enclosing_fn)?;
+                Self::verify_expr_concrete(body, enclosing_fn)
+            }
+
             Expr::Break { value, .. } => {
                 if let Some(v) = value {
                     Self::verify_expr_concrete(v, enclosing_fn)?;
