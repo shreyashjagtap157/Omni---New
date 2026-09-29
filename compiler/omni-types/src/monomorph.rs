@@ -137,6 +137,10 @@ impl MonomorphizedProgram {
                 Ok(())
             }
             Expr::Assign { value, .. } => Self::verify_expr_concrete(value, enclosing_fn),
+            Expr::CompoundAssign { target, value, .. } => {
+                Self::verify_expr_concrete(target, enclosing_fn)?;
+                Self::verify_expr_concrete(value, enclosing_fn)
+            },
             Expr::Block(stmts) => {
                 for s in stmts {
                     Self::verify_expr_concrete(s, enclosing_fn)?;
