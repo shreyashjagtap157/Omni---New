@@ -741,13 +741,31 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
         omni_syntax::SyntaxKind::OrPattern => Ok(omni_types::ast::Pattern::Or(node.children().map(|n| pattern_from_cst(&n)).collect::<Result<Vec<_>, _>>()?)),
         omni_syntax::SyntaxKind::RangePattern => {
             let parts = node.children().collect::<Vec<_>>();
-            let start = parts.first().ok_or_else(|| "Semantic frontend error: range pattern has no start".to_string())?;
-            let end = parts.get(1).ok_or_else(|| "Semantic frontend error: range pattern has no end".to_string())?;
-            let start_lit = match expr_from_node(start)? { Expr::Literal(l) => l, _ => return Err("Semantic frontend error: non-literal range pattern unsupported".into()) };
-            let end_lit = match expr_from_node(end)? { Expr::Literal(l) => l, _ => return Err("Semantic frontend error: non-literal range pattern unsupported".into()) };
+            let start = parts
+                .first()
+                .ok_or_else(|| "Semantic frontend error: range pattern has no start".to_string())?;
+            let start_lit = match expr_from_node(start)? {
+                Expr::Literal(l) => l,
+                _ => return Err("Semantic frontend error: non-literal range pattern unsupported".into()),
+            };
+            let operator = node
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .find(|t| t.kind() == omni_syntax::SyntaxKind::Punct && (t.text() == ".." || t.text() == "..="))
+                .map(|t| t.text().to_string())
+                .ok_or_else(|| "Semantic frontend error: range pattern has no range operator".to_string())?;
+            let end = parts.get(1);
+            let end_boundary = match end {
+                Some(end) => match expr_from_node(end)? {
+                    Expr::Literal(l) if operator == ".." => omni_types::ast::PatternRangeBoundary::Exclusive(l),
+                    Expr::Literal(l) => omni_types::ast::PatternRangeBoundary::Inclusive(l),
+                    _ => return Err("Semantic frontend error: non-literal range pattern unsupported".into()),
+                },
+                None => omni_types::ast::PatternRangeBoundary::Unbounded,
+            };
             Ok(omni_types::ast::Pattern::Range {
                 start: omni_types::ast::PatternRangeBoundary::Inclusive(start_lit),
-                end: omni_types::ast::PatternRangeBoundary::Exclusive(end_lit),
+                end: end_boundary,
             })
         }
         omni_syntax::SyntaxKind::StructPattern => {
