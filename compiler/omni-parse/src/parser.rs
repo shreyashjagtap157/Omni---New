@@ -1608,24 +1608,21 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_labeled_expr(&mut self) -> Node {
-        let label = self.parse_label();
-        n = Node::new(SyntaxKind::ErrorNode);
-        if self.at_punct(Punct::Colon) {
-            let _colon = self.bump_child();
-            return match self.current_kind() {
-                Some(TokenKind::Keyword(Kw::Loop)) => self.parse_loop_expr(Some(label)),
-                Some(TokenKind::Keyword(Kw::While)) => self.parse_while_expr(Some(label)),
-                Some(TokenKind::Keyword(Kw::For)) => self.parse_for_expr(Some(label)),
-                _ => {
-                    self.diagnostic("label must precede loop, while, or for");
-                    n.children.push(Child::Node(label));
-                    n
+        let mut label = self.parse_label();
+        let colon = self.expect_punct(Punct::Colon);
+        label.children.push(colon);
+        match self.current_kind() {
+            Some(TokenKind::Keyword(Kw::Loop)) => self.parse_loop_expr(Some(label)),
+            Some(TokenKind::Keyword(Kw::While)) => self.parse_while_expr(Some(label)),
+            Some(TokenKind::Keyword(Kw::For)) => self.parse_for_expr(Some(label)),
+            _ => {
+                self.diagnostic("label must precede loop, while, or for");
+                Node {
+                    kind: SyntaxKind::ErrorNode,
+                    children: vec![Child::Node(label)],
                 }
-            };
+            }
         }
-        self.diagnostic("expected ':' after label");
-        n.children.push(Child::Node(label));
-        n
     }
 
     fn parse_loop_expr(&mut self, label: Option<Node>) -> Node {
