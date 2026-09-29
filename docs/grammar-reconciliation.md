@@ -167,9 +167,9 @@ The normative grammar contains `lifetime = "'" identifier` and also contains cha
 
 ### Trait/impl item-list separator ambiguity
 
-The in-force EBNF defines both `trait_def` and `impl_def` item lists using comma separators, while `function_def` has no trailing semicolon. Consequently an ordinary example such as `impl Foo { fn a() {} fn b() {} }` does not have an authoritative separator interpretation from those productions alone.
+The in-force EBNF defines both `trait_def` and `impl_def` item lists using comma separators, while `function_def` has no trailing semicolon. Consequently an ordinary example such as `impl Foo { fn a() {} fn b() {} }` does not have an authoritative separator interpretation from those productions alone. There is a second defect in the same area: `trait_item = function_signature | type_alias | const_def`, but the EBNF contains no `function_signature` production.
 
-No implementation rule resolves this ambiguity in 0.0.2.3-A. It remains an explicit blocker for the affected trait/impl item-list productions. The normative EBNF is unchanged and Candidate 2 is not used to resolve it.
+No implementation rule resolves these defects in 0.0.2.3-A. They remain explicit blockers for the affected trait/impl item-list productions. The normative EBNF is unchanged and Candidate 2 is not used to resolve them.
 
 ### 0.0.2.3-A scope
 
