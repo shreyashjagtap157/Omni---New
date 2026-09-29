@@ -757,6 +757,133 @@ impl TypeChecker {
     }
 
     /// Infer compositional effect row produced by an expression.
+    fn bind_pattern(
+        &mut self,
+        pattern: &crate::ast::Pattern,
+        ty: Ty,
+        locals: &mut HashMap<String, Ty>,
+    ) -> Result<(), TypeError> {
+        match pattern {
+            crate::ast::Pattern::Wildcard | crate::ast::Pattern::Never => Ok(()),
+            crate::ast::Pattern::Binding(name) => {
+                locals.insert(name.clone(), ty);
+                Ok(())
+            }
+            crate::ast::Pattern::Lit(lit) => {
+                let found = self.infer_literal(lit);
+                if found == ty { Ok(()) } else {
+                    Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(ty),
+                        found: self.tcx.mangle(found),
+                    })
+                }
+            }
+            crate::ast::Pattern::Tuple(patterns) => {
+                let TyKind::Tuple(types) = self.tcx.get(ty).clone() else {
+                    return Err(TypeError::UnsupportedPattern("tuple pattern requires tuple type".into()));
+                };
+                if patterns.len() != types.len() {
+                    return Err(TypeError::UnsupportedPattern("tuple pattern arity mismatch".into()));
+                }
+                for (p, t) in patterns.iter().zip(types) {
+                    self.bind_pattern(p, t, locals)?;
+                }
+                Ok(())
+            }
+            crate::ast::Pattern::Struct { name, fields } => {
+                let TyKind::Struct(actual, args) = self.tcx.get(ty).clone() else {
+                    return Err(TypeError::UnsupportedPattern("struct pattern requires struct type".into()));
+                };
+                if actual != *name {
+                    return Err(TypeError::UnsupportedPattern(format!(
+                        "struct pattern {} does not match {}",
+                        name, actual
+                    )));
+                }
+                let def = self.struct_defs.get(name).cloned().ok_or_else(|| {
+                    TypeError::UnsupportedPattern(format!("unknown struct '{}'", name))
+                })?;
+                let mut subst = SubstEnv::new();
+                for (param, arg) in def.type_params.iter().zip(args) {
+                    subst.insert(param.clone(), arg);
+                }
+                for (field_name, sub) in fields {
+                    let field = def.fields.iter().find(|f| f.name == *field_name).ok_or_else(|| {
+                        TypeError::FieldNotFound { ty: name.clone(), field: field_name.clone() }
+                    })?;
+                    let field_ty = self.lower_type_spec(&field.ty, &subst);
+                    self.bind_pattern(sub, field_ty, locals)?;
+                }
+                Ok(())
+            }
+            crate::ast::Pattern::Variant { enum_name, variant, subpatterns } => {
+                let TyKind::Enum(actual, args) = self.tcx.get(ty).clone() else {
+                    return Err(TypeError::UnsupportedPattern("variant pattern requires enum type".into()));
+                };
+                if actual != *enum_name {
+                    return Err(TypeError::UnsupportedPattern(format!(
+                        "variant pattern {}::{} does not match {}",
+                        enum_name, variant, actual
+                    )));
+                }
+                let payload = if let Some(def) = self.enum_defs.get(enum_name).cloned() {
+                    let var = def.variants.iter().find(|v| v.name == *variant).ok_or_else(|| {
+                        TypeError::UnsupportedPattern(format!("unknown variant {}::{}", enum_name, variant))
+                    })?;
+                    let mut subst = SubstEnv::new();
+                    for (param, arg) in def.type_params.iter().zip(args) {
+                        subst.insert(param.clone(), arg);
+                    }
+                    var.payload.iter().map(|p| self.lower_type_spec(p, &subst)).collect::<Vec<_>>()
+                } else if enum_name == "Option" && variant == "Some" {
+                    args.first().copied().into_iter().collect()
+                } else if enum_name == "Option" && variant == "None" {
+                    Vec::new()
+                } else if enum_name == "Result" && variant == "Ok" {
+                    args.first().copied().into_iter().collect()
+                } else if enum_name == "Result" && variant == "Err" {
+                    args.get(1).copied().into_iter().collect()
+                } else {
+                    Vec::new()
+                };
+                if payload.len() != subpatterns.len() {
+                    return Err(TypeError::UnsupportedPattern("variant pattern arity mismatch".into()));
+                }
+                for (p, t) in subpatterns.iter().zip(payload) {
+                    self.bind_pattern(p, t, locals)?;
+                }
+                Ok(())
+            }
+            crate::ast::Pattern::Range { start, end } => {
+                if !matches!(self.tcx.get(ty), TyKind::Int | TyKind::Byte | TyKind::Char) {
+                    return Err(TypeError::UnsupportedPattern("range pattern requires Int, Byte, or Char".into()));
+                }
+                for boundary in [start, end] {
+                    let found = match boundary {
+                        crate::ast::PatternRangeBoundary::Inclusive(l)
+                        | crate::ast::PatternRangeBoundary::Exclusive(l) => Some(self.infer_literal(l)),
+                        crate::ast::PatternRangeBoundary::Unbounded => None,
+                    };
+                    if let Some(found) = found {
+                        if found != ty {
+                            return Err(TypeError::MismatchedTypes {
+                                expected: self.tcx.mangle(ty),
+                                found: self.tcx.mangle(found),
+                            });
+                        }
+                    }
+                }
+                Ok(())
+            }
+            crate::ast::Pattern::Or(patterns) => {
+                for p in patterns {
+                    self.bind_pattern(p, ty, locals)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     pub fn infer_expr_effects(
         &mut self,
         expr: &Expr,
