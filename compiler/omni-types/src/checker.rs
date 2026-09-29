@@ -354,11 +354,14 @@ impl TypeChecker {
                     crate::ast::BinOp::Eq
                     | crate::ast::BinOp::Ne
                     | crate::ast::BinOp::Lt
-                    | crate::ast::BinOp::Gt => Ok(self.tcx.intern(TyKind::Bool)),
+                    | crate::ast::BinOp::Le
+                    | crate::ast::BinOp::Gt
+                    | crate::ast::BinOp::Ge => Ok(self.tcx.intern(TyKind::Bool)),
                     crate::ast::BinOp::Add
                     | crate::ast::BinOp::Sub
                     | crate::ast::BinOp::Mul
-                    | crate::ast::BinOp::Div => Ok(l_ty),
+                    | crate::ast::BinOp::Div
+                    | crate::ast::BinOp::Rem => Ok(l_ty),
                 }
             }
             Expr::Unary { op, expr } => {
