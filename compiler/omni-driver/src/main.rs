@@ -996,8 +996,21 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
                 subpatterns,
             })
         },
-        omni_syntax::SyntaxKind::ReferencePattern
-        | omni_syntax::SyntaxKind::SlicePattern
+        omni_syntax::SyntaxKind::ReferencePattern => {
+            let mutable = node
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .any(|t| t.kind() == omni_syntax::SyntaxKind::Keyword && t.text() == "mut");
+            let inner = node
+                .children()
+                .find(|n| !matches!(n.kind(), omni_syntax::SyntaxKind::Lifetime))
+                .ok_or_else(|| "Semantic frontend error: reference pattern has no inner pattern".to_string())?;
+            Ok(omni_types::ast::Pattern::Reference {
+                mutable,
+                inner: Box::new(pattern_from_cst(&inner)?),
+            })
+        }
+        omni_syntax::SyntaxKind::SlicePattern
         | omni_syntax::SyntaxKind::GuardPattern => Err(format!("Semantic frontend error: pattern lowering does not yet support {:?}", node.kind())),
         other => Err(format!("Semantic frontend error: unsupported pattern node {:?}", other)),
     }
