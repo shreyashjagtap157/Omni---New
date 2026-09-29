@@ -933,6 +933,15 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
                     omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
                     omni_types::ast::UnOp::BitNot => crate::ir::UnOp::BitNot,
+                    omni_types::ast::UnOp::BorrowShared => {
+                        return Err("MIR lowering error: shared borrow requires reference storage".into());
+                    }
+                    omni_types::ast::UnOp::BorrowMut => {
+                        return Err("MIR lowering error: mutable borrow requires reference storage".into());
+                    }
+                    omni_types::ast::UnOp::Deref => {
+                        return Err("MIR lowering error: dereference requires reference-place projection".into());
+                    }
                 };
                 let curr_block = self.current_block.ok_or_else(|| {
                     "MIR lowering error: unary expression has no live continuation block"
