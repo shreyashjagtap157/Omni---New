@@ -1642,6 +1642,55 @@ mod tests {
     }
 
     #[test]
+    fn test_mir_lowering_tuple_and_array_aggregates() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![
+                GenericFnDef {
+                    name: "tuple_value".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Tuple(vec![TypeSpec::Int, TypeSpec::Int]),
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Tuple(vec![
+                        Expr::Literal(Lit::Int(1)),
+                        Expr::Literal(Lit::Int(2)),
+                    ]),
+                },
+                GenericFnDef {
+                    name: "array_value".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Array(Box::new(TypeSpec::Int), 2),
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Array(vec![
+                        Expr::Literal(Lit::Int(3)),
+                        Expr::Literal(Lit::Int(4)),
+                    ]),
+                },
+            ],
+        };
+        let mir = ctx.lower_monomorphized_program(&program).expect("aggregate lowering");
+        assert!(mir.functions.iter().all(|f| {
+            f.body.blocks.iter().any(|b| {
+                b.statements.iter().any(|s| {
+                    matches!(
+                        s,
+                        crate::ir::Statement::Assign(
+                            _,
+                            crate::ir::Rvalue::Aggregate { .. }
+                        )
+                    )
+                })
+            })
+        }));
+    }
+
+    #[test]
     fn test_mir_lowering_semantic_binary_and_let_expressions() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
