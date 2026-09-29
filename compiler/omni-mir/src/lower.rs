@@ -1331,6 +1331,37 @@ impl<'a> FnMirBuilder<'a> {
                     .push(crate::ir::Statement::Assign(target_place, crate::ir::Rvalue::Use(value_op)));
                 Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
             }
+            omni_types::ast::Expr::Range { start, end, inclusive } => {
+                let (start_op, start_ty) = self
+                    .lower_expr(start)?
+                    .ok_or_else(|| "MIR lowering error: range start is Unit".to_string())?;
+                let (end_op, end_ty) = self
+                    .lower_expr(end)?
+                    .ok_or_else(|| "MIR lowering error: range end is Unit".to_string())?;
+                if start_ty != end_ty {
+                    return Err(format!(
+                        "MIR lowering error: range endpoints have incompatible types {:?} and {:?}",
+                        start_ty, end_ty
+                    ));
+                }
+                if !matches!(self.tcx.get(start_ty), TyKind::Int | TyKind::Byte | TyKind::Char) {
+                    return Err("MIR lowering error: only scalar ranges are representable by current MIR".into());
+                }
+                let range_ty = self.tcx.intern(TyKind::Range(start_ty));
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: range has no live block".to_string())?;
+                let local = self.new_temp(Some("_range_tmp".to_string()), range_ty);
+                let place = crate::ir::Place { local };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Range {
+                        start: start_op,
+                        end: end_op,
+                        inclusive: *inclusive,
+                        ty: range_ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), range_ty)))
+            }
             omni_types::ast::Expr::Cast { expr, ty } => {
                 let (operand, from_ty) = self
                     .lower_expr(expr)?
