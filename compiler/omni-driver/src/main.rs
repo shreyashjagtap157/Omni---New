@@ -278,10 +278,19 @@ fn type_spec_from_cst_with_context(
                 .as_ref()
                 .map(|n| n.text().to_string().trim().to_string())
                 .unwrap_or_else(|| node.text().to_string().trim().to_string());
-            if generic_names.contains(&text) {
-                return Ok(TypeSpec::GenericParam(text));
+            let base_name = path
+                .as_ref()
+                .and_then(|p| {
+                    p.children()
+                        .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+                        .last()
+                })
+                .and_then(|seg| direct_name(&seg))
+                .unwrap_or_else(|| text.split('<').next().unwrap_or(&text).rsplit("::").next().unwrap_or(&text).trim().to_string());
+            if generic_names.contains(&base_name) && path.as_ref().is_some_and(|p| p.children().count() <= 1) {
+                return Ok(TypeSpec::GenericParam(base_name));
             }
-            match text.as_str() {
+            match base_name.as_str() {
                 "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "Int" => Ok(TypeSpec::Int),
                 "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "byte" | "Byte" => Ok(TypeSpec::Byte),
                 "f16" | "f32" | "f64" | "f128" | "bf16" | "dec32" | "dec64" | "dec128" | "Float" => Ok(TypeSpec::Float),
@@ -307,10 +316,10 @@ fn type_spec_from_cst_with_context(
                         .into_iter()
                         .flatten()
                         .collect::<Vec<_>>();
-                    if enum_names.contains(other) {
-                        Ok(TypeSpec::Enum(other.to_string(), args))
+                    if enum_names.contains(&base_name) {
+                        Ok(TypeSpec::Enum(base_name, args))
                     } else {
-                        Ok(TypeSpec::Struct(other.to_string(), args))
+                        Ok(TypeSpec::Struct(base_name, args))
                     }
                 }
             }
