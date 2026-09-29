@@ -1286,6 +1286,13 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_executes_explicit_numeric_casts() {
+        let source = "fn main() -> i64 { let x = 7 as f64; let y = x as i64; if y == 7 { return 42; } return 0; }";
+        let object = compile_source_to_object(source).expect("numeric cast native compilation");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
     fn source_pipeline_executes_float_arithmetic_and_comparison() {
         let source = "fn add(a: f64, b: f64) -> f64 { return a + b; } fn main() -> i64 { let x = add(1.5, 2.5); if x >= 4.0 { return 42; } return 0; }";
         let object = compile_source_to_object(source).expect("float native compilation");
