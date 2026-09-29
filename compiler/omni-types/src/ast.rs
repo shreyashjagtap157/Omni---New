@@ -157,6 +157,21 @@ pub struct TraitDef {
     pub is_local: bool,
 }
 
+/// A declared field in a source struct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructFieldDef {
+    pub name: String,
+    pub ty: TypeSpec,
+}
+
+/// A source struct declaration used by semantic field lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructDef {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub fields: Vec<StructFieldDef>,
+}
+
 /// A trait implementation block (`impl Trait for Type`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplDef {
