@@ -242,6 +242,7 @@ This is an infrastructure wave for 0.0.2.3, not Edition 1 parser completion.
 
 - Added bounded parser lookahead, safe missing-token consumption, and delimiter pair helpers while retaining zero-width `MissingToken` recovery.
 - Added source-relative generic-closer infrastructure for `>`, `>>`, and `>>=`. Logical parts cover the original operator bytes exactly; source offsets and trivia remain owned by the original lexer token.
+- Removed the parser-local numeric precedence table: the parser now consults the shared Edition 1 precedence authority for its currently implemented operator subset, with explicit constants for unary and postfix binding strength. This does not enable the remaining binary/cast productions.
 - Added regression coverage for EOF, empty input, missing tokens, delimiter matching, generic-closer byte coverage, generic-closer trivia boundaries, and deterministic lexer lifetime behavior.
 - Updated the 0.0.2.2 adversarial lexical-error probe from `'x` to `'ab'` because `'x` is now a valid lifetime start; the test still exercises a malformed character literal.
 - Corrected the lexer/parser lifetime boundary: a quote followed immediately by an identifier-start is now `Punct::Apostrophe` plus the ordinary identifier token, while valid character/byte literals remain unchanged and malformed character literals such as `'ab'` remain lexical errors. The parser does not claim lifetime grammar completion in this wave.
