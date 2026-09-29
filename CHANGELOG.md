@@ -26,9 +26,13 @@ The CST substrate is implemented and CI-qualified on `main`. This milestone esta
 - Preserved Candidate 2 as disabled.
 - Left undefined normative productions and the trait/impl separator/function-signature inconsistencies explicitly blocked rather than inventing grammar.
 
-### Remaining 0.0.2.3 work
+### Current 0.0.2.3 implementation status
 
-The CST can represent the missing Edition 1 productions, but does not yet parse them. `block_expr`, the remaining binary operators, complete struct/enum bodies, `if`, `match`, loops, closures, arrays, tuples, indexing, and the other baseline productions recorded by `docs/grammar-reconciliation.md` are still absent. `parse_item_stub` remains a deliberate placeholder, so a bare `struct`/`enum` keyword is currently *accepted* rather than rejected; that is a coverage gap to close in 0.0.2.3, not a losslessness claim.
+The parser/CST baseline is now materially implemented beyond the historical snapshot above: block expressions, control flow, patterns, generic syntax, ranges, postfix expressions, casts, compound assignments, and the Edition 1 binary/unary operator family are represented and lowered into the semantic AST.
+
+The semantic/MIR path now additionally covers typed `if`/labelled loops, `break`/`continue`, integer-range `for` lowering, explicit generic-call arguments, scalar casts, structured `let` patterns, match-arm-local bindings, definition-directed field/index typing, floating arithmetic/comparisons, struct literals, and enum constructors at the semantic layer.
+
+The current native MIR boundary remains intentionally fail-closed for aggregate storage/projection that the IR does not yet model: struct/enum construction, aggregate destructuring, and guarded or aggregate-pattern match execution are rejected rather than silently reinterpreted. Qualification is therefore not a release claim; the live repository is the source of truth and the current GitHub mainline has no associated pull-request workflow run for these commits.
 
 ### 0.0.1.x — Source normalization, lexer, and source security
 
