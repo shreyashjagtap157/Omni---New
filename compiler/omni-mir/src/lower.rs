@@ -841,6 +841,23 @@ impl<'a> FnMirBuilder<'a> {
                         lhs_ty, rhs_ty
                     ));
                 }
+                let float_ty = self.tcx.intern(TyKind::Float);
+                if lhs_ty == float_ty
+                    && matches!(
+                        op,
+                        omni_types::ast::BinOp::Rem
+                            | omni_types::ast::BinOp::BitAnd
+                            | omni_types::ast::BinOp::BitOr
+                            | omni_types::ast::BinOp::BitXor
+                            | omni_types::ast::BinOp::Shl
+                            | omni_types::ast::BinOp::Shr
+                    )
+                {
+                    return Err(format!(
+                        "MIR lowering error: operator {:?} is not defined for Float",
+                        op
+                    ));
+                }
                 let mir_op = match op {
                     omni_types::ast::BinOp::Add => crate::ir::BinOp::Add,
                     omni_types::ast::BinOp::Sub => crate::ir::BinOp::Sub,
