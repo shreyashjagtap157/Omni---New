@@ -85,7 +85,22 @@ pub struct MatchArm {
     pub body: Expr,
 }
 
-/// AST expression representation covering expressions required for monomorphization.
+/// Assignment operators preserved by the semantic AST.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignOp {
+    Assign,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Literal(Lit),
@@ -103,6 +118,7 @@ pub enum Expr {
     Lambda { params: Vec<(String, TypeSpec)>, body: Box<Expr> },
     Interpolation(Vec<Expr>),
     Assign { target: Box<Expr>, value: Box<Expr> },
+    CompoundAssign { op: AssignOp, target: Box<Expr>, value: Box<Expr> },
     Block(Vec<Expr>),
     Return(Option<Box<Expr>>),
 }
