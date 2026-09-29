@@ -106,6 +106,10 @@ pub enum MirVerificationError {
         func: String,
         context: String,
     },
+    AggregateTypeMismatch {
+        func: String,
+        context: String,
+    },
     UseBeforeAssignment {
         func: String,
         block: BasicBlock,
