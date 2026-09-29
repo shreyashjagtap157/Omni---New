@@ -204,6 +204,7 @@ impl<'a> FnMirBuilder<'a> {
 
         self.current_block = Some(header);
         self.loops.push(LoopContext {
+            label: label.clone(),
             continue_block: header,
             break_block,
             result_local: None,
@@ -288,6 +289,7 @@ impl<'a> FnMirBuilder<'a> {
 
     fn lower_break_expression(
         &mut self,
+        label: Option<&str>,
         value: Option<&omni_types::ast::Expr>,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         let loop_index = if let Some(label) = label {
@@ -351,7 +353,7 @@ impl<'a> FnMirBuilder<'a> {
         Ok(None)
     }
 
-    fn lower_continue_expression(&mut self) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+    fn lower_continue_expression(&mut self, label: Option<&str>) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         let loop_index = if let Some(label) = label {
             self.loops
                 .iter()
@@ -976,8 +978,8 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Expr::While { condition, body } => {
                 self.lower_while_expression(label, condition, body)
             }
-            omni_types::ast::Expr::Break(value) => self.lower_break_expression(value.as_deref()),
-            omni_types::ast::Expr::Continue => self.lower_continue_expression(),
+            omni_types::ast::Expr::Break { label, value } => self.lower_break_expression(label.as_deref(), value.as_deref()),
+            omni_types::ast::Expr::Continue { label } => self.lower_continue_expression(label.as_deref()),
             omni_types::ast::Expr::Match { expr, arms } => {
                 self.lower_match_expression(expr, arms)
             }
