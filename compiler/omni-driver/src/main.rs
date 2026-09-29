@@ -482,7 +482,17 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             (!name.is_empty()).then_some(Expr::Var(name))
                 .ok_or_else(|| "Semantic frontend error: empty name reference".to_string())
         }
-        omni_syntax::SyntaxKind::PathExpr => Ok(Expr::Var(node.text().to_string().trim().to_string())),
+        omni_syntax::SyntaxKind::PathExpr => {
+            if let Some((enum_name, variant, generic_args)) = enum_variant_target_from_cst(node)? {
+                return Ok(Expr::EnumVariant {
+                    enum_name,
+                    variant,
+                    generic_args,
+                    args: Vec::new(),
+                });
+            }
+            Ok(Expr::Var(node.text().to_string().trim().to_string()))
+        },
         omni_syntax::SyntaxKind::BinaryExpr
         | omni_syntax::SyntaxKind::AssignExpr
         | omni_syntax::SyntaxKind::RangeExpr => {
