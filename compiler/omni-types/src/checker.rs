@@ -128,6 +128,7 @@ pub struct TypeChecker {
     pub fn_defs: HashMap<String, GenericFnDef>,
     pub struct_defs: HashMap<String, crate::ast::StructDef>,
     pub enum_defs: HashMap<String, crate::ast::EnumDef>,
+    pub type_aliases: HashMap<String, crate::ast::TypeAliasDef>,
     loop_break_types: Vec<(Option<String>, Option<Ty>)>,
     pub trait_checker: Option<TraitObligationChecker>,
     pub cap_context: CapabilityContext,
@@ -148,6 +149,7 @@ impl TypeChecker {
             fn_defs: HashMap::new(),
             struct_defs: HashMap::new(),
             enum_defs: HashMap::new(),
+            type_aliases: HashMap::new(),
             loop_break_types: Vec::new(),
             trait_checker: None,
             cap_context: CapabilityContext::new(),
@@ -175,9 +177,64 @@ impl TypeChecker {
         self.enum_defs.insert(enum_def.name.clone(), enum_def);
     }
 
+    pub fn register_type_alias(&mut self, alias: crate::ast::TypeAliasDef) {
+        self.type_aliases.insert(alias.name.clone(), alias);
+    }
+
     /// Lowers a `TypeSpec` into an interned `Ty` under a given `SubstEnv`.
     pub fn lower_type_spec(&mut self, spec: &TypeSpec, env: &SubstEnv) -> Ty {
-        self.tcx.lower_type_spec(spec, env)
+        self.lower_type_spec_inner(spec, env, &mut HashSet::new())
+    }
+
+    fn lower_type_spec_inner(&mut self, spec: &TypeSpec, env: &SubstEnv, visiting: &mut HashSet<String>) -> Ty {
+        if let TypeSpec::Struct(name, args) = spec {
+            if let Some(alias) = self.type_aliases.get(name).cloned() {
+                if !visiting.insert(name.clone()) {
+                    return self.tcx.intern(TyKind::Error);
+                }
+                let mut alias_env = env.clone();
+                for (param, arg) in alias.type_params.iter().zip(args) {
+                    let ty = self.lower_type_spec_inner(arg, env, visiting);
+                    alias_env.insert(param.clone(), ty);
+                }
+                let result = self.lower_type_spec_inner(&alias.target, &alias_env, visiting);
+                visiting.remove(name);
+                return result;
+            }
+        }
+        match spec {
+            TypeSpec::Tuple(items) => {
+                let tys = items.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                self.tcx.intern(TyKind::Tuple(tys))
+            }
+            TypeSpec::Array(elem, len) => {
+                let elem = self.lower_type_spec_inner(elem, env, visiting);
+                self.tcx.intern(TyKind::Array(elem, *len))
+            }
+            TypeSpec::Range(elem) => {
+                let elem = self.lower_type_spec_inner(elem, env, visiting);
+                self.tcx.intern(TyKind::Range(elem))
+            }
+            TypeSpec::Reference { lifetime, mutable, inner } => {
+                let inner = self.lower_type_spec_inner(inner, env, visiting);
+                self.tcx.intern(TyKind::Reference { lifetime: lifetime.clone(), mutable: *mutable, inner })
+            }
+            TypeSpec::Fn(params, ret) => {
+                let params = params.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                let ret = self.lower_type_spec_inner(ret, env, visiting);
+                self.tcx.intern(TyKind::Fn(params, ret))
+            }
+            TypeSpec::Struct(name, args) => {
+                let args = args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                self.tcx.intern(TyKind::Struct(name.clone(), args))
+            }
+            TypeSpec::Enum(name, args) => {
+                let args = args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                self.tcx.intern(TyKind::Enum(name.clone(), args))
+            }
+            TypeSpec::GenericParam(name) => env.bindings.get(name).copied().unwrap_or_else(|| self.tcx.intern(TyKind::GenericParam(name.clone()))),
+            _ => self.tcx.lower_type_spec(spec, env),
+        }
     }
 
     /// Infers the type of a literal expression.
