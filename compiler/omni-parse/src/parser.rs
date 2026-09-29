@@ -658,7 +658,10 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Keyword(Kw::Unsafe | Kw::Extern | Kw::Fn)) => {
                 n.children.push(Child::Node(self.parse_function_type()));
             }
-            Some(TokenKind::Ident | TokenKind::Keyword(Kw::SelfKw | Kw::SelfRef | Kw::Dyn)) => {
+            Some(TokenKind::Keyword(Kw::Dyn)) => {
+                n.children.push(Child::Node(self.parse_trait_ref()));
+            }
+            Some(TokenKind::Ident | TokenKind::Keyword(Kw::SelfKw | Kw::SelfRef)) => {
                 n.children.push(Child::Node(self.parse_path_type()));
             }
             _ => n.children.push(Child::Node(self.error_node("expected type"))),
