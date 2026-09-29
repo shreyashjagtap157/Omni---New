@@ -1421,6 +1421,16 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_accepts_reference_types_until_native_boundary() {
+        let source = "fn read(x: &i64) -> i64 { return *x; } fn main() -> i64 { let x = 7; return read(&x); }";
+        let err = compile_source_to_object(source).expect_err("native backend must reject reference storage explicitly");
+        assert!(
+            err.contains("shared borrow") || err.contains("reference"),
+            "reference program must fail at the documented storage boundary: {err}"
+        );
+    }
+
+    #[test]
     fn source_pipeline_executes_explicit_numeric_casts() {
         let source = "fn main() -> i64 { let x = 7 as f64; let y = x as i64; if y == 7 { return 42; } return 0; }";
         let object = compile_source_to_object(source).expect("numeric cast native compilation");
