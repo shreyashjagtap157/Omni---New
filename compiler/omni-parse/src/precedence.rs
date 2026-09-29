@@ -110,16 +110,40 @@ pub struct GenericCloserPart {
 /// generic closers. The ranges are contiguous and cover the original spelling.
 pub const fn split_generic_closer(kind: Punct) -> Option<[Option<GenericCloserPart>; 3]> {
     match kind {
-        Punct::Gt => Some([Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 }), None, None]),
-        Punct::Shr => Some([
+        Punct::Gt => Some([
             Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 }),
-            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 }),
+            None,
+            None,
+        ]),
+        Punct::Shr => Some([
+            Some(GenericCloserPart {
+                kind: Punct::Gt,
+                byte_offset: 0,
+                byte_len: 1,
+            }),
+            Some(GenericCloserPart {
+                kind: Punct::Gt,
+                byte_offset: 1,
+                byte_len: 1,
+            }),
             None,
         ]),
         Punct::ShrEq => Some([
-            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 }),
-            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 }),
-            Some(GenericCloserPart { kind: Punct::Eq, byte_offset: 2, byte_len: 1 }),
+            Some(GenericCloserPart {
+                kind: Punct::Gt,
+                byte_offset: 0,
+                byte_len: 1,
+            }),
+            Some(GenericCloserPart {
+                kind: Punct::Gt,
+                byte_offset: 1,
+                byte_len: 1,
+            }),
+            Some(GenericCloserPart {
+                kind: Punct::Eq,
+                byte_offset: 2,
+                byte_len: 1,
+            }),
         ]),
         _ => None,
     }
