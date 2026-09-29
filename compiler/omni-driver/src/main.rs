@@ -622,13 +622,11 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         }
         omni_syntax::SyntaxKind::AwaitExpr
         | omni_syntax::SyntaxKind::MethodCallExpr
-        | omni_syntax::SyntaxKind::CastExpr
         | omni_syntax::SyntaxKind::MacroInvocation
         | omni_syntax::SyntaxKind::AsyncBlock
         | omni_syntax::SyntaxKind::UnsafeBlock
         | omni_syntax::SyntaxKind::TryBlock
         | omni_syntax::SyntaxKind::TryExpr
-        | omni_syntax::SyntaxKind::IfExpr
         | omni_syntax::SyntaxKind::WhileExpr
         | omni_syntax::SyntaxKind::ForExpr
         | omni_syntax::SyntaxKind::LoopExpr
