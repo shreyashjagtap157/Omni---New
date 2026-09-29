@@ -632,6 +632,29 @@ impl TypeChecker {
                     Err(TypeError::ContinueOutsideLoop)
                 }
             }
+            Expr::For { pattern, iterable, body, .. } => {
+                let iterable_ty = self.infer_expr(iterable, env, local_vars)?;
+                let element_ty = match self.tcx.get(iterable_ty).clone() {
+                    TyKind::Array(elem, _) | TyKind::Range(elem) => elem,
+                    other => {
+                        return Err(TypeError::UnsupportedOperator(format!(
+                            "for iteration requires Array or Range, found {:?}",
+                            other
+                        )));
+                    }
+                };
+                let mut loop_vars = local_vars.clone();
+                self.bind_pattern(pattern, element_ty, &mut loop_vars)?;
+                let body_ty = self.infer_expr(body, env, &loop_vars)?;
+                let unit_ty = self.tcx.intern(TyKind::Unit);
+                if body_ty != unit_ty && body_ty != self.tcx.intern(TyKind::Never) {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(unit_ty),
+                        found: self.tcx.mangle(body_ty),
+                    });
+                }
+                Ok(unit_ty)
+            }
             Expr::Match { expr, arms } => {
                 for arm in arms {
                     if matches!(
