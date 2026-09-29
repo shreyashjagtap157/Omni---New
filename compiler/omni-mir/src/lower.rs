@@ -754,7 +754,7 @@ impl<'a> FnMirBuilder<'a> {
                 let bool_ty = self.tcx.intern(TyKind::Bool);
                 let int_ty = self.tcx.intern(TyKind::Int);
                 match op {
-                    omni_types::ast::UnOp::Neg if inner_ty != int_ty => {
+                    omni_types::ast::UnOp::Neg | omni_types::ast::UnOp::BitNot if inner_ty != int_ty => {
                         return Err(format!(
                             "MIR lowering error: unary '-' requires Int, found {:?}",
                             inner_ty
@@ -771,6 +771,7 @@ impl<'a> FnMirBuilder<'a> {
                 let mir_op = match op {
                     omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
                     omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
+                    omni_types::ast::UnOp::BitNot => crate::ir::UnOp::BitNot,
                     omni_types::ast::UnOp::BitNot => crate::ir::UnOp::BitNot,
                 };
                 let curr_block = self.current_block.ok_or_else(|| {
