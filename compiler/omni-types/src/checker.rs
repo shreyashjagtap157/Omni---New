@@ -21,6 +21,7 @@ pub enum TypeError {
     GenericArgumentCountMismatch { expected: usize, found: usize },
     UnsupportedOperator(String),
     FieldNotFound { ty: String, field: String },
+    UnsupportedCast { from: String, to: String },
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
@@ -476,6 +477,19 @@ impl TypeChecker {
                     Ok(unit_ty)
                 }
             }
+            Expr::Cast { expr, ty } => {
+                let source_ty = self.infer_expr(expr, env, local_vars)?;
+                let target_ty = self.lower_type_spec(ty, env);
+                if !matches!(self.tcx.get(source_ty), TyKind::Int | TyKind::Byte | TyKind::Char)
+                    || !matches!(self.tcx.get(target_ty), TyKind::Int | TyKind::Byte | TyKind::Char)
+                {
+                    return Err(TypeError::UnsupportedCast {
+                        from: self.tcx.mangle(source_ty),
+                        to: self.tcx.mangle(target_ty),
+                    });
+                }
+                Ok(target_ty)
+            }
             Expr::Match { expr, arms } => {
                 let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
 
@@ -635,6 +649,7 @@ impl TypeChecker {
                 }
                 Ok(eff)
             }
+            Expr::Cast { expr, .. } => self.infer_expr_effects(expr, env, local_vars),
             Expr::Match { expr, arms } => {
                 let mut eff = self.infer_expr_effects(expr, env, local_vars)?;
                 for arm in arms {
