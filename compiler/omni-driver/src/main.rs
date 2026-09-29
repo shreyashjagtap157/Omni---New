@@ -401,8 +401,35 @@ fn type_spec_from_cst_with_context(
         }
         omni_syntax::SyntaxKind::ParenthesizedType => node.children().next().ok_or_else(|| "Semantic frontend error: empty parenthesized type".to_string()).and_then(|n| type_spec_from_cst_with_generics(n, generic_names)),
         omni_syntax::SyntaxKind::NeverType => Ok(TypeSpec::Never),
+        omni_syntax::SyntaxKind::ReferenceType => {
+            let mut children = node.children();
+            let first = children.next().ok_or_else(|| "Semantic frontend error: reference type has no '&'".to_string())?;
+            if first.kind() != omni_syntax::SyntaxKind::PathType {
+                // The lexer/parser represent '&' and its modifiers as tokens, while
+                // the pointee is the final Type child. Recover the semantic parts
+                // directly from the CST.
+            }
+            let mutable = node
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .any(|t| t.kind() == omni_syntax::SyntaxKind::Keyword && t.text() == "mut");
+            let lifetime = node
+                .children()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
+                .and_then(|lt| lt.children().find(|n| n.kind() == omni_syntax::SyntaxKind::NameRef))
+                .map(|n| n.text().to_string().trim().to_string());
+            let inner = node
+                .children()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Type)
+                .ok_or_else(|| "Semantic frontend error: reference type has no pointee type".to_string())
+                .and_then(|n| type_spec_from_cst_with_context(n, generic_names, enum_names))?;
+            Ok(TypeSpec::Reference {
+                lifetime,
+                mutable,
+                inner: Box::new(inner),
+            })
+        }
         omni_syntax::SyntaxKind::SliceType
-        | omni_syntax::SyntaxKind::ReferenceType
         | omni_syntax::SyntaxKind::RawPointerType => Err(format!("Semantic frontend error: type form {:?} is not representable by the current semantic TypeSpec", node.kind())),
         other => Err(format!("Semantic frontend error: unsupported type node {:?}", other)),
     }
