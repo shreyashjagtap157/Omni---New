@@ -1,4 +1,45 @@
 //! Lossless recursive-descent + Pratt parser for Omni.
+//!
+//! # CST contracts (0.0.2.2)
+//!
+//! These are the guarantees this parser provides to every downstream consumer.
+//! They are established by tests, not by convention, and the adversarial suite
+//! in `tests/cst_adversarial.rs` re-derives them independently.
+//!
+//! * **Exact source reconstruction.** For every input the parser accepts,
+//!   `parse_source().syntax().text() == source`, including malformed input,
+//!   recovery input, empty input, trivia-only input, BOM input, and input that
+//!   is malformed through to EOF.
+//! * **Exact tiling.** Source-bearing leaves tile the source in order with no
+//!   gap and no overlap, so every byte is covered exactly once. String equality
+//!   alone is a weaker property: a tree that drops one token and re-emits an
+//!   identical-looking one elsewhere still compares equal.
+//! * **Trivia preservation.** Every trivia region the lexer produces appears in
+//!   the CST exactly once, with the same byte total. Trivia is never
+//!   regenerated from source text when the lexer already supplies its span.
+//! * **EOF handling.** The EOF token is appended exactly once, at the root, and
+//!   only its carried trivia is emitted. It is never emitted as an ordinary
+//!   source-bearing token.
+//! * **Absent tokens.** A token the grammar required but the input did not
+//!   supply is represented as [`SyntaxKind::MissingToken`]: zero-width, so it
+//!   can neither fabricate nor duplicate source bytes, and distinct from
+//!   [`SyntaxKind::ErrorNode`] so it cannot be confused with recovery.
+//! * **Determinism.** The same source always yields the same tree shape, the
+//!   same leaf kinds and spans, and the same diagnostics.
+//! * **Spans are byte offsets.** Leaves land on UTF-8 character boundaries; no
+//!   UTF-16 or Unicode-scalar indexing, no normalization, no line-ending
+//!   rewriting. The lexer remains the source-span authority.
+//! * **Malformed input stays diagnosed.** Losslessness is never achieved by
+//!   accepting everything; malformed input must remain lossless *and* produce
+//!   diagnostics.
+//!
+//! ## Scope
+//!
+//! This milestone establishes the CST substrate. It does **not** expand Edition 1
+//! grammar coverage — `block_expr`, the remaining binary operators, complete
+//! `struct`/`enum` bodies, `if`, `match`, loops, closures, arrays, tuples, and
+//! indexing remain 0.0.2.3's work, and `parse_item_stub` is a deliberate
+//! placeholder. Candidate 2 syntax is not implemented and not enabled.
 
 use omni_lex::token::{Kw, Punct, Trivia};
 use omni_lex::{Scanner, Span, Token, TokenKind};
