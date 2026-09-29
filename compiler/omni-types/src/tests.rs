@@ -259,6 +259,7 @@ fn test_generic_arguments_in_complex_nodes() {
             Expr::Range {
                 start: Box::new(Expr::Literal(Lit::Int(0))),
                 end: Box::new(Expr::Literal(Lit::Int(10))),
+                inclusive: false,
             },
             // Match arm
             Expr::Match {
