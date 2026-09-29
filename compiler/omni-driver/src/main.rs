@@ -732,23 +732,32 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             }
         }
         omni_syntax::SyntaxKind::UnaryExpr => {
-            let token = node.first_token().ok_or_else(|| "Semantic frontend error: unary expression has no token".to_string())?;
-            let operand = node.children().last().ok_or_else(|| "Semantic frontend error: unary expression has no operand".to_string())?;
-            let op = match token.text() {
-                "-" => UnOp::Neg,
-                "!" => UnOp::Not,
-                "~" => UnOp::BitNot,
-                "&" => {
-                    let mutable = node
-                        .children_with_tokens()
-                        .filter_map(|e| e.into_token())
-                        .any(|t| t.kind() == omni_syntax::SyntaxKind::Keyword && t.text() == "mut");
-                    if mutable { UnOp::BorrowMut } else { UnOp::BorrowShared }
-                }
-                "*" => UnOp::Deref,
-                other => return Err(format!("Semantic frontend error: unsupported unary operator '{}'", other)),
+            let operand = node
+                .children()
+                .last()
+                .ok_or_else(|| "Semantic frontend error: unary expression has no operand".to_string())?;
+            let puncts = node
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .filter(|t| t.kind() == omni_syntax::SyntaxKind::Punct)
+                .map(|t| t.text().to_string())
+                .collect::<Vec<_>>();
+            let op = match puncts.as_slice() {
+                ["&"] => UnOp::BorrowShared,
+                ["&", "mut"] => UnOp::BorrowMut,
+                ["*"] => UnOp::Deref,
+                ["-"] => UnOp::Neg,
+                ["!"] => UnOp::Not,
+                ["~"] => UnOp::BitNot,
+                _ => return Err(format!(
+                    "Semantic frontend error: unsupported unary operator sequence {:?}",
+                    puncts
+                )),
             };
-            Ok(Expr::Unary { op, expr: Box::new(expr_from_node(&operand)?) })
+            Ok(Expr::Unary {
+                op,
+                expr: Box::new(expr_from_node(&operand)?),
+            })
         }
         omni_syntax::SyntaxKind::CallExpr => {
             let mut children = node.children();
@@ -1630,6 +1639,15 @@ mod tests {
         let source = "fn main() -> i64 { let x = 42; return match x { y => y, }; }";
         let object = compile_source_to_object(source).expect("scalar binding match native compilation");
         assert!(!object.is_empty());
+    }
+
+    #[test]
+    fn source_pipeline_parses_borrow_and_deref_forms() {
+        let source = "fn f(x: i64) { let y = &x; let z = &mut x; let q = *y; }";
+        let mut parser = omni_parse::Parser::from_source(source);
+        let parsed = parser.parse_source();
+        assert!(parsed.is_ok(), "{:?}", parsed.diagnostics);
+        assert_eq!(parsed.syntax().text().to_string(), source);
     }
 
     #[test]
