@@ -125,6 +125,12 @@ pub enum Expr {
         generic_args: Vec<TypeSpec>,
         fields: Vec<(String, Expr)>,
     },
+    EnumVariant {
+        enum_name: String,
+        variant: String,
+        generic_args: Vec<TypeSpec>,
+        args: Vec<Expr>,
+    },
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
     Range { start: Box<Expr>, end: Box<Expr>, inclusive: bool },
