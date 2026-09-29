@@ -885,6 +885,35 @@ fn test_effect_capability_semantic_model_slice() {
 }
 
 #[test]
+fn test_float_arithmetic_and_comparison_types() {
+    let mut checker = TypeChecker::new();
+    let env = SubstEnv::new();
+    let locals = HashMap::new();
+    let float_expr = Expr::Binary {
+        op: BinOp::Div,
+        lhs: Box::new(Expr::Literal(Lit::Float(1.5f64.to_bits()))),
+        rhs: Box::new(Expr::Literal(Lit::Float(0.5f64.to_bits()))),
+    };
+    let float_ty = checker.infer_expr(&float_expr, &env, &locals).expect("float division");
+    assert_eq!(float_ty, checker.tcx.intern(TyKind::Float));
+
+    let comparison = Expr::Binary {
+        op: BinOp::Ge,
+        lhs: Box::new(Expr::Literal(Lit::Float(2.5f64.to_bits()))),
+        rhs: Box::new(Expr::Literal(Lit::Float(1.5f64.to_bits()))),
+    };
+    let bool_ty = checker.infer_expr(&comparison, &env, &locals).expect("float comparison");
+    assert_eq!(bool_ty, checker.tcx.intern(TyKind::Bool));
+
+    let remainder = Expr::Binary {
+        op: BinOp::Rem,
+        lhs: Box::new(Expr::Literal(Lit::Float(3.0f64.to_bits()))),
+        rhs: Box::new(Expr::Literal(Lit::Float(2.0f64.to_bits()))),
+    };
+    assert!(checker.infer_expr(&remainder, &env, &locals).is_err());
+}
+
+#[test]
 fn test_or_pattern_requires_matching_binding_sets() {
     let mut checker = TypeChecker::new();
     let ty = checker.tcx.intern(TyKind::Int);
