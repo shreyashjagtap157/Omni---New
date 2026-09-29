@@ -1085,12 +1085,6 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Expr::If { condition, then_branch, else_branch } => {
                 self.lower_if_expression(condition, then_branch, else_branch.as_deref())
             }
-            omni_types::ast::Expr::Loop { body } => self.lower_loop_expression(body),
-            omni_types::ast::Expr::While { condition, body } => {
-                self.lower_while_expression(label, condition, body)
-            }
-            omni_types::ast::Expr::Break { label, value } => self.lower_break_expression(label.as_deref(), value.as_deref()),
-            omni_types::ast::Expr::Continue { label } => self.lower_continue_expression(label.as_deref()),
             omni_types::ast::Expr::Loop { label, body } => {
                 self.lower_loop_expression(label.as_deref(), body)
             }
