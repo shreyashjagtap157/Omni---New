@@ -19,6 +19,7 @@ pub enum TypeError {
     EffectViolation(String),
     ArgumentCountMismatch { expected: usize, found: usize },
     GenericArgumentCountMismatch { expected: usize, found: usize },
+    UnsupportedOperator(String),
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
