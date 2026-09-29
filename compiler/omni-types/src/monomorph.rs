@@ -357,6 +357,27 @@ impl<'a> Monomorphizer<'a> {
                 let mono_index = self.monomorphize_expr(index, env, local_vars)?;
                 Ok(Expr::Index { expr: Box::new(mono_expr), index: Box::new(mono_index) })
             }
+            Expr::Struct { name, generic_args, fields } => {
+                let args = generic_args
+                    .iter()
+                    .map(|a| self.substitute_type_spec(a, env))
+                    .collect::<Vec<_>>();
+                let fields = fields
+                    .iter()
+                    .map(|(field, value)| {
+                        Ok((
+                            field.clone(),
+                            self.monomorphize_expr(value, env, local_vars)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, TypeError>>()?;
+                Ok(Expr::Struct {
+                    name: name.clone(),
+                    generic_args: args,
+                    fields,
+                })
+            }
+
             Expr::Tuple(elems) => {
                 let mut mono_elems = Vec::new();
                 for elem in elems {
