@@ -595,6 +595,9 @@ fn lower_rvalue_to_cl(
                 enum_name, variant
             ));
         }
+        omni_mir::ir::Rvalue::Range { .. } => {
+            return Err("Codegen error: range value representation requires target layout metadata".into());
+        }
         omni_mir::ir::Rvalue::Index { .. } => {
             return Err("Codegen error: index projection requires aggregate layout metadata".into());
         }
