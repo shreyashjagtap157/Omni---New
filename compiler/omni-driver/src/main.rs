@@ -840,6 +840,27 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
+    fn source_pipeline_compiles_generic_specialization() {
+        let source = "fn id<T>(x: T) -> T { x } fn main() -> i64 { return id(41); }";
+        let object = compile_source_to_object(source).expect("generic specialization must compile");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
+    fn source_pipeline_compiles_assignment_and_bitwise_integer_ops() {
+        let source = "fn main() -> i64 { let mut x = 6; x += 3; x <<= 1; x ^= 2; return x; }";
+        let object = compile_source_to_object(source).expect("assignment operators must compile");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
+    fn source_pipeline_compiles_short_circuit_boolean_expression() {
+        let source = "fn main() -> bool { return false && (1 == 2) || true; }";
+        let object = compile_source_to_object(source).expect("short-circuit expression must compile");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
     fn rejects_invalid_optimization_level() {
         let args = vec![
             "omni-driver".to_string(),
