@@ -571,6 +571,12 @@ fn lower_rvalue_to_cl(
                 omni_mir::ir::BinOp::Shr => Ok(builder.ins().sshr(l, r)),
             }
         }
+        omni_mir::ir::Rvalue::Aggregate { kind, .. } => {
+            return Err(format!(
+                "Codegen error: aggregate {:?} requires an explicit target layout/ABI contract",
+                kind
+            ));
+        }
         omni_mir::ir::Rvalue::Cast { operand, from, to } => {
             let value = lower_operand_to_cl(builder, operand, variables)?;
             let from_float = matches!(tcx.get(*from), omni_mir::TyKind::Float);
