@@ -885,6 +885,52 @@ fn test_effect_capability_semantic_model_slice() {
 }
 
 #[test]
+fn test_generic_struct_literal_infers_substituted_fields() {
+    let mut checker = TypeChecker::new();
+    checker.register_struct(crate::ast::StructDef {
+        name: "Pair".to_string(),
+        type_params: vec!["T".to_string()],
+        fields: vec![
+            crate::ast::StructFieldDef { name: "first".to_string(), ty: TypeSpec::GenericParam("T".to_string()) },
+            crate::ast::StructFieldDef { name: "second".to_string(), ty: TypeSpec::Int },
+        ],
+    });
+    let expr = Expr::Struct {
+        name: "Pair".to_string(),
+        generic_args: vec![TypeSpec::Int],
+        fields: vec![
+            ("first".to_string(), Expr::Literal(Lit::Int(1))),
+            ("second".to_string(), Expr::Literal(Lit::Int(2))),
+        ],
+    };
+    let ty = checker
+        .infer_expr(&expr, &SubstEnv::new(), &HashMap::new())
+        .expect("generic struct literal should type-check");
+    assert_eq!(ty, checker.tcx.intern(TyKind::Struct("Pair".to_string(), vec![checker.tcx.intern(TyKind::Int)])));
+}
+
+#[test]
+fn test_for_range_binds_pattern_variable() {
+    let mut checker = TypeChecker::new();
+    let expr = Expr::For {
+        label: None,
+        pattern: Pattern::Binding("i".to_string()),
+        iterable: Box::new(Expr::Range {
+            start: Box::new(Expr::Literal(Lit::Int(0))),
+            end: Box::new(Expr::Literal(Lit::Int(2))),
+            inclusive: false,
+        }),
+        body: Box::new(Expr::Binary {
+            op: BinOp::Add,
+            lhs: Box::new(Expr::Var("i".to_string())),
+            rhs: Box::new(Expr::Literal(Lit::Int(1))),
+        }),
+    };
+    let ty = checker.infer_expr(&expr, &SubstEnv::new(), &HashMap::new()).expect("for range should type-check");
+    assert_eq!(ty, checker.tcx.intern(TyKind::Unit));
+}
+
+#[test]
 fn test_binary_comparison_infers_bool_and_rejects_mismatch() {
     let mut checker = TypeChecker::new();
     let env = SubstEnv::new();
