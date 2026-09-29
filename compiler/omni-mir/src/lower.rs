@@ -221,6 +221,11 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::BinOp::Mul => crate::ir::BinOp::Mul,
                     omni_types::ast::BinOp::Div => crate::ir::BinOp::Div,
                     omni_types::ast::BinOp::Rem => crate::ir::BinOp::Rem,
+                    omni_types::ast::BinOp::BitAnd => crate::ir::BinOp::BitAnd,
+                    omni_types::ast::BinOp::BitOr => crate::ir::BinOp::BitOr,
+                    omni_types::ast::BinOp::BitXor => crate::ir::BinOp::BitXor,
+                    omni_types::ast::BinOp::Shl => crate::ir::BinOp::Shl,
+                    omni_types::ast::BinOp::Shr => crate::ir::BinOp::Shr,
                     omni_types::ast::BinOp::Eq => crate::ir::BinOp::Eq,
                     omni_types::ast::BinOp::Ne => crate::ir::BinOp::Ne,
                     omni_types::ast::BinOp::Lt => crate::ir::BinOp::Lt,
@@ -391,7 +396,14 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::AssignOp::Mul => crate::ir::BinOp::Mul,
                     omni_types::ast::AssignOp::Div => crate::ir::BinOp::Div,
                     omni_types::ast::AssignOp::Rem => crate::ir::BinOp::Rem,
-                    _ => return Err(format!("MIR lowering error: unsupported compound assignment {:?}", op)),
+                    omni_types::ast::AssignOp::BitAnd => crate::ir::BinOp::BitAnd,
+                    omni_types::ast::AssignOp::BitOr => crate::ir::BinOp::BitOr,
+                    omni_types::ast::AssignOp::BitXor => crate::ir::BinOp::BitXor,
+                    omni_types::ast::AssignOp::Shl => crate::ir::BinOp::Shl,
+                    omni_types::ast::AssignOp::Shr => crate::ir::BinOp::Shr,
+                    omni_types::ast::AssignOp::Assign => {
+                        return Err("MIR lowering error: plain assignment is not a compound arithmetic operation".into());
+                    },
                 };
                 let block = self.current_block.ok_or_else(|| "MIR lowering error: compound assignment has no live block".to_string())?;
                 let tmp = self.new_temp(Some("_compound_tmp".to_string()), target_ty);
