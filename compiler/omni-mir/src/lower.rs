@@ -1970,6 +1970,30 @@ mod tests {
     }
 
     #[test]
+    fn infinite_no_break_loop_has_no_live_continuation() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "spin_forever".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Never,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Loop {
+                    label: Some("spin".to_string()),
+                    body: Box::new(Expr::Continue { label: Some("spin".to_string()) }),
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&prog).expect("infinite loop lowering");
+        assert!(mir.functions[0].body.blocks.iter().any(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::Goto(_)))
+        }));
+    }
+
+    #[test]
     fn continue_lowering_targets_current_loop_header() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
