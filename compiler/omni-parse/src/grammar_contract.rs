@@ -134,6 +134,11 @@ mod tests {
     }
 
     #[test]
+    fn logical_boolean_operators_are_edition1_surface() {
+        ok("fn f() -> bool { return true && false || true; }");
+    }
+
+    #[test]
     fn generic_paths_do_not_capture_comparison_operators() {
         ok("fn f() { let x = Foo<Bar<Baz>>; return x; }");
         ok("fn f() { return a < b; }");
