@@ -171,9 +171,13 @@ The in-force EBNF defines both `trait_def` and `impl_def` item lists using comma
 
 No implementation rule resolves these defects in 0.0.2.3-A. They remain explicit blockers for the affected trait/impl item-list productions. The normative EBNF is unchanged and Candidate 2 is not used to resolve them.
 
-### 0.0.2.3-A scope
+### 0.0.2.3 parser scope
 
-This wave is limited to parser infrastructure, lexer/parser contract evidence, generic-closer mechanics, recovery safety, and documentation of the two identified specification/contract blockers. `parse_item_stub` remains a placeholder and no Edition 1 grammar production is declared complete by this wave.
+The Edition 1 parser now produces structured CST nodes across the declaration, type, statement, expression, control-flow, pattern, attribute, generic, path, and macro-token-tree families present in the normative grammar. The semantic frontend additionally carries structured `let` patterns, generic calls, ranges with endpoint inclusivity, scalar casts, field/index reads, struct literals, enum constructors, and labelled loop forms.
+
+The current MIR boundary includes scalar expressions, control-flow CFGs, tuple/array aggregate values, and typed field/index projection rvalues. Aggregate storage layout, enum representation, projected lvalue assignment, and guarded/aggregate-pattern match dispatch remain explicit downstream work where the repository does not yet define the required target representation.
+
+The following normative specification holes remain unchanged and are not resolved by implementation fiat: `trait_item` references an undefined `function_signature` production; `let_expr` and `deref_expr` are referenced without standalone productions in the current EBNF; and `effect_bound`/`capability_bound` are referenced without definitions. The trait/impl comma-versus-function-terminator ambiguity is also preserved as a specification issue.
 
 ### Lifetime lexer/parser boundary correction
 
