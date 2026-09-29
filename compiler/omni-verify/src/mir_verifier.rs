@@ -609,6 +609,9 @@ impl MirVerifier {
             Rvalue::UnaryOp(_, operand) => {
                 Self::check_operand_initialized(func, block, operand, assigned)
             }
+            Rvalue::Cast { operand, .. } => {
+                Self::check_operand_initialized(func, block, operand, assigned)
+            }
         }
     }
 
