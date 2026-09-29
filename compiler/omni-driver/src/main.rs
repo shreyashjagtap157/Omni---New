@@ -395,6 +395,10 @@ fn normalize_alias_type(
                 name,
                 args.into_iter().map(|s| expand(s, aliases, generic_names, visiting)).collect::<Result<_, _>>()?,
             )),
+            TypeSpec::TraitObject { trait_name, args } => Ok(TypeSpec::TraitObject {
+                trait_name,
+                args: args.into_iter().map(|s| expand(s, aliases, generic_names, visiting)).collect::<Result<_, _>>()?,
+            }),
             TypeSpec::GenericParam(name) if generic_names.contains(&name) => Ok(TypeSpec::GenericParam(name)),
             other => Ok(other),
         }
@@ -428,6 +432,10 @@ fn substitute_type_spec(
             name,
             args.into_iter().map(|s| substitute_type_spec(s, substitutions)).collect(),
         ),
+        TypeSpec::TraitObject { trait_name, args } => TypeSpec::TraitObject {
+            trait_name,
+            args: args.into_iter().map(|s| substitute_type_spec(s, substitutions)).collect(),
+        },
         other => other,
     }
 }
