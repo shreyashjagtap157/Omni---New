@@ -85,6 +85,43 @@ mod tests {
     // ----------------------------------------------------------------------
 
     #[test]
+    fn edition1_control_flow_and_block_expressions_are_accepted() {
+        ok("fn f(x: i32) -> i32 { if x > 0 { return x; } else { return 0; } }");
+        ok("fn f() { let x = loop { break 1; }; return x; }");
+        ok("fn f(x: i32) { while x > 0 { break; } for y in x { continue; } }");
+        ok("fn f(x: i32) { match x { 0 => 1, _ => 2, }; }");
+    }
+
+    #[test]
+    fn edition1_declarations_and_types_are_accepted() {
+        ok("struct Pair<T> { pub first: T, second: i32 }");
+        ok("enum Option<T> { Some(T), None }");
+        ok("type PairFn<T> = fn(T) -> T");
+        ok("const N: i32 = 3;");
+        ok("static mut N: i32 = 3;");
+        ok("use foo::{bar, baz as qux};");
+        ok("extern crate foo as f;");
+        ok("mod inner { fn nested() {} }");
+    }
+
+    #[test]
+    fn edition1_cast_assignment_and_nested_generic_closers_are_accepted() {
+        ok("fn f<T: Foo<Bar<Baz>>>() { let x = a as i32 + 1; x = x * 2; }");
+    }
+
+    #[test]
+    fn edition1_lifetime_and_reference_type_lexing_is_accepted() {
+        ok("fn f<'a, T>() { let x: &'a T = y; return x; }");
+    }
+
+    #[test]
+    fn candidate2_surface_remains_rejected() {
+        assert!(rejected("fn f() { a |> b; }") > 0);
+        assert!(rejected("fn f() { a?.b; }") > 0);
+        assert!(rejected("fn f() { let x = 1\n return x; }") > 0);
+    }
+
+    #[test]
     fn assignment_is_right_associative_and_binaries_are_left() {
         // Structural check: the CST nests `a - (b - c)` for the right-associative
         // assignment and `(a - b) - c` for the left-associative binary, which is
