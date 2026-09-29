@@ -174,3 +174,11 @@ No implementation rule resolves this ambiguity in 0.0.2.3-A. It remains an expli
 ### 0.0.2.3-A scope
 
 This wave is limited to parser infrastructure, lexer/parser contract evidence, generic-closer mechanics, recovery safety, and documentation of the two identified specification/contract blockers. `parse_item_stub` remains a placeholder and no Edition 1 grammar production is declared complete by this wave.
+
+### Lifetime lexer/parser boundary correction
+
+The normative grammar contains `lifetime = "'" identifier` and character literals use the same apostrophe introducer. The repository previously had no dedicated apostrophe punctuation token, so an input such as `'a` entered the character-literal error path.
+
+0.0.2.3-A now makes the smallest lexer-side correction: a quote followed immediately by an identifier-start is emitted as `Punct::Apostrophe` plus the ordinary identifier token, while a valid single-character literal remains `TokenKind::Char`. A malformed character literal such as `'ab'` remains one lexical `ErrorToken`, and `b'a'` remains `TokenKind::Byte`. A quote followed by trivia rather than an identifier remains on the existing character-literal path, so the lexer does not invent a lifetime across whitespace or comments.
+
+The parser does not claim the lifetime production itself is implemented in 0.0.2.3-A. It now receives the correct lexical boundary and preserves it losslessly; actual lifetime parsing remains later grammar work. No grammar text is changed.
