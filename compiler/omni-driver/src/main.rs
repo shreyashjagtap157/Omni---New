@@ -394,10 +394,39 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .map(|t| t.text().to_string())
                 .ok_or_else(|| "Semantic frontend error: expression has no operator token".to_string())?;
             match node.kind() {
-                omni_syntax::SyntaxKind::AssignExpr => Ok(Expr::Assign {
-                    target: Box::new(expr_from_node(&parts[0])?),
-                    value: Box::new(expr_from_node(&parts[1])?),
-                }),
+                omni_syntax::SyntaxKind::AssignExpr => {
+                    let assign = node
+                        .children_with_tokens()
+                        .filter_map(|e| e.into_token())
+                        .find(|t| t.kind() == omni_syntax::SyntaxKind::Punct)
+                        .map(|t| t.text().to_string())
+                        .ok_or_else(|| "Semantic frontend error: assignment has no operator token".to_string())?;
+                    if assign == "=" {
+                        Ok(Expr::Assign {
+                            target: Box::new(expr_from_node(&parts[0])?),
+                            value: Box::new(expr_from_node(&parts[1])?),
+                        })
+                    } else {
+                        let op = match assign.as_str() {
+                            "+=" => omni_types::ast::AssignOp::Add,
+                            "-=" => omni_types::ast::AssignOp::Sub,
+                            "*=" => omni_types::ast::AssignOp::Mul,
+                            "/=" => omni_types::ast::AssignOp::Div,
+                            "%=" => omni_types::ast::AssignOp::Rem,
+                            "&=" => omni_types::ast::AssignOp::BitAnd,
+                            "|=" => omni_types::ast::AssignOp::BitOr,
+                            "^=" => omni_types::ast::AssignOp::BitXor,
+                            "<<=" => omni_types::ast::AssignOp::Shl,
+                            ">>=" => omni_types::ast::AssignOp::Shr,
+                            other => return Err(format!("Semantic frontend error: unsupported assignment operator '{}'", other)),
+                        };
+                        Ok(Expr::CompoundAssign {
+                            op,
+                            target: Box::new(expr_from_node(&parts[0])?),
+                            value: Box::new(expr_from_node(&parts[1])?),
+                        })
+                    }
+                },
                 omni_syntax::SyntaxKind::RangeExpr => Ok(Expr::Range {
                     start: Box::new(expr_from_node(&parts[0])?),
                     end: Box::new(expr_from_node(&parts[1])?),
