@@ -85,6 +85,7 @@ pub enum Pattern {
     Tuple(Vec<Pattern>),
     Struct { name: String, fields: Vec<(String, Pattern)> },
     Variant { enum_name: String, variant: String, subpatterns: Vec<Pattern> },
+    Reference { mutable: bool, inner: Box<Pattern> },
     Range { start: PatternRangeBoundary, end: PatternRangeBoundary },
     Or(Vec<Pattern>),
     Never,
