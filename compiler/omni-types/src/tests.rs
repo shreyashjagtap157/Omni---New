@@ -888,10 +888,11 @@ fn test_effect_capability_semantic_model_slice() {
 #[test]
 fn test_reference_patterns_require_matching_reference_mutability() {
     let mut checker = TypeChecker::new();
+    let int_ty = checker.tcx.intern(TyKind::Int);
     let shared_ty = checker.tcx.intern(TyKind::Reference {
         lifetime: None,
         mutable: false,
-        inner: checker.tcx.intern(TyKind::Int),
+        inner: int_ty,
     });
     let mut locals = HashMap::new();
     let shared_pattern = Pattern::Reference {
