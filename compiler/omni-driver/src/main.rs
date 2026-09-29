@@ -619,6 +619,14 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 "-" => UnOp::Neg,
                 "!" => UnOp::Not,
                 "~" => UnOp::BitNot,
+                "&" => {
+                    let mutable = node
+                        .children_with_tokens()
+                        .filter_map(|e| e.into_token())
+                        .any(|t| t.kind() == omni_syntax::SyntaxKind::Keyword && t.text() == "mut");
+                    if mutable { UnOp::BorrowMut } else { UnOp::BorrowShared }
+                }
+                "*" => UnOp::Deref,
                 other => return Err(format!("Semantic frontend error: unsupported unary operator '{}'", other)),
             };
             Ok(Expr::Unary { op, expr: Box::new(expr_from_node(&operand)?) })
