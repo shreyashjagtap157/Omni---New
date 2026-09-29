@@ -562,9 +562,21 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         }
         omni_syntax::SyntaxKind::CallExpr => {
             let mut children = node.children();
-            let callee = children.next().ok_or_else(|| "Semantic frontend error: call has no callee".to_string())?;
-            let (func, generic_args) = call_target_from_cst(&callee)?;
+            let callee = children
+                .next()
+                .ok_or_else(|| "Semantic frontend error: call has no callee".to_string())?;
             let args = children.map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?;
+
+            if let Some((enum_name, variant, generic_args)) = enum_variant_target_from_cst(&callee)? {
+                return Ok(Expr::EnumVariant {
+                    enum_name,
+                    variant,
+                    generic_args,
+                    args,
+                });
+            }
+
+            let (func, generic_args) = call_target_from_cst(&callee)?;
             Ok(Expr::Call { func, generic_args, args })
         }
         omni_syntax::SyntaxKind::FieldExpr => {
@@ -760,6 +772,41 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         => Err(format!("Semantic frontend error: native AST lowering does not yet support {:?}", node.kind())),
         other => Err(format!("Semantic frontend error: unsupported expression node {:?}", other)),
     }
+}
+
+fn enum_variant_target_from_cst(
+    callee: &omni_syntax::SyntaxNode,
+) -> Result<Option<(String, String, Vec<TypeSpec>)>, String> {
+    let segments = callee
+        .descendants()
+        .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+        .collect::<Vec<_>>();
+    if segments.len() < 2 {
+        return Ok(None);
+    }
+    let enum_seg = &segments[segments.len() - 2];
+    let variant_seg = &segments[segments.len() - 1];
+    let enum_name = match direct_name(enum_seg) {
+        Some(n) => n.text().to_string().trim().to_string(),
+        None => return Ok(None),
+    };
+    let variant = match direct_name(variant_seg) {
+        Some(n) => n.text().to_string().trim().to_string(),
+        None => return Ok(None),
+    };
+    let generic_args = enum_seg
+        .children()
+        .find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs)
+        .map(|args| {
+            args.children()
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg)
+                .filter_map(|arg| arg.children().next())
+                .map(type_spec_from_cst)
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Ok(Some((enum_name, variant, generic_args)))
 }
 
 fn call_target_from_cst(node: &omni_syntax::SyntaxNode) -> Result<(String, Vec<TypeSpec>), String> {
