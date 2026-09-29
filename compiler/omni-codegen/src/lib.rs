@@ -583,6 +583,18 @@ fn lower_rvalue_to_cl(
                 field
             ));
         }
+        omni_mir::ir::Rvalue::Struct { name, .. } => {
+            return Err(format!(
+                "Codegen error: struct constructor '{}' requires target aggregate layout metadata",
+                name
+            ));
+        }
+        omni_mir::ir::Rvalue::EnumVariant { enum_name, variant, .. } => {
+            return Err(format!(
+                "Codegen error: enum constructor '{}::{}' requires target tagged-layout metadata",
+                enum_name, variant
+            ));
+        }
         omni_mir::ir::Rvalue::Index { .. } => {
             return Err("Codegen error: index projection requires aggregate layout metadata".into());
         }
