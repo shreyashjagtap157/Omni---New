@@ -653,9 +653,7 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         | omni_syntax::SyntaxKind::UnsafeBlock
         | omni_syntax::SyntaxKind::TryBlock
         | omni_syntax::SyntaxKind::TryExpr
-        | omni_syntax::SyntaxKind::WhileExpr
         | omni_syntax::SyntaxKind::ForExpr
-        | omni_syntax::SyntaxKind::LoopExpr
         => Err(format!("Semantic frontend error: native AST lowering does not yet support {:?}", node.kind())),
         other => Err(format!("Semantic frontend error: unsupported expression node {:?}", other)),
     }
@@ -986,6 +984,13 @@ mod tests {
     fn source_pipeline_compiles_integer_match() {
         let source = "fn choose(x: i64) -> i64 { match x { 0 => 10, _ => 20 } } fn main() -> i64 { return choose(0); }";
         let object = compile_source_to_object(source).expect("integer match must compile");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
+    fn source_pipeline_compiles_loop_value_and_while_control() {
+        let source = "fn choose() -> i64 { loop { break 7; } } fn main() -> i64 { let x = choose(); let mut y = 3; while y > 0 { y -= 1; continue; } return x; }";
+        let object = compile_source_to_object(source).expect("loop and while control must compile");
         assert!(!object.is_empty());
     }
 
