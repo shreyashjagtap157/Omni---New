@@ -601,31 +601,61 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             })
         }
         omni_syntax::SyntaxKind::LoopExpr => {
+            let label = node
+                .children()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
+                .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
             let body = node
                 .children()
                 .find(|n| n.kind() == omni_syntax::SyntaxKind::Block)
                 .ok_or_else(|| "Semantic frontend error: loop has no body".to_string())?;
-            Ok(Expr::Loop { body: Box::new(expr_from_node(&body)?) })
+            Ok(Expr::Loop { label, body: Box::new(expr_from_node(&body)?) })
         }
         omni_syntax::SyntaxKind::WhileExpr => {
-            let mut children = node.children();
-            let condition = children.next().ok_or_else(|| "Semantic frontend error: while has no condition".to_string())?;
-            let body = children.last().ok_or_else(|| "Semantic frontend error: while has no body".to_string())?;
+            let label = node
+                .children()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
+                .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
+            let children = node.children().filter(|n| n.kind() != omni_syntax::SyntaxKind::Lifetime).collect::<Vec<_>>();
+            let condition = children
+                .get(1)
+                .cloned()
+                .ok_or_else(|| "Semantic frontend error: while has no condition".to_string())?;
+            let body = children
+                .iter()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Block)
+                .cloned()
+                .ok_or_else(|| "Semantic frontend error: while has no body".to_string())?;
             Ok(Expr::While {
+                label,
                 condition: Box::new(expr_from_node(&condition)?),
                 body: Box::new(expr_from_node(&body)?),
             })
         }
         omni_syntax::SyntaxKind::BreakExpr => {
-            let value = node
-                .children()
+            let mut children = node.children();
+            let label = children
                 .next()
-                .map(|n| expr_from_node(&n))
-                .transpose()?
-                .map(Box::new);
-            Ok(Expr::Break(value))
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
+                .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
+            let value = if label.is_some() {
+                children.next()
+            } else {
+                label = None;
+                node.children().next()
+            }
+            .map(|n| expr_from_node(&n))
+            .transpose()?
+            .map(Box::new);
+            Ok(Expr::Break { label, value })
         }
-        omni_syntax::SyntaxKind::ContinueExpr => Ok(Expr::Continue),
+        omni_syntax::SyntaxKind::ContinueExpr => {
+            let label = node
+                .children()
+                .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
+                .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
+            Ok(Expr::Continue { label })
+        },
         omni_syntax::SyntaxKind::IfExpr => {
             let mut children = node.children();
             let condition = children.next().ok_or_else(|| "Semantic frontend error: if has no condition".to_string())?;
