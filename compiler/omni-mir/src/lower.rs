@@ -3028,9 +3028,13 @@ mod tests {
                 effects: omni_effects::EffectRow::pure(),
                 capabilities: vec![],
                 body: Expr::Loop {
-                    body: Box::new(Expr::Break(Some(Box::new(Expr::Literal(
-                        omni_types::ast::Lit::Int(7),
-                    ))))),
+                    label: None,
+                    body: Box::new(Expr::Break {
+                        label: None,
+                        value: Some(Box::new(Expr::Literal(
+                            omni_types::ast::Lit::Int(7),
+                        ))),
+                    }),
                 },
             }],
         };
@@ -3054,8 +3058,9 @@ mod tests {
                 effects: omni_effects::EffectRow::pure(),
                 capabilities: vec![],
                 body: Expr::While {
+                    label: None,
                     condition: Box::new(Expr::Literal(omni_types::ast::Lit::Bool(true))),
-                    body: Box::new(Expr::Continue),
+                    body: Box::new(Expr::Continue { label: None }),
                 },
             }],
         };
