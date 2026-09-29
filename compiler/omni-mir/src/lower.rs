@@ -218,7 +218,7 @@ impl<'a> FnMirBuilder<'a> {
 
         let result_ty = match (&then_result, &else_result.0) {
             (Some((_, then_ty)), Some((_, else_ty))) if then_ty == else_ty => *then_ty,
-            (None, None) => bool_ty,
+            (None, None) => self.tcx.intern(TyKind::Unit),
             (Some(_), None) | (None, Some(_)) => {
                 return Err("MIR lowering error: non-unit if branch requires an else value".into());
             }
