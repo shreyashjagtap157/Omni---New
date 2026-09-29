@@ -679,7 +679,7 @@ impl<'a> Parser<'a> {
             n.children.push(self.bump_child());
         }
         n.children.push(Child::Node(self.parse_path_segment()));
-        while self.at_punct(Punct::ColonColon) {
+        while self.at_punct(Punct::ColonColon) && self.peek_kind(1) != Some(TokenKind::Punct(Punct::LBrace)) {
             n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_path_segment()));
         }
@@ -714,41 +714,32 @@ impl<'a> Parser<'a> {
             n.children.push(Child::Node(self.parse_where_clause()));
         }
         if self.at_punct(Punct::LBrace) {
-            n.children.push(Child::Node(self.parse_struct_body()));
+            n.children.push(self.bump_child());
+            while !self.eof() && !self.at_punct(Punct::RBrace) {
+                let mut field = Node::new(SyntaxKind::StructField);
+                if self.at_punct(Punct::Hash) {
+                    field.children.push(Child::Node(self.parse_attribute()));
+                }
+                if self.at_kw(Kw::Pub) {
+                    field.children.push(self.bump_child());
+                }
+                field.children.push(self.expect_ident_node("expected struct field name"));
+                field.children.push(self.expect_punct(Punct::Colon));
+                field.children.push(Child::Node(self.parse_type()));
+                n.children.push(Child::Node(field));
+                if self.at_punct(Punct::Comma) {
+                    n.children.push(self.bump_child());
+                    if self.at_punct(Punct::RBrace) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            n.children.push(self.expect_punct(Punct::RBrace));
         } else {
             n.children.push(self.expect_punct(Punct::Semicolon));
         }
-        n
-    }
-
-    fn parse_struct_body(&mut self) -> Node {
-        let mut n = Node::new(SyntaxKind::Block);
-        n.kind = SyntaxKind::StructField;
-        let mut fields = Vec::new();
-        n.children.push(self.expect_punct(Punct::LBrace));
-        while !self.eof() && !self.at_punct(Punct::RBrace) {
-            let mut f = Node::new(SyntaxKind::StructField);
-            if self.at_punct(Punct::Hash) {
-                f.children.push(Child::Node(self.parse_attribute()));
-            }
-            if self.at_kw(Kw::Pub) {
-                f.children.push(self.bump_child());
-            }
-            f.children.push(self.expect_ident_node("expected struct field name"));
-            f.children.push(self.expect_punct(Punct::Colon));
-            f.children.push(Child::Node(self.parse_type()));
-            fields.push(f);
-            n.children.push(Child::Node(fields.pop().expect("field")));
-            if self.at_punct(Punct::Comma) {
-                n.children.push(self.bump_child());
-                if self.at_punct(Punct::RBrace) {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-        n.children.push(self.expect_punct(Punct::RBrace));
         n
     }
 
