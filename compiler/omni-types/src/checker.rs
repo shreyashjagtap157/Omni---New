@@ -825,7 +825,7 @@ impl TypeChecker {
     }
 
     /// Infer compositional effect row produced by an expression.
-    fn bind_pattern(
+    pub(crate) fn bind_pattern(
         &mut self,
         pattern: &crate::ast::Pattern,
         ty: Ty,
