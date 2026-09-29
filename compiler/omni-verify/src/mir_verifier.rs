@@ -1054,6 +1054,14 @@ impl MirVerifier {
                         args.iter().map(|arg| lower(tcx, arg)).collect::<Option<Vec<_>>>()?;
                     Some(tcx.intern(TyKind::Enum(name.clone(), args)))
                 }
+                TypeSpec::TraitObject { trait_name, args } => {
+                    let args =
+                        args.iter().map(|arg| lower(tcx, arg)).collect::<Option<Vec<_>>>()?;
+                    Some(tcx.intern(TyKind::TraitObject {
+                        trait_name: trait_name.clone(),
+                        args,
+                    }))
+                }
             }
         }
 
