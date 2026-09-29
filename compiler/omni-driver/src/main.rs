@@ -577,6 +577,20 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         }
         omni_syntax::SyntaxKind::ArrayExpr => Ok(Expr::Array(node.children().map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?)),
         omni_syntax::SyntaxKind::TupleExpr => Ok(Expr::Tuple(node.children().map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?)),
+        omni_syntax::SyntaxKind::IfExpr => {
+            let children = node.children().collect::<Vec<_>>();
+            if children.len() < 2 || children.len() > 3 {
+                return Err("Semantic frontend error: malformed if expression".into());
+            }
+            let condition = expr_from_node(&children[0])?;
+            let then_branch = expr_from_node(&children[1])?;
+            let else_branch = children.get(2).map(expr_from_node).transpose()?.map(Box::new);
+            Ok(Expr::If {
+                condition: Box::new(condition),
+                then_branch: Box::new(then_branch),
+                else_branch,
+            })
+        }
         omni_syntax::SyntaxKind::MatchExpr => {
             let mut children = node.children();
             let scrutinee = children.next().ok_or_else(|| "Semantic frontend error: match has no scrutinee".to_string())?;
