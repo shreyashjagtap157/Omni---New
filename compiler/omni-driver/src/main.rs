@@ -442,8 +442,7 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
             omni_syntax::SyntaxKind::ExprStmt
             | omni_syntax::SyntaxKind::ReturnExpr
             | omni_syntax::SyntaxKind::BreakExpr
-            | omni_syntax::SyntaxKind::ContinueExpr
-            | omni_syntax::SyntaxKind::YieldExpr => {
+            | omni_syntax::SyntaxKind::ContinueExpr => {
                 values.push(expr_from_node(statement)?);
             }
             omni_syntax::SyntaxKind::ItemDeclStmt => {
