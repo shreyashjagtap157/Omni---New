@@ -276,6 +276,139 @@ impl<'a> FnMirBuilder<'a> {
         }
     }
 
+    fn lower_match_expression(
+        &mut self,
+        scrutinee: &omni_types::ast::Expr,
+        arms: &[omni_types::ast::MatchArm],
+    ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+        if arms.is_empty() {
+            return Ok(None);
+        }
+        let (scrutinee_op, scrutinee_ty) = self
+            .lower_expr(scrutinee)?
+            .ok_or_else(|| "MIR lowering error: match scrutinee is Unit".to_string())?;
+
+        let entry = self
+            .current_block
+            .ok_or_else(|| "MIR lowering error: match has no live entry block".to_string())?;
+        let arm_blocks = (0..arms.len()).map(|_| self.new_block()).collect::<Vec<_>>();
+        let otherwise = self.new_block();
+        let join = self.new_block();
+
+        let mut targets = Vec::new();
+        let mut wildcard_target = None;
+        for (index, arm) in arms.iter().enumerate() {
+            self.collect_match_targets(&arm.pattern, arm_blocks[index], &mut targets, &mut wildcard_target)?;
+        }
+        let otherwise_block = wildcard_target.unwrap_or(otherwise);
+        self.blocks[entry].terminator = Some(crate::ir::Terminator::SwitchInt {
+            discr: scrutinee_op,
+            targets,
+            otherwise: otherwise_block,
+        });
+
+        let mut result_ty = None;
+        let mut result_local = None;
+
+        for (index, arm) in arms.iter().enumerate() {
+            self.current_block = Some(arm_blocks[index]);
+            let body = self.lower_expr(&arm.body)?;
+            if let Some((_, ty)) = &body {
+                if let Some(expected) = result_ty {
+                    if expected != *ty {
+                        return Err(format!(
+                            "MIR lowering error: match arm {} has type {:?}, expected {:?}",
+                            index, ty, expected
+                        ));
+                    }
+                } else {
+                    result_ty = Some(*ty);
+                    let local = self.new_temp(Some("_match_tmp".to_string()), *ty);
+                    result_local = Some(local);
+                }
+            } else if result_ty.is_none() {
+                result_ty = Some(self.tcx.intern(TyKind::Unit));
+            }
+
+            if let (Some((operand, _)), Some(local)) = (body, result_local) {
+                let block = self.current_block;
+                if let Some(block) = block {
+                    let place = crate::ir::Place { local };
+                    self.blocks[block]
+                        .statements
+                        .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(operand)));
+                    if self.blocks[block].terminator.is_none() {
+                        self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
+                    }
+                }
+            } else if let Some(block) = self.current_block {
+                if self.blocks[block].terminator.is_none() {
+                    self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
+                }
+            }
+        }
+
+        if let Some(block) = wildcard_target {
+            if !arm_blocks.contains(&block) {
+                self.current_block = Some(block);
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
+            }
+        } else if otherwise_block == otherwise {
+            self.current_block = Some(otherwise);
+            self.blocks[otherwise].terminator = Some(crate::ir::Terminator::Unreachable);
+        }
+
+        self.current_block = Some(join);
+        match result_local {
+            Some(local) => Ok(Some((
+                crate::ir::Operand::Copy(crate::ir::Place { local }),
+                result_ty.expect("result type exists"),
+            ))),
+            None => Ok(None),
+        }
+    }
+
+    fn collect_match_targets(
+        &self,
+        pattern: &omni_types::ast::Pattern,
+        target: crate::ir::BasicBlock,
+        targets: &mut Vec<(u64, crate::ir::BasicBlock)>,
+        wildcard_target: &mut Option<crate::ir::BasicBlock>,
+    ) -> Result<(), String> {
+        match pattern {
+            omni_types::ast::Pattern::Wildcard | omni_types::ast::Pattern::Binding(_) => {
+                if wildcard_target.replace(target).is_some() {
+                    return Err("MIR lowering error: multiple wildcard match arms".into());
+                }
+            }
+            omni_types::ast::Pattern::Or(patterns) => {
+                for pattern in patterns {
+                    self.collect_match_targets(pattern, target, targets, wildcard_target)?;
+                }
+            }
+            omni_types::ast::Pattern::Lit(lit) => {
+                let value = match lit {
+                    omni_types::ast::Lit::Bool(v) => u64::from(*v),
+                    omni_types::ast::Lit::Int(v) => *v as u64,
+                    omni_types::ast::Lit::Byte(v) => u64::from(*v),
+                    omni_types::ast::Lit::Char(v) => *v as u64,
+                    _ => return Err(format!(
+                        "MIR lowering error: literal pattern {:?} is not representable by SwitchInt",
+                        lit
+                    )),
+                };
+                targets.push((value, target));
+            }
+            other => {
+                return Err(format!(
+                    "MIR lowering error: match pattern {:?} requires aggregate/discriminant lowering",
+                    other
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn lower_short_circuit(
         &mut self,
         op: omni_types::ast::BinOp,
@@ -615,6 +748,9 @@ impl<'a> FnMirBuilder<'a> {
                     crate::ir::Rvalue::BinaryOp(mir_op, target_op, value_op),
                 ));
                 Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
+            }
+            omni_types::ast::Expr::Match { expr, arms } => {
+                self.lower_match_expression(expr, arms)
             }
             omni_types::ast::Expr::Return(opt_expr) => {
                 let ret_result = if let Some(inner) = opt_expr {
