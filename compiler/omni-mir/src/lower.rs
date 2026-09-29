@@ -1161,6 +1161,68 @@ mod tests {
     }
 
     #[test]
+    fn loop_break_and_continue_lower_to_cfg_edges() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "loop_fn".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("x".to_string(), TypeSpec::Int)],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Loop {
+                    label: None,
+                    body: Box::new(Expr::Block(vec![
+                        Expr::Continue { label: None },
+                        Expr::Break {
+                            label: None,
+                            value: Some(Box::new(Expr::Var("x".to_string()))),
+                        },
+                    ])),
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&prog).expect("loop lowering");
+        assert!(mir.functions[0].body.blocks.iter().any(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::Goto(_)))
+        }));
+        assert!(mir.functions[0].body.local_decls.iter().any(|d| d.name.as_deref() == Some("_loop_result")));
+    }
+
+    #[test]
+    fn while_lowering_creates_condition_branch_and_exit() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "while_fn".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("x".to_string(), TypeSpec::Bool)],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::While {
+                    label: Some("outer".to_string()),
+                    condition: Box::new(Expr::Var("x".to_string())),
+                    body: Box::new(Expr::Break {
+                        label: Some("outer".to_string()),
+                        value: None,
+                    }),
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&prog).expect("while lowering");
+        assert!(mir.functions[0].body.blocks.iter().any(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::SwitchInt { .. }))
+        }));
+        assert!(mir.functions[0].body.blocks.iter().filter(|b| {
+            matches!(b.terminator, Some(crate::ir::Terminator::Goto(_)))
+        }).count() >= 2);
+    }
+
+    #[test]
     fn test_mir_lowering_concrete_gate_pass() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
