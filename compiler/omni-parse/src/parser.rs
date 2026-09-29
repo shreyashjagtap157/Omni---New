@@ -507,6 +507,56 @@ impl<'a> Parser<'a> {
         n
     }
 
+    /// Determine whether the current '<' starts a balanced generic argument
+    /// list rather than a comparison expression. A generic close must balance
+    /// the opening '<'; after the close, an identifier/literal cannot directly
+    /// continue the same path segment, which rejects `a < b > c` without
+    /// backtracking or consuming source.
+    fn looks_like_type_args(&self) -> bool {
+        if !self.at_punct(Punct::Lt) || self.split_token.is_some() {
+            return false;
+        }
+        let mut depth = 0usize;
+        let mut i = self.pos;
+        while let Some(token) = self.tokens.get(i) {
+            match token.kind {
+                TokenKind::Punct(Punct::Lt) => depth += 1,
+                TokenKind::Punct(Punct::Gt) => {
+                    if depth == 0 { return false; }
+                    depth -= 1;
+                }
+                TokenKind::Punct(Punct::Shr) => {
+                    if depth < 2 { return false; }
+                    depth -= 2;
+                }
+                TokenKind::Punct(Punct::ShrEq) => {
+                    if depth < 2 { return false; }
+                    depth -= 2;
+                    if depth == 0 { return false; }
+                }
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+            if depth == 0 {
+                return self.tokens.get(i + 1).is_none_or(|next| {
+                    !matches!(
+                        next.kind,
+                        TokenKind::Ident
+                            | TokenKind::Int
+                            | TokenKind::Float
+                            | TokenKind::Char
+                            | TokenKind::Byte
+                            | TokenKind::String
+                            | TokenKind::RawString
+                            | TokenKind::InterpolatedString
+                    )
+                });
+            }
+            i += 1;
+        }
+        false
+    }
+
     fn parse_type_args(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::TypeArgs);
         n.children.push(self.expect_punct(Punct::Lt));
@@ -717,7 +767,7 @@ impl<'a> Parser<'a> {
         } else {
             n.children.push(Child::Node(self.error_node("expected path segment")));
         }
-        if self.at_logical_lt() {
+        if self.looks_like_type_args() {
             n.children.push(Child::Node(self.parse_type_args()));
         }
         n
@@ -1161,7 +1211,7 @@ impl<'a> Parser<'a> {
                     lhs = n;
                     continue;
                 };
-                if self.at_punct(Punct::Lt) {
+                if self.looks_like_type_args() {
                     let args = self.parse_type_args();
                     if self.at_punct(Punct::LParen) {
                         let mut n = Node::new(SyntaxKind::MethodCallExpr);
