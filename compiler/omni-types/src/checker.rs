@@ -602,8 +602,8 @@ impl TypeChecker {
             Expr::Cast { expr, ty } => {
                 let source_ty = self.infer_expr(expr, env, local_vars)?;
                 let target_ty = self.lower_type_spec(ty, env);
-                if !matches!(self.tcx.get(source_ty), TyKind::Int | TyKind::Byte | TyKind::Char)
-                    || !matches!(self.tcx.get(target_ty), TyKind::Int | TyKind::Byte | TyKind::Char)
+                if !matches!(self.tcx.get(source_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float)
+                    || !matches!(self.tcx.get(target_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float)
                 {
                     return Err(TypeError::UnsupportedCast {
                         from: self.tcx.mangle(source_ty),
