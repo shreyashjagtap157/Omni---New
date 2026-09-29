@@ -252,19 +252,50 @@ fn semantic_functions_from_cst(
             .ok_or_else(|| format!("Semantic frontend error: function '{}' has no body", name))?;
 
         let bounds = bounds_from_fn_cst(&node, &type_params)?;
+        let effects = effects_from_fn_cst(&node)?;
         functions.push(GenericFnDef {
             name,
             type_params,
             bounds,
             params,
             return_type,
-            effects: omni_effects::EffectRow::pure(),
+            effects,
             capabilities: Vec::new(),
             body: expr_from_block(&body)?,
         });
     }
 
     Ok(functions)
+}
+
+fn effects_from_fn_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_effects::EffectRow, String> {
+    let Some(generic_params) = node
+        .children()
+        .find(|n| n.kind() == omni_syntax::SyntaxKind::GenericParams)
+    else {
+        return Ok(omni_effects::EffectRow::pure());
+    };
+
+    let effect_params = generic_params
+        .children()
+        .filter(|n| n.kind() == omni_syntax::SyntaxKind::EffectParam)
+        .filter_map(|n| direct_name(&n))
+        .collect::<Vec<_>>();
+    if effect_params.len() > 1 {
+        return Err("Semantic frontend error: multiple effect parameters require an effect-row tuple representation".into());
+    }
+
+    if generic_params
+        .children()
+        .any(|n| n.kind() == omni_syntax::SyntaxKind::CapabilityParam)
+    {
+        return Err("Semantic frontend error: generic capability parameters are not representable by the current semantic capability model".into());
+    }
+
+    Ok(match effect_params.first() {
+        Some(name) => omni_effects::EffectRow::open([], name),
+        None => omni_effects::EffectRow::pure(),
+    })
 }
 
 fn bound_trait_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
