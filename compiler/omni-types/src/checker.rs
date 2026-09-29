@@ -366,14 +366,26 @@ impl TypeChecker {
                 }
 
                 match op {
-                    crate::ast::BinOp::Eq
-                    | crate::ast::BinOp::Ne
-                    | crate::ast::BinOp::Lt
+                    crate::ast::BinOp::LogicalAnd | crate::ast::BinOp::LogicalOr => {
+                        let bool_ty = self.tcx.intern(TyKind::Bool);
+                        if l_ty != bool_ty || r_ty != bool_ty {
+                            return Err(TypeError::MismatchedTypes {
+                                expected: self.tcx.mangle(bool_ty),
+                                found: self.tcx.mangle(if l_ty != bool_ty { l_ty } else { r_ty }),
+                            });
+                        }
+                        Ok(bool_ty)
+                    }
+                    crate::ast::BinOp::Eq | crate::ast::BinOp::Ne => Ok(self.tcx.intern(TyKind::Bool)),
+                    crate::ast::BinOp::Lt
                     | crate::ast::BinOp::Le
                     | crate::ast::BinOp::Gt
-                    | crate::ast::BinOp::Ge
-                    | crate::ast::BinOp::LogicalAnd
-                    | crate::ast::BinOp::LogicalOr => Ok(self.tcx.intern(TyKind::Bool)),
+                    | crate::ast::BinOp::Ge => {
+                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float) {
+                            return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
+                        }
+                        Ok(self.tcx.intern(TyKind::Bool))
+                    }
                     crate::ast::BinOp::Add
                     | crate::ast::BinOp::Sub
                     | crate::ast::BinOp::Mul
@@ -383,22 +395,44 @@ impl TypeChecker {
                     | crate::ast::BinOp::BitOr
                     | crate::ast::BinOp::BitXor
                     | crate::ast::BinOp::Shl
-                    | crate::ast::BinOp::Shr => Ok(l_ty),
+                    | crate::ast::BinOp::Shr => {
+                        if !matches!(self.tcx.get(l_ty), TyKind::Int) {
+                            return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
+                        }
+                        Ok(l_ty)
+                    }
                 }
             }
             Expr::Unary { op, expr } => {
                 let inner_ty = self.infer_expr(expr, env, local_vars)?;
-                let expected = match op {
-                    crate::ast::UnOp::Neg => self.tcx.intern(TyKind::Int),
-                    crate::ast::UnOp::Not => self.tcx.intern(TyKind::Bool),
-                };
-                if inner_ty != expected {
-                    return Err(TypeError::MismatchedTypes {
-                        expected: self.tcx.mangle(expected),
-                        found: self.tcx.mangle(inner_ty),
-                    });
+                match op {
+                    crate::ast::UnOp::Neg => {
+                        let expected = self.tcx.intern(TyKind::Int);
+                        if inner_ty != expected {
+                            return Err(TypeError::MismatchedTypes {
+                                expected: self.tcx.mangle(expected),
+                                found: self.tcx.mangle(inner_ty),
+                            });
+                        }
+                        Ok(expected)
+                    }
+                    crate::ast::UnOp::Not => {
+                        let expected = self.tcx.intern(TyKind::Bool);
+                        if inner_ty != expected {
+                            return Err(TypeError::MismatchedTypes {
+                                expected: self.tcx.mangle(expected),
+                                found: self.tcx.mangle(inner_ty),
+                            });
+                        }
+                        Ok(expected)
+                    }
+                    crate::ast::UnOp::BitNot => {
+                        if !matches!(self.tcx.get(inner_ty), TyKind::Int) {
+                            return Err(TypeError::UnsupportedOperator("bitwise-not".into()));
+                        }
+                        Ok(inner_ty)
+                    }
                 }
-                Ok(expected)
             }
             Expr::Field { expr, field } => {
                 let struct_ty = self.infer_expr(expr, env, local_vars)?;
