@@ -885,6 +885,26 @@ fn test_effect_capability_semantic_model_slice() {
 }
 
 #[test]
+fn test_or_pattern_requires_matching_binding_sets() {
+    let mut checker = TypeChecker::new();
+    let ty = checker.tcx.intern(TyKind::Int);
+    let ok = Pattern::Or(vec![
+        Pattern::Binding("x".to_string()),
+        Pattern::Binding("x".to_string()),
+    ]);
+    let mut locals = HashMap::new();
+    checker.bind_pattern(&ok, ty, &mut locals).expect("matching bindings");
+    assert_eq!(locals.get("x").copied(), Some(ty));
+
+    let bad = Pattern::Or(vec![
+        Pattern::Binding("x".to_string()),
+        Pattern::Binding("y".to_string()),
+    ]);
+    let err = checker.bind_pattern(&bad, ty, &mut HashMap::new()).expect_err("mismatched bindings must fail");
+    assert!(matches!(err, TypeError::UnsupportedPattern(_)));
+}
+
+#[test]
 fn test_enum_variant_constructors_validate_payloads() {
     let mut checker = TypeChecker::new();
     checker.register_enum(crate::ast::EnumDef {
