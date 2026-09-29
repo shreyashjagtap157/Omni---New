@@ -895,6 +895,21 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+            crate::ast::Pattern::Reference { mutable, inner } => {
+                match self.tcx.get(ty).clone() {
+                    TyKind::Reference { mutable: actual_mut, inner: pointee, .. } => {
+                        if actual_mut != *mutable {
+                            return Err(TypeError::UnsupportedPattern(
+                                "reference pattern mutability does not match scrutinee".into(),
+                            ));
+                        }
+                        self.bind_pattern(inner, pointee, locals)
+                    }
+                    _ => Err(TypeError::UnsupportedPattern(
+                        "reference pattern requires a reference scrutinee".into(),
+                    )),
+                }
+            }
             crate::ast::Pattern::Variant { enum_name, variant, subpatterns } => {
                 let TyKind::Enum(actual, args) = self.tcx.get(ty).clone() else {
                     return Err(TypeError::UnsupportedPattern("variant pattern requires enum type".into()));
