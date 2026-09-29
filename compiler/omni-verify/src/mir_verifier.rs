@@ -362,6 +362,12 @@ impl MirVerifier {
                             }
                             Rvalue::UnaryOp(_, op) => Self::check_operand(fn_name, op, num_locals)?,
                             Rvalue::Cast { operand, .. } => Self::check_operand(fn_name, operand, num_locals)?,
+                            Rvalue::Aggregate { operands, .. } => {
+                                for operand in operands {
+                                    Self::check_operand(fn_name, operand, num_locals)?;
+                                }
+                            }
+
                         }
                         Self::check_rvalue_type(prog, func, place, rval)?;
                     }
@@ -732,6 +738,37 @@ impl MirVerifier {
                         Ok(lhs_ty)
                     }
                 }
+            }
+            Rvalue::Aggregate { kind, operands, ty } => {
+                let actual_types = operands
+                    .iter()
+                    .map(|operand| Self::operand_type(tcx, func, operand))
+                    .collect::<Result<Vec<_>, _>>()?;
+                match (kind, tcx.get(*ty)) {
+                    (AggregateKind::Tuple, TyKind::Tuple(expected)) => {
+                        if actual_types != *expected {
+                            return Err(MirVerificationError::AggregateTypeMismatch {
+                                func: func.name.clone(),
+                                context: "tuple aggregate element types do not match declared type".to_string(),
+                            });
+                        }
+                    }
+                    (AggregateKind::Array, TyKind::Array(expected, len)) => {
+                        if actual_types.len() != *len || actual_types.iter().any(|actual| *actual != *expected) {
+                            return Err(MirVerificationError::AggregateTypeMismatch {
+                                func: func.name.clone(),
+                                context: "array aggregate length or element type does not match declared type".to_string(),
+                            });
+                        }
+                    }
+                    _ => {
+                        return Err(MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: "aggregate kind does not match declared MIR type".to_string(),
+                        });
+                    }
+                }
+                Ok(*ty)
             }
             Rvalue::Cast { operand, from, to } => {
                 let actual = Self::operand_type(tcx, func, operand)?;
