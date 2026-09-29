@@ -773,6 +773,38 @@ mod tests {
     }
 
     #[test]
+    fn shared_precedence_keeps_unary_tighter_than_multiplicative() {
+        let mut p = Parser::from_source("fn f() { return -a * b; }");
+        let r = p.parse_source();
+        assert!(r.is_ok(), "{:?}", r.diagnostics);
+        let binary = r
+            .syntax()
+            .descendants()
+            .find(|n| n.kind() == K::BinaryExpr)
+            .expect("multiplication binary expression");
+        assert!(
+            binary.children().next().is_some_and(|n| n.kind() == K::UnaryExpr),
+            "the left side of * must be the unary expression -a"
+        );
+    }
+
+    #[test]
+    fn shared_postfix_precedence_keeps_calls_tighter_than_multiplicative() {
+        let mut p = Parser::from_source("fn f() { return a * g(x); }");
+        let r = p.parse_source();
+        assert!(r.is_ok(), "{:?}", r.diagnostics);
+        let binary = r
+            .syntax()
+            .descendants()
+            .find(|n| n.kind() == K::BinaryExpr)
+            .expect("multiplication binary expression");
+        assert!(
+            binary.children().nth(2).is_some_and(|n| n.kind() == K::CallExpr),
+            "the right side of * must be the call g(x)"
+        );
+    }
+
+    #[test]
     fn parses_nested_expression_and_call() {
         let mut p =
             Parser::from_source("fn main(a: i32) -> i32 { let x = add(a, 2) * 3; return x; }");
