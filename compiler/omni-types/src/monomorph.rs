@@ -148,16 +148,6 @@ impl MonomorphizedProgram {
                 Ok(())
             }
             Expr::Continue { .. } => Ok(()),
-            Expr::Loop { body, .. } | Expr::While { body, .. } => {
-                Self::verify_expr_concrete(body, enclosing_fn)
-            }
-            Expr::Break { value, .. } => {
-                if let Some(value) = value {
-                    Self::verify_expr_concrete(value, enclosing_fn)?;
-                }
-                Ok(())
-            }
-            Expr::Continue { .. } => Ok(()),
             Expr::Match { expr, arms } => {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
                 for arm in arms {
@@ -175,7 +165,10 @@ impl MonomorphizedProgram {
                 }
                 Ok(())
             }
-            Expr::Assign { value, .. } => Self::verify_expr_concrete(value, enclosing_fn),
+            Expr::Assign { target, value } => {
+                Self::verify_expr_concrete(target, enclosing_fn)?;
+                Self::verify_expr_concrete(value, enclosing_fn)
+            }
             Expr::CompoundAssign { target, value, .. } => {
                 Self::verify_expr_concrete(target, enclosing_fn)?;
                 Self::verify_expr_concrete(value, enclosing_fn)
