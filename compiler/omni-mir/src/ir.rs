@@ -117,11 +117,19 @@ pub struct Place {
 
 /// A value produced by an operation.
 #[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregateKind {
+    Tuple,
+    Array,
+}
+
+#[derive(Debug, Clone)]
 pub enum Rvalue {
     Use(Operand),
     BinaryOp(BinOp, Operand, Operand),
     UnaryOp(UnOp, Operand),
     Cast { operand: Operand, from: Ty, to: Ty },
+    Aggregate { kind: AggregateKind, operands: Vec<Operand>, ty: Ty },
 }
 
 /// A literal scalar value in MIR.
