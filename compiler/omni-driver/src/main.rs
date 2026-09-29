@@ -270,8 +270,10 @@ fn semantic_functions_from_cst(
         .filter(|n| n.kind() == omni_syntax::SyntaxKind::EnumDef)
         .filter_map(|n| direct_name(&n))
         .collect();
-
-
+    let alias_defs = semantic_type_aliases_from_cst(root, &enum_names)?
+        .into_iter()
+        .map(|a| (a.name.clone(), a))
+        .collect::<HashMap<_, _>>();
 
     for node in root.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::FnDef) {
         let name = direct_name(&node)
@@ -302,13 +304,13 @@ fn semantic_functions_from_cst(
             let param_type = direct_type(&param).ok_or_else(|| {
                 format!("Semantic frontend error: parameter '{}' has no type", param_name)
             })?;
-            params.push((param_name, type_spec_from_cst_with_context(param_type, &generic_names, &enum_names)?));
+            params.push((param_name, normalize_alias_type(type_spec_from_cst_with_context(param_type, &generic_names, &enum_names)?, &alias_defs, &generic_names)?));
         }
 
         let return_type = node
             .children()
             .find(|n| n.kind() == omni_syntax::SyntaxKind::Type)
-            .map(|n| type_spec_from_cst_with_context(n, &generic_names, &enum_names))
+            .map(|n| type_spec_from_cst_with_context(n, &generic_names, &enum_names).and_then(|s| normalize_alias_type(s, &alias_defs, &generic_names)))
             .transpose()?
             .unwrap_or(TypeSpec::Unit);
 
@@ -332,6 +334,102 @@ fn semantic_functions_from_cst(
     }
 
     Ok(functions)
+}
+
+fn normalize_alias_type(
+    spec: TypeSpec,
+    aliases: &HashMap<String, omni_types::ast::TypeAliasDef>,
+    generic_names: &HashSet<String>,
+) -> Result<TypeSpec, String> {
+    fn expand(
+        spec: TypeSpec,
+        aliases: &HashMap<String, omni_types::ast::TypeAliasDef>,
+        generic_names: &HashSet<String>,
+        visiting: &mut HashSet<String>,
+    ) -> Result<TypeSpec, String> {
+        match spec {
+            TypeSpec::Struct(name, args) if aliases.contains_key(&name) => {
+                if !visiting.insert(name.clone()) {
+                    return Err(format!("Semantic frontend error: cyclic type alias '{}'", name));
+                }
+                let alias = aliases.get(&name).expect("alias exists");
+                if args.len() != alias.type_params.len() {
+                    return Err(format!(
+                        "Semantic frontend error: type alias '{}' expects {} arguments, found {}",
+                        name, alias.type_params.len(), args.len()
+                    ));
+                }
+                let mut substitutions = HashMap::new();
+                for (param, arg) in alias.type_params.iter().zip(args) {
+                    substitutions.insert(param.clone(), expand(arg, aliases, generic_names, visiting)?);
+                }
+                let expanded = substitute_type_spec(alias.target.clone(), &substitutions);
+                let result = expand(expanded, aliases, generic_names, visiting)?;
+                visiting.remove(&name);
+                Ok(result)
+            }
+            TypeSpec::Tuple(items) => Ok(TypeSpec::Tuple(
+                items.into_iter().map(|s| expand(s, aliases, generic_names, visiting)).collect::<Result<_, _>>()?
+            )),
+            TypeSpec::Array(elem, len) => Ok(TypeSpec::Array(
+                Box::new(expand(*elem, aliases, generic_names, visiting)?),
+                len,
+            )),
+            TypeSpec::Range(elem) => Ok(TypeSpec::Range(
+                Box::new(expand(*elem, aliases, generic_names, visiting)?),
+            )),
+            TypeSpec::Reference { lifetime, mutable, inner } => Ok(TypeSpec::Reference {
+                lifetime,
+                mutable,
+                inner: Box::new(expand(*inner, aliases, generic_names, visiting)?),
+            }),
+            TypeSpec::Fn(params, ret) => Ok(TypeSpec::Fn(
+                params.into_iter().map(|s| expand(s, aliases, generic_names, visiting)).collect::<Result<_, _>>()?,
+                Box::new(expand(*ret, aliases, generic_names, visiting)?),
+            )),
+            TypeSpec::Struct(name, args) => Ok(TypeSpec::Struct(
+                name,
+                args.into_iter().map(|s| expand(s, aliases, generic_names, visiting)).collect::<Result<_, _>>()?,
+            )),
+            TypeSpec::Enum(name, args) => Ok(TypeSpec::Enum(
+                name,
+                args.into_iter().map(|s| expand(s, aliases, generic_names, visiting)).collect::<Result<_, _>>()?,
+            )),
+            TypeSpec::GenericParam(name) if generic_names.contains(&name) => Ok(TypeSpec::GenericParam(name)),
+            other => Ok(other),
+        }
+    }
+    expand(spec, aliases, generic_names, &mut HashSet::new())
+}
+
+fn substitute_type_spec(
+    spec: TypeSpec,
+    substitutions: &HashMap<String, TypeSpec>,
+) -> TypeSpec {
+    match spec {
+        TypeSpec::GenericParam(name) => substitutions.get(&name).cloned().unwrap_or(TypeSpec::GenericParam(name)),
+        TypeSpec::Tuple(items) => TypeSpec::Tuple(items.into_iter().map(|s| substitute_type_spec(s, substitutions)).collect()),
+        TypeSpec::Array(elem, len) => TypeSpec::Array(Box::new(substitute_type_spec(*elem, substitutions)), len),
+        TypeSpec::Range(elem) => TypeSpec::Range(Box::new(substitute_type_spec(*elem, substitutions))),
+        TypeSpec::Reference { lifetime, mutable, inner } => TypeSpec::Reference {
+            lifetime,
+            mutable,
+            inner: Box::new(substitute_type_spec(*inner, substitutions)),
+        },
+        TypeSpec::Fn(params, ret) => TypeSpec::Fn(
+            params.into_iter().map(|s| substitute_type_spec(s, substitutions)).collect(),
+            Box::new(substitute_type_spec(*ret, substitutions)),
+        ),
+        TypeSpec::Struct(name, args) => TypeSpec::Struct(
+            name,
+            args.into_iter().map(|s| substitute_type_spec(s, substitutions)).collect(),
+        ),
+        TypeSpec::Enum(name, args) => TypeSpec::Enum(
+            name,
+            args.into_iter().map(|s| substitute_type_spec(s, substitutions)).collect(),
+        ),
+        other => other,
+    }
 }
 
 fn effects_from_fn_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_effects::EffectRow, String> {
