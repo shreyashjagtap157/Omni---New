@@ -536,6 +536,10 @@ fn lower_rvalue_to_cl(
                     let one = builder.ins().iconst(types::I64, 1);
                     Ok(builder.ins().bxor(val, one))
                 }
+                omni_mir::ir::UnOp::BitNot => {
+                    let all_ones = builder.ins().iconst(types::I64, -1);
+                    Ok(builder.ins().bxor(val, all_ones))
+                }
                 omni_mir::ir::UnOp::BitNot => Ok(builder.ins().bnot(val)),
             }
         }
