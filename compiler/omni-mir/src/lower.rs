@@ -829,6 +829,9 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Expr::Block(exprs) => {
                 let mut last = None;
                 for expr in exprs {
+                    if self.current_block.is_none() {
+                        break;
+                    }
                     last = self.lower_expr(expr)?;
                 }
                 Ok(last)
@@ -980,6 +983,18 @@ impl<'a> FnMirBuilder<'a> {
             }
             omni_types::ast::Expr::Break { label, value } => self.lower_break_expression(label.as_deref(), value.as_deref()),
             omni_types::ast::Expr::Continue { label } => self.lower_continue_expression(label.as_deref()),
+            omni_types::ast::Expr::Loop { label, body } => {
+                self.lower_loop_expression(label.as_deref(), body)
+            }
+            omni_types::ast::Expr::While { label, condition, body } => {
+                self.lower_while_expression(label.as_deref(), condition, body)
+            }
+            omni_types::ast::Expr::Break { label, value } => {
+                self.lower_break_expression(label.as_deref(), value.as_deref())
+            }
+            omni_types::ast::Expr::Continue { label } => {
+                self.lower_continue_expression(label.as_deref())
+            }
             omni_types::ast::Expr::Match { expr, arms } => {
                 self.lower_match_expression(expr, arms)
             }
