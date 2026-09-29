@@ -265,6 +265,19 @@ fn semantic_functions_from_cst(
     Ok(functions)
 }
 
+fn label_from_cst(node: &omni_syntax::SyntaxNode) -> Option<String> {
+    let label = node
+        .children()
+        .find(|n| n.kind() == omni_syntax::SyntaxKind::Label)
+        .or_else(|| node.children().find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime))?;
+    let name = label
+        .children()
+        .find(|n| n.kind() == omni_syntax::SyntaxKind::NameRef)
+        .map(|n| n.text().to_string().trim().to_string())
+        .unwrap_or_else(|| label.text().to_string().trim().trim_start_matches('\'').trim_end_matches(':').to_string());
+    (!name.is_empty()).then_some(name)
+}
+
 fn direct_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
     if node.kind() == omni_syntax::SyntaxKind::NameRef {
         let name = node.text().to_string().trim().to_string();
@@ -688,10 +701,7 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             })
         }
         omni_syntax::SyntaxKind::LoopExpr => {
-            let label = node
-                .children()
-                .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
-                .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
+            let label = label_from_cst(node);
             let body = node
                 .children()
                 .find(|n| n.kind() == omni_syntax::SyntaxKind::Block)
@@ -725,7 +735,12 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
             let children = node
                 .children()
-                .filter(|n| n.kind() != omni_syntax::SyntaxKind::Lifetime)
+                .filter(|n| {
+                    !matches!(
+                        n.kind(),
+                        omni_syntax::SyntaxKind::Label | omni_syntax::SyntaxKind::Lifetime
+                    )
+                })
                 .collect::<Vec<_>>();
             if children.len() != 3 {
                 return Err("Semantic frontend error: malformed for expression".into());
@@ -791,7 +806,6 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         | omni_syntax::SyntaxKind::UnsafeBlock
         | omni_syntax::SyntaxKind::TryBlock
         | omni_syntax::SyntaxKind::TryExpr
-        | omni_syntax::SyntaxKind::ForExpr
         => Err(format!("Semantic frontend error: native AST lowering does not yet support {:?}", node.kind())),
         other => Err(format!("Semantic frontend error: unsupported expression node {:?}", other)),
     }
