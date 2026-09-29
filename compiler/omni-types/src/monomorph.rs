@@ -547,6 +547,11 @@ impl<'a> Monomorphizer<'a> {
             TypeSpec::Range(elem) => {
                 TypeSpec::Range(Box::new(self.substitute_type_spec(elem, env)))
             }
+            TypeSpec::Reference { lifetime, mutable, inner } => TypeSpec::Reference {
+                lifetime: lifetime.clone(),
+                mutable: *mutable,
+                inner: Box::new(self.substitute_type_spec(inner, env)),
+            },
             TypeSpec::Fn(params, ret) => TypeSpec::Fn(
                 params.iter().map(|p| self.substitute_type_spec(p, env)).collect(),
                 Box::new(self.substitute_type_spec(ret, env)),
