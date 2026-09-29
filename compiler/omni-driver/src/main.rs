@@ -189,19 +189,75 @@ fn direct_type(node: &omni_syntax::SyntaxNode) -> Option<omni_syntax::SyntaxNode
 }
 
 fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String> {
-    let token = node
-        .first_token()
-        .ok_or_else(|| "Semantic frontend error: type node has no token".to_string())?;
-    match token.text() {
-        "i64" | "Int" => Ok(TypeSpec::Int),
-        "f64" | "Float" => Ok(TypeSpec::Float),
-        "bool" | "Bool" => Ok(TypeSpec::Bool),
-        "char" | "Char" => Ok(TypeSpec::Char),
-        "u8" | "byte" | "Byte" => Ok(TypeSpec::Byte),
-        "str" | "String" => Ok(TypeSpec::String),
-        "unit" | "Unit" => Ok(TypeSpec::Unit),
-        "never" | "Never" => Ok(TypeSpec::Never),
-        other => Err(format!("Semantic frontend error: unsupported type spelling '{}'", other)),
+    if node.kind() == omni_syntax::SyntaxKind::Type {
+        return node
+            .children()
+            .next()
+            .ok_or_else(|| "Semantic frontend error: empty type node".to_string())
+            .and_then(type_spec_from_cst);
+    }
+
+    match node.kind() {
+        omni_syntax::SyntaxKind::PathType => {
+            let path = node.children().find(|n| n.kind() == omni_syntax::SyntaxKind::Path);
+            let text = path
+                .as_ref()
+                .map(|n| n.text().to_string().trim().to_string())
+                .unwrap_or_else(|| node.text().to_string().trim().to_string());
+            match text.as_str() {
+                "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "Int" => Ok(TypeSpec::Int),
+                "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "byte" | "Byte" => Ok(TypeSpec::Byte),
+                "f16" | "f32" | "f64" | "f128" | "bf16" | "dec32" | "dec64" | "dec128" | "Float" => Ok(TypeSpec::Float),
+                "bool" | "Bool" => Ok(TypeSpec::Bool),
+                "char" | "Char" => Ok(TypeSpec::Char),
+                "str" | "String" => Ok(TypeSpec::String),
+                "unit" | "Unit" => Ok(TypeSpec::Unit),
+                "never" | "Never" | "!" => Ok(TypeSpec::Never),
+                other => {
+                    let args = path
+                        .as_ref()
+                        .map(|p| {
+                            p.children()
+                                .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+                                .filter_map(|seg| seg.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs))
+                                .flat_map(|args| args.children())
+                                .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg)
+                                .map(|arg| arg.children().next().map(type_spec_from_cst).transpose())
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?
+                        .unwrap_or_default()
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>();
+                    Ok(TypeSpec::Struct(other.to_string(), args))
+                }
+            }
+        }
+        omni_syntax::SyntaxKind::TupleType => {
+            Ok(TypeSpec::Tuple(node.children().map(type_spec_from_cst).collect::<Result<Vec<_>, _>>()?))
+        }
+        omni_syntax::SyntaxKind::ArrayType => {
+            let mut children = node.children();
+            let elem = children.next().ok_or_else(|| "Semantic frontend error: array type has no element".to_string()).and_then(type_spec_from_cst)?;
+            let len_expr = children.next().ok_or_else(|| "Semantic frontend error: array type has no length".to_string())?;
+            let len_text = len_expr.text().to_string().trim().to_string();
+            let len = parse_int_literal(&len_text)
+                .map_err(|_| format!("Semantic frontend error: array length '{}' is not an integer", len_text))?;
+            let len = usize::try_from(len).map_err(|_| "Semantic frontend error: array length is negative".to_string())?;
+            Ok(TypeSpec::Array(Box::new(elem), len))
+        }
+        omni_syntax::SyntaxKind::FunctionType => {
+            let types = node.children().map(type_spec_from_cst).collect::<Result<Vec<_>, _>>()?;
+            let (ret, params) = types.split_last().map(|(ret, params)| (ret.clone(), params.to_vec())).unwrap_or((TypeSpec::Unit, Vec::new()));
+            Ok(TypeSpec::Fn(params, Box::new(ret)))
+        }
+        omni_syntax::SyntaxKind::ParenthesizedType => node.children().next().ok_or_else(|| "Semantic frontend error: empty parenthesized type".to_string()).and_then(type_spec_from_cst),
+        omni_syntax::SyntaxKind::NeverType => Ok(TypeSpec::Never),
+        omni_syntax::SyntaxKind::SliceType
+        | omni_syntax::SyntaxKind::ReferenceType
+        | omni_syntax::SyntaxKind::RawPointerType => Err(format!("Semantic frontend error: type form {:?} is not representable by the current semantic TypeSpec", node.kind())),
+        other => Err(format!("Semantic frontend error: unsupported type node {:?}", other)),
     }
 }
 
