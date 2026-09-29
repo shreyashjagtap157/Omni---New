@@ -220,10 +220,13 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::BinOp::Sub => crate::ir::BinOp::Sub,
                     omni_types::ast::BinOp::Mul => crate::ir::BinOp::Mul,
                     omni_types::ast::BinOp::Div => crate::ir::BinOp::Div,
+                    omni_types::ast::BinOp::Rem => crate::ir::BinOp::Rem,
                     omni_types::ast::BinOp::Eq => crate::ir::BinOp::Eq,
                     omni_types::ast::BinOp::Ne => crate::ir::BinOp::Ne,
                     omni_types::ast::BinOp::Lt => crate::ir::BinOp::Lt,
+                    omni_types::ast::BinOp::Le => crate::ir::BinOp::Le,
                     omni_types::ast::BinOp::Gt => crate::ir::BinOp::Gt,
+                    omni_types::ast::BinOp::Ge => crate::ir::BinOp::Ge,
                 };
                 let result_ty = match op {
                     omni_types::ast::BinOp::Eq
