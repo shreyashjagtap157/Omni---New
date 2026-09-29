@@ -680,21 +680,58 @@ impl MirVerifier {
                         actual: rhs_ty,
                     });
                 }
-                Ok(match op {
-                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                        tcx.intern(TyKind::Bool)
+                let is_int = matches!(tcx.get(lhs_ty), TyKind::Int);
+                let is_float = matches!(tcx.get(lhs_ty), TyKind::Float);
+                let is_ordered_scalar =
+                    matches!(tcx.get(lhs_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float);
+                let is_equality_scalar =
+                    matches!(tcx.get(lhs_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Bool | TyKind::Float);
+                match op {
+                    BinOp::Eq | BinOp::Ne => {
+                        if !is_equality_scalar {
+                            return Err(MirVerificationError::TypeMismatch {
+                                func: func.name.clone(),
+                                context: format!("operator {:?} requires comparable scalar operands", op),
+                                expected: tcx.intern(TyKind::Int),
+                                actual: lhs_ty,
+                            });
+                        }
+                        Ok(tcx.intern(TyKind::Bool))
                     }
-                    BinOp::Add
-                    | BinOp::Sub
-                    | BinOp::Mul
-                    | BinOp::Div
-                    | BinOp::Rem
-                    | BinOp::BitAnd
-                    | BinOp::BitOr
-                    | BinOp::BitXor
-                    | BinOp::Shl
-                    | BinOp::Shr => lhs_ty,
-                })
+                    BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                        if !is_ordered_scalar {
+                            return Err(MirVerificationError::TypeMismatch {
+                                func: func.name.clone(),
+                                context: format!("operator {:?} requires ordered scalar operands", op),
+                                expected: tcx.intern(TyKind::Int),
+                                actual: lhs_ty,
+                            });
+                        }
+                        Ok(tcx.intern(TyKind::Bool))
+                    }
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+                        if !is_int && !is_float {
+                            return Err(MirVerificationError::TypeMismatch {
+                                func: func.name.clone(),
+                                context: format!("operator {:?} requires Int or Float operands", op),
+                                expected: tcx.intern(TyKind::Int),
+                                actual: lhs_ty,
+                            });
+                        }
+                        Ok(lhs_ty)
+                    }
+                    BinOp::Rem | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                        if !is_int {
+                            return Err(MirVerificationError::TypeMismatch {
+                                func: func.name.clone(),
+                                context: format!("operator {:?} requires Int operands", op),
+                                expected: tcx.intern(TyKind::Int),
+                                actual: lhs_ty,
+                            });
+                        }
+                        Ok(lhs_ty)
+                    }
+                }
             }
             Rvalue::Cast { operand, from, to } => {
                 let actual = Self::operand_type(tcx, func, operand)?;
