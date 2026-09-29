@@ -131,16 +131,16 @@ impl MonomorphizedProgram {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
                 Self::verify_type_spec_concrete(ty, enclosing_fn)
             }
-            Expr::Loop { body } | Expr::While { body, .. } => {
+            Expr::Loop { body, .. } | Expr::While { body, .. } => {
                 Self::verify_expr_concrete(body, enclosing_fn)
             }
-            Expr::Break(value) => {
+            Expr::Break { value, .. } => {
                 if let Some(value) = value {
                     Self::verify_expr_concrete(value, enclosing_fn)?;
                 }
                 Ok(())
             }
-            Expr::Continue => Ok(()),
+            Expr::Continue { .. } => Ok(()),
             Expr::Match { expr, arms } => {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
                 for arm in arms {
