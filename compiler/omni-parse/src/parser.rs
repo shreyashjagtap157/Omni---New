@@ -46,6 +46,8 @@ use omni_lex::{Scanner, Span, Token, TokenKind};
 use omni_syntax::{SyntaxKind, SyntaxNode};
 use rowan::GreenNodeBuilder;
 
+use crate::precedence::{matching_close, matching_open};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub message: String,
@@ -169,9 +171,9 @@ impl<'a> Parser<'a> {
     }
     fn parse_item_stub(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::ErrorNode);
-        n.children.push(Child::Token(self.bump()));
+        n.children.push(self.bump_child());
         if self.at_ident() {
-            n.children.push(Child::Token(self.bump()));
+            n.children.push(self.bump_child());
         }
         n
     }
@@ -179,13 +181,13 @@ impl<'a> Parser<'a> {
         let mut n = Node::new(SyntaxKind::FnDef);
         n.children.push(self.expect_kw(Kw::Fn));
         if self.at_ident() {
-            n.children.push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump())));
+            n.children.push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
         } else {
             n.children.push(Child::Node(self.error_node("expected function name")));
         }
         n.children.push(Child::Node(self.parse_params()));
         if self.at_punct(Punct::Arrow) {
-            n.children.push(Child::Token(self.bump()));
+            n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_type()));
         }
         n.children.push(Child::Node(self.parse_block()));
@@ -198,7 +200,7 @@ impl<'a> Parser<'a> {
             let mut p = Node::new(SyntaxKind::Param);
             if self.at_ident() {
                 p.children
-                    .push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump())));
+                    .push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
             } else {
                 p.children.push(Child::Node(self.error_node("expected parameter name")));
                 let skipped = self.recover_until(&[Punct::Comma, Punct::RParen]);
@@ -207,14 +209,14 @@ impl<'a> Parser<'a> {
                 }
             }
             if self.at_punct(Punct::Colon) {
-                p.children.push(Child::Token(self.bump()));
+                p.children.push(self.bump_child());
                 p.children.push(Child::Node(self.parse_type()));
             } else {
                 self.diagnostic("expected `:` after parameter name");
             }
             n.children.push(Child::Node(p));
             if self.at_punct(Punct::Comma) {
-                n.children.push(Child::Token(self.bump()));
+                n.children.push(self.bump_child());
             } else {
                 break;
             }
@@ -260,7 +262,7 @@ impl<'a> Parser<'a> {
                 ))
             )
         {
-            n.children.push(Child::Token(self.bump()));
+            n.children.push(self.bump_child());
         } else {
             n.children.push(Child::Node(self.error_node("expected type name")));
         }
@@ -285,15 +287,15 @@ impl<'a> Parser<'a> {
         let mut n = Node::new(SyntaxKind::LetStmt);
         n.children.push(self.expect_kw(Kw::Let));
         if self.at_kw(Kw::Mut) {
-            n.children.push(Child::Token(self.bump()));
+            n.children.push(self.bump_child());
         }
         if self.at_ident() {
-            n.children.push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump())));
+            n.children.push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
         } else {
             n.children.push(Child::Node(self.error_node("expected binding name")));
         }
         if self.at_punct(Punct::Colon) {
-            n.children.push(Child::Token(self.bump()));
+            n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_type()));
         }
         n.children.push(self.expect_punct(Punct::Eq));
@@ -314,7 +316,7 @@ impl<'a> Parser<'a> {
         let mut n = Node::new(SyntaxKind::ExprStmt);
         n.children.push(Child::Node(self.parse_expr_bp(0)));
         if self.at_punct(Punct::Semicolon) {
-            n.children.push(Child::Token(self.bump()));
+            n.children.push(self.bump_child());
         } else {
             self.diagnostic("expected `;` after expression");
         }
@@ -326,11 +328,11 @@ impl<'a> Parser<'a> {
             if self.at_punct(Punct::LParen) && 7 >= min_bp {
                 let mut call = Node::new(SyntaxKind::CallExpr);
                 call.children.push(Child::Node(lhs));
-                call.children.push(Child::Token(self.bump()));
+                call.children.push(self.bump_child());
                 while !self.eof() && !self.at_punct(Punct::RParen) {
                     call.children.push(Child::Node(self.parse_expr_bp(0)));
                     if self.at_punct(Punct::Comma) {
-                        call.children.push(Child::Token(self.bump()));
+                        call.children.push(self.bump_child());
                     } else {
                         break;
                     }
@@ -345,7 +347,7 @@ impl<'a> Parser<'a> {
             }
             let mut bin = Node::new(SyntaxKind::BinaryExpr);
             bin.children.push(Child::Node(lhs));
-            bin.children.push(Child::Token(self.bump()));
+            bin.children.push(self.bump_child());
             bin.children.push(Child::Node(self.parse_expr_bp(right_bp)));
             let _ = op;
             lhs = bin;
@@ -358,19 +360,19 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Punct(Punct::Minus | Punct::Bang | Punct::Amp))
         ) {
             let mut n = Node::new(SyntaxKind::UnaryExpr);
-            n.children.push(Child::Token(self.bump()));
+            n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_expr_bp(6)));
             return n;
         }
         if self.at_punct(Punct::LParen) {
             let mut n = Node::new(SyntaxKind::UnaryExpr);
-            n.children.push(Child::Token(self.bump()));
+            n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_expr_bp(0)));
             n.children.push(self.expect_punct(Punct::RParen));
             return n;
         }
         match self.current_kind() {
-            Some(TokenKind::Ident) => Node::new(SyntaxKind::NameRef).with_token(self.bump()),
+            Some(TokenKind::Ident) => Node::new(SyntaxKind::NameRef).with_token(self.bump_index()),
             Some(
                 TokenKind::Int
                 | TokenKind::Float
@@ -381,7 +383,7 @@ impl<'a> Parser<'a> {
                 | TokenKind::InterpolatedString,
             )
             | Some(TokenKind::Keyword(Kw::True | Kw::False)) => {
-                Node::new(SyntaxKind::LiteralExpr).with_token(self.bump())
+                Node::new(SyntaxKind::LiteralExpr).with_token(self.bump_index())
             }
             _ => self.error_node("expected expression"),
         }
@@ -473,7 +475,7 @@ impl<'a> Parser<'a> {
         if self.eof() {
             Node::new(SyntaxKind::ErrorNode)
         } else {
-            Node::new(SyntaxKind::ErrorNode).with_token(self.bump())
+            Node::new(SyntaxKind::ErrorNode).with_token(self.bump_index())
         }
     }
     /// Skips tokens until a top-level `fn` keyword or end of input.
@@ -485,7 +487,7 @@ impl<'a> Parser<'a> {
     fn synchronize_top(&mut self) -> Vec<usize> {
         let mut skipped = Vec::new();
         while !self.eof() && !self.at_kw(Kw::Fn) {
-            skipped.push(self.bump());
+            skipped.push(self.bump_index());
         }
         skipped
     }
@@ -497,7 +499,7 @@ impl<'a> Parser<'a> {
     fn recover_until(&mut self, puncts: &[Punct]) -> Vec<usize> {
         let mut skipped = Vec::new();
         while !self.eof() && !puncts.iter().any(|p| self.at_punct(*p)) {
-            skipped.push(self.bump());
+            skipped.push(self.bump_index());
         }
         skipped
     }
@@ -520,7 +522,7 @@ impl<'a> Parser<'a> {
     /// token and duplicate the EOF trivia it carries.
     fn expect_kw(&mut self, kw: Kw) -> Child {
         if self.at_kw(kw) {
-            Child::Token(self.bump())
+            self.bump_child()
         } else {
             self.diagnostic("expected keyword");
             self.missing()
@@ -528,7 +530,7 @@ impl<'a> Parser<'a> {
     }
     fn expect_punct(&mut self, p: Punct) -> Child {
         if self.at_punct(p) {
-            Child::Token(self.bump())
+            self.bump_child()
         } else {
             self.diagnostic("expected punctuation");
             self.missing()
@@ -538,13 +540,65 @@ impl<'a> Parser<'a> {
     fn missing(&mut self) -> Child {
         Child::Missing
     }
-    fn bump(&mut self) -> usize {
+    /// Return the current token without advancing. The parser cursor is
+    /// intentionally bounded by the physical lexer-token vector.
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.pos)
+    }
+
+    /// Return a token kind at a relative cursor offset without indexing past
+    /// EOF. Lookahead never mutates parser state.
+    fn peek_kind(&self, offset: usize) -> Option<TokenKind> {
+        self.tokens.get(self.pos.checked_add(offset)?).map(|t| t.kind)
+    }
+
+    /// Advance exactly one physical lexer token, but only when the caller has
+    /// established that the cursor is not at EOF.
+    ///
+    /// This is the only raw index-producing consumption primitive. Callers that
+    /// consume grammar-required punctuation should prefer bump_child, which
+    /// deterministically returns Child::Missing at EOF.
+    fn bump_index(&mut self) -> usize {
+        debug_assert!(!self.eof(), "bump_index must never consume EOF");
         let i = self.pos;
         self.pos += 1;
         i
     }
+
+    /// Consume one token or return the deterministic zero-width missing-token
+    /// representation. This prevents EOF from ever being aliased as a missing
+    /// source-bearing token.
+    fn bump_child(&mut self) -> Child {
+        if self.eof() {
+            Child::Missing
+        } else {
+            Child::Token(self.bump_index())
+        }
+    }
+
+    /// Consume an expected opening delimiter. Pair identity is delegated to
+    /// the single delimiter-pair authority in precedence.rs.
+    fn expect_open(&mut self, open: Punct) -> Child {
+        self.expect_punct(open)
+    }
+
+    /// Consume the closing delimiter corresponding to open. A mismatch remains
+    /// a normal missing-token recovery event and does not consume another token.
+    fn expect_close(&mut self, open: Punct) -> Child {
+        let Some(close) = matching_close(open) else {
+            self.diagnostic("invalid opening delimiter");
+            return Child::Missing;
+        };
+        self.expect_punct(close)
+    }
+
+    /// Inverse delimiter check used by later delimiter-aware recovery.
+    fn is_matching_close(&self, close: Punct, open: Punct) -> bool {
+        matching_open(close) == Some(open)
+    }
+
     fn current_kind(&self) -> Option<TokenKind> {
-        self.tokens.get(self.pos).map(|t| t.kind)
+        self.peek().map(|t| t.kind)
     }
     fn at_kw(&self, kw: Kw) -> bool {
         self.current_kind() == Some(TokenKind::Keyword(kw))
@@ -580,6 +634,26 @@ pub fn desugar_node(
 mod tests {
     use super::*;
     use omni_syntax::{SyntaxElement, SyntaxKind as K};
+
+    #[test]
+    fn parser_lookahead_and_missing_token_are_state_safe() {
+        let mut p = Parser::from_source("");
+        assert_eq!(p.peek_kind(0), Some(TokenKind::Eof));
+        assert_eq!(p.peek_kind(1), None);
+        assert!(matches!(p.bump_child(), Child::Missing));
+        assert_eq!(p.pos, 0, "missing consumption must not advance at EOF");
+        assert_eq!(p.current_kind(), Some(TokenKind::Eof));
+    }
+
+    #[test]
+    fn delimiter_helpers_are_pair_aware() {
+        let mut p = Parser::from_source("(");
+        assert!(matches!(p.expect_open(Punct::LParen), Child::Token(0)));
+        assert!(matches!(p.expect_close(Punct::LParen), Child::Missing));
+        assert_eq!(p.pos, 1);
+        assert!(p.is_matching_close(Punct::RParen, Punct::LParen));
+        assert!(!p.is_matching_close(Punct::RBrace, Punct::LParen));
+    }
 
     /// Parse `src` and assert every CST contract at once.
     ///
