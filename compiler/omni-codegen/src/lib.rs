@@ -20,6 +20,7 @@ fn native_abi_type_from_ty(
         | omni_mir::TyKind::Bool
         | omni_mir::TyKind::Byte
         | omni_mir::TyKind::Char => Ok(Some(types::I64)),
+        omni_mir::TyKind::Float => Ok(Some(types::F64)),
         other => Err(format!(
             "Codegen error: native backend does not yet support MIR ABI type {:?}",
             other
@@ -36,6 +37,7 @@ fn native_abi_type(
         | omni_mir::ast::TypeSpec::Bool
         | omni_mir::ast::TypeSpec::Byte
         | omni_mir::ast::TypeSpec::Char => Ok(Some(types::I64)),
+        omni_mir::ast::TypeSpec::Float => Ok(Some(types::F64)),
         other => {
             Err(format!("Codegen error: native backend does not yet support ABI type {:?}", other))
         }
@@ -58,6 +60,7 @@ fn ensure_source_mir_type_match(
             | (TypeSpec::Bool, TyKind::Bool)
             | (TypeSpec::Byte, TyKind::Byte)
             | (TypeSpec::Char, TyKind::Char)
+            | (TypeSpec::Float, TyKind::Float)
     );
     if matches {
         Ok(())
@@ -453,6 +456,7 @@ fn lower_operand_to_cl(
                 }
                 omni_mir::ast::Lit::Byte(b) => Ok(builder.ins().iconst(types::I64, *b as i64)),
                 omni_mir::ast::Lit::Char(c) => Ok(builder.ins().iconst(types::I64, *c as i64)),
+                omni_mir::ast::Lit::Float(bits) => Ok(builder.ins().f64const(f64::from_bits(*bits))),
                 _ => Err(format!("Unsupported literal form in MIR codegen: {:?}", lit)),
             },
             omni_mir::ir::Constant::FnRef(name) => Err(format!(
@@ -473,15 +477,32 @@ fn lower_rvalue_to_cl(
         omni_mir::ir::Rvalue::BinaryOp(op, lhs, rhs) => {
             let l = lower_operand_to_cl(builder, lhs, variables)?;
             let r = lower_operand_to_cl(builder, rhs, variables)?;
+            let is_float = builder.func.dfg.value_type(l) == types::F64;
             match op {
+                omni_mir::ir::BinOp::Add if is_float => Ok(builder.ins().fadd(l, r)),
+                omni_mir::ir::BinOp::Sub if is_float => Ok(builder.ins().fsub(l, r)),
+                omni_mir::ir::BinOp::Mul if is_float => Ok(builder.ins().fmul(l, r)),
+                omni_mir::ir::BinOp::Div if is_float => Ok(builder.ins().fdiv(l, r)),
                 omni_mir::ir::BinOp::Add => Ok(builder.ins().iadd(l, r)),
                 omni_mir::ir::BinOp::Sub => Ok(builder.ins().isub(l, r)),
                 omni_mir::ir::BinOp::Mul => Ok(builder.ins().imul(l, r)),
                 omni_mir::ir::BinOp::Div => Ok(builder.ins().sdiv(l, r)),
                 omni_mir::ir::BinOp::Rem => Ok(builder.ins().srem(l, r)),
+                omni_mir::ir::BinOp::Eq if is_float => lower_float_comparison(
+                    builder,
+                    cranelift_codegen::ir::condcodes::FloatCC::Equal,
+                    l,
+                    r,
+                ),
                 omni_mir::ir::BinOp::Eq => lower_int_comparison(
                     builder,
                     cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    l,
+                    r,
+                ),
+                omni_mir::ir::BinOp::Ne if is_float => lower_float_comparison(
+                    builder,
+                    cranelift_codegen::ir::condcodes::FloatCC::NotEqual,
                     l,
                     r,
                 ),
@@ -491,9 +512,21 @@ fn lower_rvalue_to_cl(
                     l,
                     r,
                 ),
+                omni_mir::ir::BinOp::Lt if is_float => lower_float_comparison(
+                    builder,
+                    cranelift_codegen::ir::condcodes::FloatCC::LessThan,
+                    l,
+                    r,
+                ),
                 omni_mir::ir::BinOp::Lt => lower_int_comparison(
                     builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
+                    l,
+                    r,
+                ),
+                omni_mir::ir::BinOp::Gt if is_float => lower_float_comparison(
+                    builder,
+                    cranelift_codegen::ir::condcodes::FloatCC::GreaterThan,
                     l,
                     r,
                 ),
@@ -503,9 +536,21 @@ fn lower_rvalue_to_cl(
                     l,
                     r,
                 ),
+                omni_mir::ir::BinOp::Le if is_float => lower_float_comparison(
+                    builder,
+                    cranelift_codegen::ir::condcodes::FloatCC::LessThanOrEqual,
+                    l,
+                    r,
+                ),
                 omni_mir::ir::BinOp::Le => lower_int_comparison(
                     builder,
                     cranelift_codegen::ir::condcodes::IntCC::SignedLessThanOrEqual,
+                    l,
+                    r,
+                ),
+                omni_mir::ir::BinOp::Ge if is_float => lower_float_comparison(
+                    builder,
+                    cranelift_codegen::ir::condcodes::FloatCC::GreaterThanOrEqual,
                     l,
                     r,
                 ),
@@ -531,7 +576,13 @@ fn lower_rvalue_to_cl(
         omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
             let val = lower_operand_to_cl(builder, operand, variables)?;
             match op {
-                omni_mir::ir::UnOp::Neg => Ok(builder.ins().ineg(val)),
+                omni_mir::ir::UnOp::Neg => {
+                    if builder.func.dfg.value_type(val) == types::F64 {
+                        Ok(builder.ins().fneg(val))
+                    } else {
+                        Ok(builder.ins().ineg(val))
+                    }
+                },
                 omni_mir::ir::UnOp::Not => {
                     let one = builder.ins().iconst(types::I64, 1);
                     Ok(builder.ins().bxor(val, one))
@@ -543,6 +594,18 @@ fn lower_rvalue_to_cl(
             }
         }
     }
+}
+
+fn lower_float_comparison(
+    builder: &mut FunctionBuilder,
+    condition: cranelift_codegen::ir::condcodes::FloatCC,
+    lhs: cranelift_codegen::ir::Value,
+    rhs: cranelift_codegen::ir::Value,
+) -> Result<cranelift_codegen::ir::Value, String> {
+    let predicate = builder.ins().fcmp(condition, lhs, rhs);
+    let one = builder.ins().iconst(types::I64, 1);
+    let zero = builder.ins().iconst(types::I64, 0);
+    Ok(builder.ins().select(predicate, one, zero))
 }
 
 fn lower_int_comparison(
