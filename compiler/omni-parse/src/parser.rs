@@ -799,7 +799,7 @@ mod tests {
             .find(|n| n.kind() == K::BinaryExpr)
             .expect("multiplication binary expression");
         assert!(
-            binary.children().nth(2).is_some_and(|n| n.kind() == K::CallExpr),
+            binary.children().nth(1).is_some_and(|n| n.kind() == K::CallExpr),
             "the right side of * must be the call g(x)"
         );
     }
