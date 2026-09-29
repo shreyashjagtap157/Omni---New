@@ -478,6 +478,7 @@ fn lower_rvalue_to_cl(
                 omni_mir::ir::BinOp::Sub => Ok(builder.ins().isub(l, r)),
                 omni_mir::ir::BinOp::Mul => Ok(builder.ins().imul(l, r)),
                 omni_mir::ir::BinOp::Div => Ok(builder.ins().sdiv(l, r)),
+                omni_mir::ir::BinOp::Rem => Ok(builder.ins().srem(l, r)),
                 omni_mir::ir::BinOp::Eq => lower_int_comparison(
                     builder,
                     cranelift_codegen::ir::condcodes::IntCC::Equal,
