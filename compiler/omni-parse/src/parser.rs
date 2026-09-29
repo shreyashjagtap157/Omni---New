@@ -1600,23 +1600,60 @@ impl<'a> Parser<'a> {
         n
     }
 
-    fn parse_loop_expr(&mut self, _label: Option<Node>) -> Node {
+    fn parse_label(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::Label);
+        n.children.push(self.expect_punct(Punct::Apostrophe));
+        n.children.push(self.expect_ident_node("expected label name"));
+        n
+    }
+
+    fn parse_labeled_expr(&mut self) -> Node {
+        let label = self.parse_label();
+        n = Node::new(SyntaxKind::ErrorNode);
+        if self.at_punct(Punct::Colon) {
+            let _colon = self.bump_child();
+            return match self.current_kind() {
+                Some(TokenKind::Keyword(Kw::Loop)) => self.parse_loop_expr(Some(label)),
+                Some(TokenKind::Keyword(Kw::While)) => self.parse_while_expr(Some(label)),
+                Some(TokenKind::Keyword(Kw::For)) => self.parse_for_expr(Some(label)),
+                _ => {
+                    self.diagnostic("label must precede loop, while, or for");
+                    n.children.push(Child::Node(label));
+                    n
+                }
+            };
+        }
+        self.diagnostic("expected ':' after label");
+        n.children.push(Child::Node(label));
+        n
+    }
+
+    fn parse_loop_expr(&mut self, label: Option<Node>) -> Node {
         let mut n = Node::new(SyntaxKind::LoopExpr);
+        if let Some(label) = label {
+            n.children.push(Child::Node(label));
+        }
         n.children.push(self.expect_kw(Kw::Loop));
         n.children.push(Child::Node(self.parse_block()));
         n
     }
 
-    fn parse_while_expr(&mut self, _label: Option<Node>) -> Node {
+    fn parse_while_expr(&mut self, label: Option<Node>) -> Node {
         let mut n = Node::new(SyntaxKind::WhileExpr);
+        if let Some(label) = label {
+            n.children.push(Child::Node(label));
+        }
         n.children.push(self.expect_kw(Kw::While));
         n.children.push(Child::Node(self.parse_expression()));
         n.children.push(Child::Node(self.parse_block()));
         n
     }
 
-    fn parse_for_expr(&mut self, _label: Option<Node>) -> Node {
+    fn parse_for_expr(&mut self, label: Option<Node>) -> Node {
         let mut n = Node::new(SyntaxKind::ForExpr);
+        if let Some(label) = label {
+            n.children.push(Child::Node(label));
+        }
         n.children.push(self.expect_kw(Kw::For));
         n.children.push(Child::Node(self.parse_pattern()));
         n.children.push(self.expect_kw(Kw::In));
