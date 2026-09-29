@@ -720,15 +720,23 @@ impl TypeChecker {
                         found: self.tcx.mangle(value_ty),
                     });
                 }
-                if !matches!(target_ty, ty if ty == self.tcx.intern(TyKind::Int)) {
-                    return Err(TypeError::MismatchedTypes {
-                        expected: "int".to_string(),
-                        found: self.tcx.mangle(target_ty),
-                    });
-                }
                 match op {
                     crate::ast::AssignOp::Assign => Ok(target_ty),
-                    _ => Ok(target_ty),
+                    crate::ast::AssignOp::Add
+                    | crate::ast::AssignOp::Sub
+                    | crate::ast::AssignOp::Mul
+                    | crate::ast::AssignOp::Div
+                    | crate::ast::AssignOp::Rem
+                    | crate::ast::AssignOp::BitAnd
+                    | crate::ast::AssignOp::BitOr
+                    | crate::ast::AssignOp::BitXor
+                    | crate::ast::AssignOp::Shl
+                    | crate::ast::AssignOp::Shr => {
+                        if !matches!(self.tcx.get(target_ty), TyKind::Int) {
+                            return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
+                        }
+                        Ok(target_ty)
+                    }
                 }
             }
             Expr::Block(stmts) => {
