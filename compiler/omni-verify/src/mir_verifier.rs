@@ -817,12 +817,25 @@ impl MirVerifier {
                         context: format!("struct constructor '{}' does not match its declared MIR type", name),
                     }),
                 }
-                for (_, operand) in fields {
+                let mut seen = std::collections::BTreeSet::new();
+                for (field, operand) in fields {
+                    if !seen.insert(field) {
+                        return Err(MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: format!("struct constructor '{}' repeats field '{}'", name, field),
+                        });
+                    }
                     let _ = Self::operand_type(tcx, func, operand)?;
                 }
                 Ok(*ty)
             }
-            Rvalue::EnumVariant { enum_name, variant: _, operands, ty } => {
+            Rvalue::EnumVariant { enum_name, variant, operands, ty } => {
+                if variant.is_empty() {
+                    return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!("enum constructor '{}' has an empty variant identifier", enum_name),
+                    });
+                }
                 match tcx.get(*ty) {
                     TyKind::Enum(actual_name, _) if actual_name == enum_name => {}
                     _ => return Err(MirVerificationError::AggregateTypeMismatch {
