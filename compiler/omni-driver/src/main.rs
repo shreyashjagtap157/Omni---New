@@ -358,11 +358,11 @@ fn type_spec_from_cst_with_context(
             }
         }
         omni_syntax::SyntaxKind::TupleType => {
-            Ok(TypeSpec::Tuple(node.children().map(|n| type_spec_from_cst_with_generics(n, generic_names)).collect::<Result<Vec<_>, _>>()?))
+            Ok(TypeSpec::Tuple(node.children().map(|n| type_spec_from_cst_with_context(n, generic_names, enum_names)).collect::<Result<Vec<_>, _>>()?))
         }
         omni_syntax::SyntaxKind::ArrayType => {
             let mut children = node.children();
-            let elem = children.next().ok_or_else(|| "Semantic frontend error: array type has no element".to_string()).and_then(|n| type_spec_from_cst_with_generics(n, generic_names))?;
+            let elem = children.next().ok_or_else(|| "Semantic frontend error: array type has no element".to_string()).and_then(|n| type_spec_from_cst_with_context(n, generic_names, enum_names))?;
             let len_expr = children.next().ok_or_else(|| "Semantic frontend error: array type has no length".to_string())?;
             let len_text = len_expr.text().to_string().trim().to_string();
             let len = parse_int_literal(&len_text)
