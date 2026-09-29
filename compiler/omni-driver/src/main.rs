@@ -616,16 +616,15 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .children()
                 .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
                 .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
-            let children = node.children().filter(|n| n.kind() != omni_syntax::SyntaxKind::Lifetime).collect::<Vec<_>>();
-            let condition = children
-                .get(1)
-                .cloned()
-                .ok_or_else(|| "Semantic frontend error: while has no condition".to_string())?;
-            let body = children
-                .iter()
+            let body = node
+                .children()
                 .find(|n| n.kind() == omni_syntax::SyntaxKind::Block)
-                .cloned()
                 .ok_or_else(|| "Semantic frontend error: while has no body".to_string())?;
+            let condition = node
+                .children()
+                .filter(|n| n.kind() != omni_syntax::SyntaxKind::Lifetime && n.kind() != omni_syntax::SyntaxKind::Block)
+                .next()
+                .ok_or_else(|| "Semantic frontend error: while has no condition".to_string())?;
             Ok(Expr::While {
                 label,
                 condition: Box::new(expr_from_node(&condition)?),
@@ -638,15 +637,15 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .next()
                 .filter(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
                 .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
-            let value = if label.is_some() {
+            let value_node = if label.is_some() {
                 children.next()
             } else {
-                label = None;
                 node.children().next()
-            }
-            .map(|n| expr_from_node(&n))
-            .transpose()?
-            .map(Box::new);
+            };
+            let value = value_node
+                .map(|n| expr_from_node(&n))
+                .transpose()?
+                .map(Box::new);
             Ok(Expr::Break { label, value })
         }
         omni_syntax::SyntaxKind::ContinueExpr => {
@@ -655,24 +654,6 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .find(|n| n.kind() == omni_syntax::SyntaxKind::Lifetime)
                 .map(|n| n.text().to_string().trim().trim_start_matches('\'').to_string());
             Ok(Expr::Continue { label })
-        },
-        omni_syntax::SyntaxKind::IfExpr => {
-            let mut children = node.children();
-            let condition = children.next().ok_or_else(|| "Semantic frontend error: if has no condition".to_string())?;
-            let then_branch = children.next().ok_or_else(|| "Semantic frontend error: if has no then branch".to_string())?;
-            let else_branch = children.next().map(|n| expr_from_node(&n)).transpose()?.map(Box::new);
-            Ok(Expr::If {
-                condition: Box::new(expr_from_node(&condition)?),
-                then_branch: Box::new(expr_from_node(&then_branch)?),
-                else_branch,
-            })
-        }
-        omni_syntax::SyntaxKind::CastExpr => {
-            let mut children = node.children();
-            let expr = children.next().ok_or_else(|| "Semantic frontend error: cast has no source expression".to_string())?;
-            let ty = children.next().ok_or_else(|| "Semantic frontend error: cast has no target type".to_string())
-                .and_then(type_spec_from_cst)?;
-            Ok(Expr::Cast { expr: Box::new(expr_from_node(&expr)?), ty })
         }
         omni_syntax::SyntaxKind::MatchExpr => {
             let mut children = node.children();
