@@ -934,6 +934,13 @@ impl TypeChecker {
             Expr::Unary { expr, .. } | Expr::Field { expr, .. } => {
                 self.infer_expr_effects(expr, env, local_vars)
             }
+            Expr::Struct { fields, .. } => {
+                let mut eff = EffectRow::pure();
+                for (_, value) in fields {
+                    eff = eff.union(&self.infer_expr_effects(value, env, local_vars)?);
+                }
+                Ok(eff)
+            }
             Expr::Index { expr, index } => {
                 let e_eff = self.infer_expr_effects(expr, env, local_vars)?;
                 let i_eff = self.infer_expr_effects(index, env, local_vars)?;
