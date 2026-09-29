@@ -225,18 +225,20 @@ impl<'a> FnMirBuilder<'a> {
             }
         }
         let context = self.loops.pop().expect("loop context balanced");
-        self.current_block = Some(break_block);
 
         if let Some(local) = context.result_local {
             let ty = context.result_ty.expect("result type accompanies result local");
+            self.current_block = Some(break_block);
             Ok(Some((crate::ir::Operand::Copy(crate::ir::Place { local }), ty)))
         } else if let Some(ty) = context.result_ty {
+            self.current_block = Some(break_block);
             if matches!(self.tcx.get(ty), TyKind::Unit) {
                 Ok(None)
             } else {
                 Err("MIR lowering error: loop break value has no result storage".into())
             }
         } else {
+            self.current_block = None;
             Ok(None)
         }
     }
