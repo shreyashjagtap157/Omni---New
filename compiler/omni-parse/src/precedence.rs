@@ -95,6 +95,40 @@ pub fn is_comparison_operator(kind: TokenKind) -> bool {
 }
 
 /// Whether `kind` is an assignment operator.
+
+/// A logical token part produced when an operator token is consumed as one or
+/// more generic closers. The part refers to a byte range inside the original
+/// lexer token; it never owns or duplicates source bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GenericCloserPart {
+    pub kind: Punct,
+    pub byte_offset: u8,
+    pub byte_len: u8,
+}
+
+/// Split `>`, `>>`, or `>>=` into the logical punctuation needed by nested
+/// generic closers. The ranges are contiguous and cover the original spelling.
+pub const fn split_generic_closer(kind: Punct) -> Option<[GenericCloserPart; 3]> {
+    match kind {
+        Punct::Gt => Some([
+            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 },
+            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 0 },
+            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 0 },
+        ]),
+        Punct::Shr => Some([
+            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 },
+            GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 },
+            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 0 },
+        ]),
+        Punct::ShrEq => Some([
+            GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 },
+            GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 },
+            GenericCloserPart { kind: Punct::Eq, byte_offset: 2, byte_len: 1 },
+        ]),
+        _ => None,
+    }
+}
+
 pub fn is_assignment_operator(kind: TokenKind) -> bool {
     matches!(
         kind,
@@ -284,6 +318,29 @@ mod tests {
             assert!(!is_comparison_operator(TokenKind::Punct(p)));
             assert!(!is_assignment_operator(TokenKind::Punct(p)));
         }
+    }
+
+    #[test]
+    fn generic_closer_splits_cover_original_bytes_exactly() {
+        for (punct, source) in [(Punct::Gt, ">"), (Punct::Shr, ">>"), (Punct::ShrEq, ">>=")] {
+            let parts = split_generic_closer(punct).expect("generic closer");
+            let mut cursor = 0usize;
+            let mut rebuilt = String::new();
+            for part in parts {
+                if part.byte_len == 0 { continue; }
+                assert_eq!(part.byte_offset as usize, cursor);
+                let end = cursor + part.byte_len as usize;
+                rebuilt.push_str(&source[cursor..end]);
+                cursor = end;
+            }
+            assert_eq!(cursor, source.len());
+            assert_eq!(rebuilt, source);
+        }
+    }
+
+    #[test]
+    fn generic_closer_does_not_reinterpret_ge() {
+        assert_eq!(split_generic_closer(Punct::Ge), None);
     }
 
     #[test]
