@@ -849,6 +849,14 @@ impl MirVerifier {
                     let elem = lower(tcx, elem)?;
                     Some(tcx.intern(TyKind::Range(elem)))
                 }
+                TypeSpec::Reference { lifetime, mutable, inner } => {
+                    let inner = lower(tcx, inner)?;
+                    Some(tcx.intern(TyKind::Reference {
+                        lifetime: lifetime.clone(),
+                        mutable: *mutable,
+                        inner,
+                    }))
+                }
                 TypeSpec::Fn(params, ret) => {
                     let params =
                         params.iter().map(|param| lower(tcx, param)).collect::<Option<Vec<_>>>()?;
