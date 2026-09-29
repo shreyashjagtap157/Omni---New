@@ -6,7 +6,7 @@
 //! raw identifiers (workstream B).
 
 use crate::scanner::Scanner;
-use crate::token::{Kw, Punct, Span, Token, TokenKind, TriviaKind};
+use crate::token::{ErrorReason, Kw, Punct, Span, Token, TokenKind, TriviaKind};
 
 /// Reconstructs `bytes` from the tokens and trivia the scanner produced.
 fn reconstruct(bytes: &[u8]) -> Vec<u8> {
@@ -1005,6 +1005,33 @@ fn byte_literal_prefix_is_not_consumed_as_literal_data() {
     // An unterminated byte literal fails closed as a lexical error.
     let tokens = assert_lossless(b"b'x");
     assert_eq!(tokens[0].kind, TokenKind::Error);
+}
+
+
+#[test]
+fn lifetime_character_literal_ambiguity_is_pinned_at_the_lexer_boundary() {
+    // Edition 1 uses the same apostrophe introducer for character literals
+    // and lifetime syntax. The current lexer has no Lifetime token, so `'a`
+    // follows the character-literal path and is one lexical-error token.
+    let tokens = assert_lossless(b"'a");
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, TokenKind::Error);
+    assert_eq!(tokens[0].error_reason, Some(ErrorReason::Lexical));
+    assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, 2));
+
+    // Valid character and byte literals retain their existing tokenization.
+    for source in [b"'a'".as_slice(), b"b'a'".as_slice()] {
+        let tokens = assert_lossless(source);
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0].kind, TokenKind::Char | TokenKind::Byte));
+        assert_eq!(tokens[0].error_reason, None);
+    }
+
+    // A malformed character literal remains a lexical error rather than being
+    // silently reclassified as a lifetime.
+    let tokens = assert_lossless(b"'a");
+    assert_eq!(tokens[0].kind, TokenKind::Error);
+    assert_eq!(tokens[0].error_reason, Some(ErrorReason::Lexical));
 }
 
 #[test]
