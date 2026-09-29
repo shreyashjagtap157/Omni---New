@@ -465,7 +465,37 @@ impl TypeChecker {
                 }
                 Ok(self.tcx.intern(TyKind::String))
             }
-            Expr::Assign { target: _, value } => self.infer_expr(value, env, local_vars),
+            Expr::Assign { target, value } => {
+                let target_ty = self.infer_expr(target, env, local_vars)?;
+                let value_ty = self.infer_expr(value, env, local_vars)?;
+                if target_ty != value_ty {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(target_ty),
+                        found: self.tcx.mangle(value_ty),
+                    });
+                }
+                Ok(target_ty)
+            }
+            Expr::CompoundAssign { op, target, value } => {
+                let target_ty = self.infer_expr(target, env, local_vars)?;
+                let value_ty = self.infer_expr(value, env, local_vars)?;
+                if target_ty != value_ty {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: self.tcx.mangle(target_ty),
+                        found: self.tcx.mangle(value_ty),
+                    });
+                }
+                if !matches!(target_ty, ty if ty == self.tcx.intern(TyKind::Int)) {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: "int".to_string(),
+                        found: self.tcx.mangle(target_ty),
+                    });
+                }
+                match op {
+                    crate::ast::AssignOp::Assign => Ok(target_ty),
+                    _ => Ok(target_ty),
+                }
+            }
             Expr::Block(stmts) => {
                 let mut last_ty = self.tcx.intern(TyKind::Unit);
                 for stmt in stmts {
