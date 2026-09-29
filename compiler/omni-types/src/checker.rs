@@ -939,8 +939,23 @@ impl TypeChecker {
                 Ok(())
             }
             crate::ast::Pattern::Or(patterns) => {
+                let mut expected_bindings: Option<std::collections::BTreeSet<String>> = None;
                 for p in patterns {
-                    self.bind_pattern(p, ty, locals)?;
+                    let mut branch_locals = HashMap::new();
+                    self.bind_pattern(p, ty, &mut branch_locals)?;
+                    let bindings = branch_locals.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+                    if let Some(expected) = &expected_bindings {
+                        if expected != &bindings {
+                            return Err(TypeError::UnsupportedPattern(
+                                "or-pattern alternatives must bind the same names".into(),
+                            ));
+                        }
+                    } else {
+                        expected_bindings = Some(bindings);
+                    }
+                    for (name, bound_ty) in branch_locals {
+                        locals.insert(name, bound_ty);
+                    }
                 }
                 Ok(())
             }
