@@ -4,6 +4,7 @@
 use crate::ir::Body;
 use index_vec::IndexVec;
 use omni_types::intern::{Ty, TyCtxt, TyKind};
+use omni_types::checker::SubstEnv;
 use omni_types::monomorph::MonomorphizedProgram;
 use std::collections::HashMap;
 
