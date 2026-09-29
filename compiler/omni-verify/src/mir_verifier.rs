@@ -716,11 +716,17 @@ impl MirVerifier {
             }
             Rvalue::UnaryOp(op, operand) => {
                 let actual = Self::operand_type(tcx, func, operand)?;
+                let valid = match op {
+                    UnOp::Neg => actual == tcx.intern(TyKind::Int) || actual == tcx.intern(TyKind::Float),
+                    UnOp::BitNot => actual == tcx.intern(TyKind::Int),
+                    UnOp::Not => actual == tcx.intern(TyKind::Bool),
+                };
                 let expected = match op {
-                    UnOp::Neg | UnOp::BitNot => tcx.intern(TyKind::Int),
+                    UnOp::Neg => actual,
+                    UnOp::BitNot => tcx.intern(TyKind::Int),
                     UnOp::Not => tcx.intern(TyKind::Bool),
                 };
-                if actual != expected {
+                if !valid {
                     return Err(MirVerificationError::InvalidUnaryOperand {
                         func: func.name.clone(),
                         op: *op,
