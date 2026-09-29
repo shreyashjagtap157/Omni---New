@@ -352,17 +352,28 @@ impl TypeChecker {
                 Ok(ret_ty)
             }
             Expr::Let { pattern, ty, init, body } => {
-                let init_ty = self.infer_expr(init, env, local_vars)?;
-                let declared_ty =
-                    if let Some(spec) = ty { self.lower_type_spec(spec, env) } else { init_ty };
-                if declared_ty != init_ty {
+                let declared_ty = ty.as_ref().map(|spec| self.lower_type_spec(spec, env));
+                let init_ty = if let Some(expected) = declared_ty {
+                    if matches!(init.as_ref(), Expr::Array(elems) if elems.is_empty()) {
+                        match self.tcx.get(expected) {
+                            TyKind::Array(_, 0) => expected,
+                            _ => self.infer_expr(init, env, local_vars)?,
+                        }
+                    } else {
+                        self.infer_expr(init, env, local_vars)?
+                    }
+                } else {
+                    self.infer_expr(init, env, local_vars)?
+                };
+                let binding_ty = declared_ty.unwrap_or(init_ty);
+                if binding_ty != init_ty {
                     return Err(TypeError::MismatchedTypes {
-                        expected: self.tcx.mangle(declared_ty),
+                        expected: self.tcx.mangle(binding_ty),
                         found: self.tcx.mangle(init_ty),
                     });
                 }
                 let mut inner_vars = local_vars.clone();
-                self.bind_pattern(pattern, declared_ty, &mut inner_vars)?;
+                self.bind_pattern(pattern, binding_ty, &mut inner_vars)?;
                 self.infer_expr(body, env, &inner_vars)
             }
             Expr::Binary { op, lhs, rhs } => {
