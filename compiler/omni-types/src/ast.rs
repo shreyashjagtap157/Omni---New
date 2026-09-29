@@ -63,6 +63,9 @@ pub enum UnOp {
     Neg,
     Not,
     BitNot,
+    BorrowShared,
+    BorrowMut,
+    Deref,
 }
 
 /// Range boundaries for pattern matching.
