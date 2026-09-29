@@ -944,6 +944,24 @@ fn test_reference_patterns_require_matching_reference_mutability() {
 }
 
 #[test]
+fn test_annotated_empty_array_uses_declared_type() {
+    let mut checker = TypeChecker::new();
+    let expr = Expr::Let {
+        pattern: Pattern::Binding("xs".to_string()),
+        ty: Some(TypeSpec::Array(Box::new(TypeSpec::Int), 0)),
+        init: Box::new(Expr::Array(Vec::new())),
+        body: Box::new(Expr::Var("xs".to_string())),
+    };
+    let ty = checker
+        .infer_expr(&expr, &SubstEnv::new(), &HashMap::new())
+        .expect("annotated empty array");
+    assert_eq!(
+        ty,
+        checker.tcx.intern(TyKind::Array(checker.tcx.intern(TyKind::Int), 0))
+    );
+}
+
+#[test]
 fn test_reference_and_dereference_types() {
     let mut checker = TypeChecker::new();
     let env = SubstEnv::new();
