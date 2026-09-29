@@ -180,6 +180,72 @@ impl<'a> FnMirBuilder<'a> {
         }
     }
 
+    fn lower_short_circuit(
+        &mut self,
+        op: omni_types::ast::BinOp,
+        lhs: &omni_types::ast::Expr,
+        rhs: &omni_types::ast::Expr,
+    ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+        let (lhs_op, lhs_ty) = self
+            .lower_expr(lhs)?
+            .ok_or_else(|| "MIR lowering error: logical lhs is Unit".to_string())?;
+        let bool_ty = self.tcx.intern(TyKind::Bool);
+        if lhs_ty != bool_ty {
+            return Err("MIR lowering error: logical operators require Bool lhs".into());
+        }
+
+        let entry = self.current_block.ok_or_else(|| {
+            "MIR lowering error: logical lhs terminated control flow".to_string()
+        })?;
+        let rhs_block = self.new_block();
+        let short_block = self.new_block();
+        let join_block = self.new_block();
+        let result_local = self.new_temp(Some("_logic_tmp".to_string()), bool_ty);
+        let result_place = crate::ir::Place { local: result_local };
+
+        let short_value = match op {
+            omni_types::ast::BinOp::LogicalAnd => 0,
+            omni_types::ast::BinOp::LogicalOr => 1,
+            _ => unreachable!("lower_short_circuit only receives logical operators"),
+        };
+        let branch_value = 1u64 - short_value;
+
+        self.blocks[entry].terminator = Some(crate::ir::Terminator::SwitchInt {
+            discr: lhs_op,
+            targets: vec![(branch_value, rhs_block)],
+            otherwise: short_block,
+        });
+
+        self.current_block = Some(rhs_block);
+        let (rhs_op, rhs_ty) = self
+            .lower_expr(rhs)?
+            .ok_or_else(|| "MIR lowering error: logical rhs is Unit".to_string())?;
+        if rhs_ty != bool_ty {
+            return Err("MIR lowering error: logical operators require Bool rhs".into());
+        }
+        let rhs_end = self.current_block.ok_or_else(|| {
+            "MIR lowering error: logical rhs terminated control flow".to_string()
+        })?;
+        self.blocks[rhs_end]
+            .statements
+            .push(crate::ir::Statement::Assign(result_place, crate::ir::Rvalue::Use(rhs_op)));
+        if self.blocks[rhs_end].terminator.is_none() {
+            self.blocks[rhs_end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+        }
+
+        self.current_block = Some(short_block);
+        self.blocks[short_block].statements.push(crate::ir::Statement::Assign(
+            result_place,
+            crate::ir::Rvalue::Use(crate::ir::Operand::Constant(crate::ir::Constant::Lit(
+                omni_types::ast::Lit::Bool(short_value == 1),
+            ))),
+        ));
+        self.blocks[short_block].terminator = Some(crate::ir::Terminator::Goto(join_block));
+
+        self.current_block = Some(join_block);
+        Ok(Some((crate::ir::Operand::Copy(result_place), bool_ty)))
+    }
+
     fn lower_expr(
         &mut self,
         expr: &omni_types::ast::Expr,
@@ -201,6 +267,11 @@ impl<'a> FnMirBuilder<'a> {
                     })?;
                 let ty = self.local_ty(local)?;
                 Ok(Some((crate::ir::Operand::Copy(crate::ir::Place { local }), ty)))
+            }
+            omni_types::ast::Expr::Binary { op, lhs, rhs }
+                if matches!(op, omni_types::ast::BinOp::LogicalAnd | omni_types::ast::BinOp::LogicalOr) =>
+            {
+                self.lower_short_circuit(*op, lhs, rhs)
             }
             omni_types::ast::Expr::Binary { op, lhs, rhs } => {
                 let (lhs_op, lhs_ty) = self
