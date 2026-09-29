@@ -248,9 +248,20 @@ fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String>
             Ok(TypeSpec::Array(Box::new(elem), len))
         }
         omni_syntax::SyntaxKind::FunctionType => {
+            let has_return = node
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .any(|t| t.kind() == omni_syntax::SyntaxKind::Punct && t.text() == "->");
             let types = node.children().map(type_spec_from_cst).collect::<Result<Vec<_>, _>>()?;
-            let (ret, params) = types.split_last().map(|(ret, params)| (ret.clone(), params.to_vec())).unwrap_or((TypeSpec::Unit, Vec::new()));
-            Ok(TypeSpec::Fn(params, Box::new(ret)))
+            if has_return {
+                let (ret, params) = types
+                    .split_last()
+                    .map(|(ret, params)| (ret.clone(), params.to_vec()))
+                    .unwrap_or((TypeSpec::Unit, Vec::new()));
+                Ok(TypeSpec::Fn(params, Box::new(ret)))
+            } else {
+                Ok(TypeSpec::Fn(types, Box::new(TypeSpec::Unit)))
+            }
         }
         omni_syntax::SyntaxKind::ParenthesizedType => node.children().next().ok_or_else(|| "Semantic frontend error: empty parenthesized type".to_string()).and_then(type_spec_from_cst),
         omni_syntax::SyntaxKind::NeverType => Ok(TypeSpec::Never),
@@ -267,70 +278,62 @@ fn expr_from_block(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
 }
 
 fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Expr, String> {
-    if statements.is_empty() {
-        return Ok(Expr::Block(Vec::new()));
-    }
-
-    let first = &statements[0];
-    match first.kind() {
-        omni_syntax::SyntaxKind::LetStmt => {
-            let binding_name = direct_name(first).ok_or_else(|| {
-                "Semantic frontend error: let statement is missing a binding name".to_string()
-            })?;
-            let binding_type = direct_type(first).map(type_spec_from_cst).transpose()?;
-            let initializer = first
-                .children()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .find(|n| {
-                    matches!(
-                        n.kind(),
-                        omni_syntax::SyntaxKind::ExprStmt
-                            | omni_syntax::SyntaxKind::BinaryExpr
-                            | omni_syntax::SyntaxKind::UnaryExpr
-                            | omni_syntax::SyntaxKind::LiteralExpr
-                            | omni_syntax::SyntaxKind::NameRef
-                            | omni_syntax::SyntaxKind::CallExpr
-                    )
-                })
-                .ok_or_else(|| {
-                    format!("Semantic frontend error: let '{}' has no initializer", binding_name)
+    let mut values = Vec::new();
+    for (index, statement) in statements.iter().enumerate() {
+        match statement.kind() {
+            omni_syntax::SyntaxKind::LetStmt => {
+                let binding_name = direct_name(statement).ok_or_else(|| {
+                    "Semantic frontend error: let statement is missing a binding name".to_string()
                 })?;
-            let init = expr_from_node(&initializer)?;
-            let body = block_statements_to_expr(&statements[1..])?;
-            Ok(Expr::Let {
-                name: binding_name,
-                ty: binding_type,
-                init: Box::new(init),
-                body: Box::new(body),
-            })
-        }
-        omni_syntax::SyntaxKind::ReturnExpr => {
-            if statements.len() > 1 {
-                return Err(
-                    "Semantic frontend error: statements after return are not yet supported"
-                        .to_string(),
-                );
+                let binding_type = direct_type(statement).map(type_spec_from_cst).transpose()?;
+                let initializer = statement
+                    .children()
+                    .filter(|n| n.kind() != omni_syntax::SyntaxKind::PatternField)
+                    .rev()
+                    .find(|n| {
+                        !matches!(
+                            n.kind(),
+                            omni_syntax::SyntaxKind::NameRef
+                                | omni_syntax::SyntaxKind::Type
+                                | omni_syntax::SyntaxKind::BindingPattern
+                                | omni_syntax::SyntaxKind::IdentifierPattern
+                        )
+                    })
+                    .ok_or_else(|| {
+                        format!("Semantic frontend error: let '{}' has no initializer", binding_name)
+                    })?;
+                let init = expr_from_node(&initializer)?;
+                let remaining = block_statements_to_expr(&statements[index + 1..])?;
+                return Ok(Expr::Let {
+                    name: binding_name,
+                    ty: binding_type,
+                    init: Box::new(init),
+                    body: Box::new(remaining),
+                });
             }
-            expr_from_node(first)
-        }
-        omni_syntax::SyntaxKind::ExprStmt => {
-            let first_expr = expr_from_node(first)?;
-            if statements.len() == 1 {
-                Ok(first_expr)
-            } else {
-                let rest = block_statements_to_expr(&statements[1..])?;
-                match rest {
-                    Expr::Block(mut exprs) => {
-                        exprs.insert(0, first_expr);
-                        Ok(Expr::Block(exprs))
-                    }
-                    other => Ok(Expr::Block(vec![first_expr, other])),
-                }
+            omni_syntax::SyntaxKind::FinalExpr => {
+                let expr = expr_from_node(statement)?;
+                values.push(expr);
+            }
+            omni_syntax::SyntaxKind::ExprStmt
+            | omni_syntax::SyntaxKind::ReturnExpr
+            | omni_syntax::SyntaxKind::BreakExpr
+            | omni_syntax::SyntaxKind::ContinueExpr
+            | omni_syntax::SyntaxKind::YieldExpr => {
+                values.push(expr_from_node(statement)?);
+            }
+            omni_syntax::SyntaxKind::ItemDeclStmt => {
+                return Err("Semantic frontend error: local item declarations are not yet lowered to the native AST".into());
+            }
+            other => {
+                return Err(format!("Semantic frontend error: unsupported block statement {:?}", other));
             }
         }
-        other => Err(format!("Semantic frontend error: unsupported block statement {:?}", other)),
+    }
+    match values.len() {
+        0 => Ok(Expr::Block(Vec::new())),
+        1 => Ok(values.pop().expect("one value exists")),
+        _ => Ok(Expr::Block(values)),
     }
 }
 
