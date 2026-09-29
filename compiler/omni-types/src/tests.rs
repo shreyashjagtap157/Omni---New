@@ -886,6 +886,31 @@ fn test_effect_capability_semantic_model_slice() {
 }
 
 #[test]
+fn test_reference_patterns_require_matching_reference_mutability() {
+    let mut checker = TypeChecker::new();
+    let shared_ty = checker.tcx.intern(TyKind::Reference {
+        lifetime: None,
+        mutable: false,
+        inner: checker.tcx.intern(TyKind::Int),
+    });
+    let mut locals = HashMap::new();
+    let shared_pattern = Pattern::Reference {
+        mutable: false,
+        inner: Box::new(Pattern::Binding("x".to_string())),
+    };
+    checker
+        .bind_pattern(&shared_pattern, shared_ty, &mut locals)
+        .expect("shared reference pattern");
+    assert_eq!(locals.get("x").copied(), Some(checker.tcx.intern(TyKind::Int)));
+
+    let mutable_pattern = Pattern::Reference {
+        mutable: true,
+        inner: Box::new(Pattern::Binding("x".to_string())),
+    };
+    assert!(checker.bind_pattern(&mutable_pattern, shared_ty, &mut HashMap::new()).is_err());
+}
+
+#[test]
 fn test_reference_and_dereference_types() {
     let mut checker = TypeChecker::new();
     let env = SubstEnv::new();
