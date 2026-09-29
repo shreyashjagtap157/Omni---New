@@ -1860,6 +1860,37 @@ mod tests {
     }
 
     #[test]
+    fn test_mir_lowering_range_preserves_inclusive_endpoint() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "range".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Range(Box::new(TypeSpec::Int)),
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Range {
+                    start: Box::new(Expr::Literal(Lit::Int(1))),
+                    end: Box::new(Expr::Literal(Lit::Int(4))),
+                    inclusive: true,
+                },
+            }],
+        };
+        let mir = ctx.lower_monomorphized_program(&program).expect("range lowering");
+        assert!(mir.functions[0].body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| matches!(
+                statement,
+                crate::ir::Statement::Assign(
+                    _,
+                    crate::ir::Rvalue::Range { inclusive: true, .. }
+                )
+            ))
+        }));
+    }
+
+    #[test]
     fn test_mir_lowering_tuple_and_array_aggregates() {
         let mut ctx = LoweringContext::new();
         let program = MonomorphizedProgram {
