@@ -771,6 +771,7 @@ impl<'a> FnMirBuilder<'a> {
                 let mir_op = match op {
                     omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
                     omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
+                    omni_types::ast::UnOp::BitNot => crate::ir::UnOp::BitNot,
                 };
                 let curr_block = self.current_block.ok_or_else(|| {
                     "MIR lowering error: unary expression has no live continuation block"
