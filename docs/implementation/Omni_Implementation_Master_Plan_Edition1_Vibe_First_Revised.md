@@ -926,6 +926,25 @@ Parser invariants:
 - ambiguity is resolved deterministically;
 - Stage-0 unsupported features are rejected as profile violations rather than being silently reinterpreted as unrelated syntax errors when the specification distinguishes the cases.
 
+### Current 0.0.2.x implementation convergence
+
+The active Rust implementation now carries the parser surface through a structured semantic AST for:
+
+- `if`, `loop`, `while`, and labeled `break`/`continue`;
+- `for` iteration over the typed `Array`/`Range` model, with integer-range MIR lowering;
+- `..` versus `..=` range inclusivity;
+- explicit generic call arguments and monomorphization;
+- scalar casts with explicit MIR representation;
+- compound assignments and the complete scalar binary/unary operator family currently admitted by the checker;
+- floating-point arithmetic/comparison support in the native backend;
+- pattern-aware `let` bindings and match-arm-local bindings;
+- struct literals and enum-variant constructors at the semantic layer;
+- definition-directed field/index typing and binding-consistent or-patterns.
+
+The MIR/native boundary is intentionally fail-closed where the current IR has no storage/projection contract: aggregate struct/enum construction, aggregate destructuring, and guarded or aggregate-pattern match lowering are rejected explicitly rather than reinterpreted. This is an implementation boundary, not a new language semantic rule.
+
+Qualification status for this convergence remains evidence-driven: repository code and focused tests are present, but a full clean-room checkout build has not been established in the current environment, and GitHub reports no associated pull-request workflow run for the current mainline commits.
+
 ## 12.3 Names and minimal type core — `0.0.3.x`
 
 Implement:
