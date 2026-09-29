@@ -669,6 +669,8 @@ fn bin_op_from_text(text: &str) -> Result<BinOp, String> {
         "^" => Ok(BinOp::BitXor),
         "<<" => Ok(BinOp::Shl),
         ">>" => Ok(BinOp::Shr),
+        "&&" => Ok(BinOp::LogicalAnd),
+        "||" => Ok(BinOp::LogicalOr),
         "==" => Ok(BinOp::Eq),
         "!=" => Ok(BinOp::Ne),
         "<" => Ok(BinOp::Lt),
