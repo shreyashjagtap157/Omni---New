@@ -68,6 +68,7 @@ pub enum UnOp {
 pub enum PatternRangeBoundary {
     Inclusive(Lit),
     Exclusive(Lit),
+    Unbounded,
 }
 
 /// Patterns used in match arms.
