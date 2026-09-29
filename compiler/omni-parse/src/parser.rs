@@ -751,8 +751,8 @@ impl<'a> Parser<'a> {
         }
         n.children.push(Child::Node(self.parse_path_segment()));
         while self.at_punct(Punct::ColonColon)
-            && self.peek_kind(1) != Some(TokenKind::Punct(Punct::LBrace))
             && self.peek_kind(1) != Some(TokenKind::Punct(Punct::Lt))
+            && self.peek_kind(1) != Some(TokenKind::Punct(Punct::LBrace))
         {
             n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_path_segment()));
@@ -2313,6 +2313,16 @@ mod tests {
             "comparison chaining must have a dedicated diagnostic: {:?}",
             r.diagnostics
         );
+    }
+
+    #[test]
+    fn edition1_turbofish_path_shape_is_lossless() {
+        let src = "fn f() { return id::<i32>(1); }";
+        let mut p = Parser::from_source(src);
+        let r = p.parse_source();
+        assert!(r.is_ok(), "{:?}", r.diagnostics);
+        assert_eq!(r.syntax().text().to_string(), src);
+        assert!(r.syntax().descendants().any(|n| n.kind() == K::TypeArgs));
     }
 
     #[test]
