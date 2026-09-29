@@ -125,7 +125,7 @@ pub struct TypeChecker {
     pub fn_defs: HashMap<String, GenericFnDef>,
     pub struct_defs: HashMap<String, crate::ast::StructDef>,
     pub enum_defs: HashMap<String, crate::ast::EnumDef>,
-    loop_break_types: Vec<Option<Ty>>,
+    loop_break_types: Vec<(Option<String>, Option<Ty>)>,
     pub trait_checker: Option<TraitObligationChecker>,
     pub cap_context: CapabilityContext,
 }
@@ -496,9 +496,9 @@ impl TypeChecker {
                 Ok(target_ty)
             }
             Expr::Loop { body } => {
-                self.loop_break_types.push(None);
+                self.loop_break_types.push((label.clone(), None));
                 let body_result = self.infer_expr(body, env, local_vars)?;
-                let break_ty = self.loop_break_types.pop().expect("loop stack balanced");
+                let (_, break_ty) = self.loop_break_types.pop().expect("loop stack balanced");
                 match break_ty {
                     Some(ty) => Ok(ty),
                     None => {
@@ -519,19 +519,27 @@ impl TypeChecker {
                         found: self.tcx.mangle(condition_ty),
                     });
                 }
-                self.loop_break_types.push(Some(self.tcx.intern(TyKind::Unit)));
+                self.loop_break_types.push((label.clone(), Some(self.tcx.intern(TyKind::Unit))));
                 self.infer_expr(body, env, local_vars)?;
                 self.loop_break_types.pop();
                 Ok(self.tcx.intern(TyKind::Unit))
             }
-            Expr::Break(value) => {
-                let loop_index = self.loop_break_types.len().checked_sub(1).ok_or(TypeError::BreakOutsideLoop)?;
+            Expr::Break { label, value } => {
+                let loop_index = match label {
+                    Some(label) => self
+                        .loop_break_types
+                        .iter()
+                        .rposition(|(loop_label, _)| loop_label.as_deref() == Some(label.as_str()))
+                        .ok_or(TypeError::BreakOutsideLoop)?,
+                    None => self.loop_break_types.len().checked_sub(1).ok_or(TypeError::BreakOutsideLoop)?,
+                };
                 let value_ty = if let Some(expr) = value {
                     self.infer_expr(expr, env, local_vars)?
                 } else {
                     self.tcx.intern(TyKind::Unit)
                 };
-                if let Some(expected) = self.loop_break_types[loop_index] {
+                let expected = self.loop_break_types[loop_index].1;
+                if let Some(expected) = expected {
                     if expected != value_ty {
                         return Err(TypeError::InvalidLoopBreakType {
                             expected: self.tcx.mangle(expected),
@@ -539,15 +547,21 @@ impl TypeChecker {
                         });
                     }
                 } else {
-                    self.loop_break_types[loop_index] = Some(value_ty);
+                    self.loop_break_types[loop_index].1 = Some(value_ty);
                 }
                 Ok(self.tcx.intern(TyKind::Never))
             }
-            Expr::Continue => {
-                if self.loop_break_types.is_empty() {
-                    Err(TypeError::ContinueOutsideLoop)
-                } else {
+            Expr::Continue { label } => {
+                let found = match label {
+                    Some(label) => self.loop_break_types.iter().rev().any(|(loop_label, _)| {
+                        loop_label.as_deref() == Some(label.as_str())
+                    }),
+                    None => !self.loop_break_types.is_empty(),
+                };
+                if found {
                     Ok(self.tcx.intern(TyKind::Never))
+                } else {
+                    Err(TypeError::ContinueOutsideLoop)
                 }
             }
             Expr::Match { expr, arms } => {
@@ -701,18 +715,18 @@ impl TypeChecker {
                 let e_eff = self.infer_expr_effects(end, env, local_vars)?;
                 Ok(s_eff.union(&e_eff))
             }
-            Expr::Loop { body } => self.infer_expr_effects(body, env, local_vars),
-            Expr::While { condition, body } => {
+            Expr::Loop { body, .. } => self.infer_expr_effects(body, env, local_vars),
+            Expr::While { condition, body, .. } => {
                 let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
                 eff = eff.union(&self.infer_expr_effects(body, env, local_vars)?);
                 Ok(eff)
             }
-            Expr::Break(value) => value
+            Expr::Break { value, .. } => value
                 .as_ref()
                 .map(|e| self.infer_expr_effects(e, env, local_vars))
                 .transpose()
                 .map(|e| e.unwrap_or_else(EffectRow::pure)),
-            Expr::Continue => Ok(EffectRow::pure()),
+            Expr::Continue { .. } => Ok(EffectRow::pure()),
             Expr::If { condition, then_branch, else_branch } => {
                 let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
                 eff = eff.union(&self.infer_expr_effects(then_branch, env, local_vars)?);
