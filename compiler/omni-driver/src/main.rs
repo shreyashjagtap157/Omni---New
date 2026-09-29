@@ -130,15 +130,15 @@ fn semantic_functions_from_cst(
             return Err(format!("Semantic frontend error: duplicate function '{}'", name));
         }
 
-        let generic_names: HashSet<String> = node
+        let type_params = node
             .children()
             .find(|n| n.kind() == omni_syntax::SyntaxKind::GenericParams)
             .into_iter()
             .flat_map(|g| g.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::GenericParam))
             .filter_map(|g| g.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeParam))
             .filter_map(|p| direct_name(&p))
-            .collect();
-        let type_params = generic_names.iter().cloned().collect::<Vec<_>>();
+            .collect::<Vec<_>>();
+        let generic_names: HashSet<String> = type_params.iter().cloned().collect();
 
         let params_node =
             node.children().find(|n| n.kind() == omni_syntax::SyntaxKind::ParamList).ok_or_else(
