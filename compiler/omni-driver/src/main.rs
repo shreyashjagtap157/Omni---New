@@ -1253,6 +1253,38 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_executes_float_arithmetic_and_comparison() {
+        let source = "fn add(a: f64, b: f64) -> f64 { return a + b; } fn main() -> i64 { let x = add(1.5, 2.5); if x >= 4.0 { return 42; } return 0; }";
+        let object = compile_source_to_object(source).expect("float native compilation");
+        let dir = std::env::temp_dir();
+        static SEQ: AtomicU64 = AtomicU64::new(600);
+        let stem = format!(
+            "omni-driver-float-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let object_path = dir.join(format!("{stem}.o"));
+        let executable_path = dir.join(&stem);
+        fs::write(&object_path, object).expect("write object");
+
+        let status = std::process::Command::new("cc")
+            .arg(&object_path)
+            .arg("-o")
+            .arg(&executable_path)
+            .status()
+            .expect("system C linker is required for float E2E");
+        assert!(status.success(), "link failed with status {status}");
+
+        let run_status = std::process::Command::new(&executable_path)
+            .status()
+            .expect("linked float executable must run");
+        assert_eq!(run_status.code(), Some(42));
+
+        fs::remove_file(&object_path).ok();
+        fs::remove_file(&executable_path).ok();
+    }
+
+    #[test]
     fn source_pipeline_executes_boolean_comparison_and_not() {
         let source = "fn main() -> bool { return !(1 == 2); }";
         let object = compile_source_to_object(source).expect("native boolean compilation");
