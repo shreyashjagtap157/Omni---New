@@ -790,9 +790,10 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                         .to_string()
                         .trim()
                         .to_string();
-                    let value = field.children().nth(1)
-                        .ok_or_else(|| format!("Semantic frontend error: field '{}' has no value", field_name))
-                        .and_then(|n| expr_from_node(&n))?;
+                    let value = match field.children().nth(1) {
+                        Some(n) => expr_from_node(&n)?,
+                        None => Expr::Var(field_name.clone()),
+                    };
                     Ok((field_name, value))
                 })
                 .collect::<Result<Vec<_>, String>>()?;
