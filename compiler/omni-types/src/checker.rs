@@ -974,6 +974,21 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+            crate::ast::Pattern::Reference { mutable, inner } => {
+                let TyKind::Reference { mutable: ref_mutable, inner: ref_inner, .. } =
+                    self.tcx.get(scrutinee_ty).clone()
+                else {
+                    return Err(TypeError::UnsupportedPattern(
+                        "reference pattern requires a reference scrutinee".into(),
+                    ));
+                };
+                if *mutable && !ref_mutable {
+                    return Err(TypeError::UnsupportedPattern(
+                        "mutable reference pattern requires a mutable reference scrutinee".into(),
+                    ));
+                }
+                self.bind_pattern(inner, ref_inner, locals)
+            }
             crate::ast::Pattern::Range { start, end } => {
                 if !matches!(self.tcx.get(ty), TyKind::Int | TyKind::Byte | TyKind::Char) {
                     return Err(TypeError::UnsupportedPattern("range pattern requires Int, Byte, or Char".into()));
