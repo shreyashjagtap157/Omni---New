@@ -1620,10 +1620,9 @@ impl<'a> FnMirBuilder<'a> {
                 ));
                 Ok(Some((crate::ir::Operand::Copy(place), inner_ty)))
             }
-            omni_types::ast::Expr::Let { name, ty, init, body } => {
+            omni_types::ast::Expr::Let { pattern, ty, init, body } => {
                 let (init_op, init_ty) = self.lower_expr(init)?.ok_or_else(|| {
-                    "MIR lowering error: Unit-valued let initializers are not materialized"
-                        .to_string()
+                    "MIR lowering error: Unit-valued let initializers are not materialized".to_string()
                 })?;
                 let var_ty = if let Some(spec) = ty {
                     self.tcx.lower_type_spec(spec, self.subst)
@@ -1632,10 +1631,14 @@ impl<'a> FnMirBuilder<'a> {
                 };
                 if var_ty != init_ty {
                     return Err(format!(
-                        "MIR lowering error: let binding '{}' declares {:?} but initializer has {:?}",
-                        name, var_ty, init_ty
+                        "MIR lowering error: let initializer has type {:?}, declared type is {:?}",
+                        init_ty, var_ty
                     ));
                 }
+                let name = match pattern {
+                    omni_types::ast::Pattern::Binding(name) => name.clone(),
+                    _ => return Err("MIR lowering error: destructuring let patterns require aggregate projections".into()),
+                };
                 let saved_scope = self.scope.clone();
                 let var_local = self.new_temp(Some(name.clone()), var_ty);
                 let place = crate::ir::Place { local: var_local };
@@ -1645,7 +1648,7 @@ impl<'a> FnMirBuilder<'a> {
                 self.blocks[curr_block]
                     .statements
                     .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(init_op)));
-                self.scope.insert(name.clone(), var_local);
+                self.scope.insert(name, var_local);
                 let result = self.lower_expr(body);
                 self.scope = saved_scope;
                 result
