@@ -130,6 +130,16 @@ fn semantic_functions_from_cst(
             return Err(format!("Semantic frontend error: duplicate function '{}'", name));
         }
 
+        let generic_names: HashSet<String> = node
+            .children()
+            .find(|n| n.kind() == omni_syntax::SyntaxKind::GenericParams)
+            .into_iter()
+            .flat_map(|g| g.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::GenericParam))
+            .filter_map(|g| g.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeParam))
+            .filter_map(|p| direct_name(&p))
+            .collect();
+        let type_params = generic_names.iter().cloned().collect::<Vec<_>>();
+
         let params_node =
             node.children().find(|n| n.kind() == omni_syntax::SyntaxKind::ParamList).ok_or_else(
                 || format!("Semantic frontend error: function '{}' has no parameter list", name),
@@ -143,13 +153,13 @@ fn semantic_functions_from_cst(
             let param_type = direct_type(&param).ok_or_else(|| {
                 format!("Semantic frontend error: parameter '{}' has no type", param_name)
             })?;
-            params.push((param_name, type_spec_from_cst(param_type)?));
+            params.push((param_name, type_spec_from_cst_with_generics(param_type, &generic_names)?));
         }
 
         let return_type = node
             .children()
             .find(|n| n.kind() == omni_syntax::SyntaxKind::Type)
-            .map(type_spec_from_cst)
+            .map(|n| type_spec_from_cst_with_generics(n, &generic_names))
             .transpose()?
             .unwrap_or(TypeSpec::Unit);
 
@@ -160,7 +170,7 @@ fn semantic_functions_from_cst(
 
         functions.push(GenericFnDef {
             name,
-            type_params: Vec::new(),
+            type_params,
             bounds: Vec::new(),
             params,
             return_type,
@@ -189,12 +199,19 @@ fn direct_type(node: &omni_syntax::SyntaxNode) -> Option<omni_syntax::SyntaxNode
 }
 
 fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String> {
+    type_spec_from_cst_with_generics(node, &HashSet::new())
+}
+
+fn type_spec_from_cst_with_generics(
+    node: omni_syntax::SyntaxNode,
+    generic_names: &HashSet<String>,
+) -> Result<TypeSpec, String> {
     if node.kind() == omni_syntax::SyntaxKind::Type {
         return node
             .children()
             .next()
             .ok_or_else(|| "Semantic frontend error: empty type node".to_string())
-            .and_then(type_spec_from_cst);
+            .and_then(|n| type_spec_from_cst_with_generics(n, generic_names));
     }
 
     match node.kind() {
@@ -204,6 +221,9 @@ fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String>
                 .as_ref()
                 .map(|n| n.text().to_string().trim().to_string())
                 .unwrap_or_else(|| node.text().to_string().trim().to_string());
+            if generic_names.contains(&text) {
+                return Ok(TypeSpec::GenericParam(text));
+            }
             match text.as_str() {
                 "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "Int" => Ok(TypeSpec::Int),
                 "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "byte" | "Byte" => Ok(TypeSpec::Byte),
@@ -222,7 +242,7 @@ fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String>
                                 .filter_map(|seg| seg.children().find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs))
                                 .flat_map(|args| args.children())
                                 .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeArg)
-                                .map(|arg| arg.children().next().map(type_spec_from_cst).transpose())
+                                .map(|arg| arg.children().next().map(|n| type_spec_from_cst_with_generics(n, generic_names)).transpose())
                                 .collect::<Result<Vec<_>, _>>()
                         })
                         .transpose()?
@@ -235,11 +255,11 @@ fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String>
             }
         }
         omni_syntax::SyntaxKind::TupleType => {
-            Ok(TypeSpec::Tuple(node.children().map(type_spec_from_cst).collect::<Result<Vec<_>, _>>()?))
+            Ok(TypeSpec::Tuple(node.children().map(|n| type_spec_from_cst_with_generics(n, generic_names)).collect::<Result<Vec<_>, _>>()?))
         }
         omni_syntax::SyntaxKind::ArrayType => {
             let mut children = node.children();
-            let elem = children.next().ok_or_else(|| "Semantic frontend error: array type has no element".to_string()).and_then(type_spec_from_cst)?;
+            let elem = children.next().ok_or_else(|| "Semantic frontend error: array type has no element".to_string()).and_then(|n| type_spec_from_cst_with_generics(n, generic_names))?;
             let len_expr = children.next().ok_or_else(|| "Semantic frontend error: array type has no length".to_string())?;
             let len_text = len_expr.text().to_string().trim().to_string();
             let len = parse_int_literal(&len_text)
@@ -252,7 +272,7 @@ fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String>
                 .children_with_tokens()
                 .filter_map(|e| e.into_token())
                 .any(|t| t.kind() == omni_syntax::SyntaxKind::Punct && t.text() == "->");
-            let types = node.children().map(type_spec_from_cst).collect::<Result<Vec<_>, _>>()?;
+            let types = node.children().map(|n| type_spec_from_cst_with_generics(n, generic_names)).collect::<Result<Vec<_>, _>>()?;
             if has_return {
                 let (ret, params) = types
                     .split_last()
@@ -263,7 +283,7 @@ fn type_spec_from_cst(node: omni_syntax::SyntaxNode) -> Result<TypeSpec, String>
                 Ok(TypeSpec::Fn(types, Box::new(TypeSpec::Unit)))
             }
         }
-        omni_syntax::SyntaxKind::ParenthesizedType => node.children().next().ok_or_else(|| "Semantic frontend error: empty parenthesized type".to_string()).and_then(type_spec_from_cst),
+        omni_syntax::SyntaxKind::ParenthesizedType => node.children().next().ok_or_else(|| "Semantic frontend error: empty parenthesized type".to_string()).and_then(|n| type_spec_from_cst_with_generics(n, generic_names)),
         omni_syntax::SyntaxKind::NeverType => Ok(TypeSpec::Never),
         omni_syntax::SyntaxKind::SliceType
         | omni_syntax::SyntaxKind::ReferenceType
