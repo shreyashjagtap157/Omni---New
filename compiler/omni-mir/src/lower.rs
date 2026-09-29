@@ -197,6 +197,64 @@ impl<'a> FnMirBuilder<'a> {
         }
     }
 
+    fn bind_let_pattern(
+        &mut self,
+        pattern: &omni_types::ast::Pattern,
+        operand: crate::ir::Operand,
+        ty: Ty,
+    ) -> Result<Vec<(String, crate::ir::Local)>, String> {
+        match pattern {
+            omni_types::ast::Pattern::Binding(name) => {
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: let pattern has no live block".to_string())?;
+                let local = self.new_temp(Some(name.clone()), ty);
+                let place = crate::ir::Place { local };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Use(operand),
+                ));
+                Ok(vec![(name.clone(), local)])
+            }
+            omni_types::ast::Pattern::Wildcard => Ok(Vec::new()),
+            omni_types::ast::Pattern::Tuple(patterns) => {
+                let TyKind::Tuple(types) = self.tcx.get(ty).clone() else {
+                    return Err("MIR lowering error: tuple destructuring requires a tuple initializer".into());
+                };
+                if patterns.len() != types.len() {
+                    return Err(format!(
+                        "MIR lowering error: tuple pattern has {} elements, initializer has {}",
+                        patterns.len(),
+                        types.len()
+                    ));
+                }
+                let mut bindings = Vec::new();
+                for (index, (subpattern, sub_ty)) in patterns.iter().zip(types.iter()).enumerate() {
+                    let block = self.current_block.ok_or_else(|| "MIR lowering error: tuple destructuring has no live block".to_string())?;
+                    let local = self.new_temp(Some(format!("_tuple_field_{index}")), *sub_ty);
+                    let place = crate::ir::Place { local };
+                    let projection = crate::ir::Rvalue::Field {
+                        base: operand.clone(),
+                        field: index.to_string(),
+                        ty: *sub_ty,
+                    };
+                    self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                        place,
+                        projection,
+                    ));
+                    bindings.extend(self.bind_let_pattern(
+                        subpattern,
+                        crate::ir::Operand::Copy(place),
+                        *sub_ty,
+                    )?);
+                }
+                Ok(bindings)
+            }
+            omni_types::ast::Pattern::Reference { .. } => {
+                Err("MIR lowering error: reference-pattern let bindings require reference storage".into())
+            }
+            _ => Err("MIR lowering error: let destructuring pattern is not representable by current MIR projections".into()),
+        }
+    }
+
     fn lower_loop_expression(
         &mut self,
         label: Option<&str>,
@@ -970,20 +1028,11 @@ impl<'a> FnMirBuilder<'a> {
                         init_ty, var_ty
                     ));
                 }
-                let name = match pattern {
-                    omni_types::ast::Pattern::Binding(name) => name.clone(),
-                    _ => return Err("MIR lowering error: destructuring let patterns require aggregate projections".into()),
-                };
                 let saved_scope = self.scope.clone();
-                let var_local = self.new_temp(Some(name.clone()), var_ty);
-                let place = crate::ir::Place { local: var_local };
-                let curr_block = self.current_block.ok_or_else(|| {
-                    "MIR lowering error: let binding has no live continuation block".to_string()
-                })?;
-                self.blocks[curr_block]
-                    .statements
-                    .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(init_op)));
-                self.scope.insert(name, var_local);
+                let bindings = self.bind_let_pattern(pattern, init_op, var_ty)?;
+                for (name, local) in bindings {
+                    self.scope.insert(name, local);
+                }
                 let result = self.lower_expr(body);
                 self.scope = saved_scope;
                 result
