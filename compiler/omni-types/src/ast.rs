@@ -197,6 +197,14 @@ pub struct StructDef {
     pub fields: Vec<StructFieldDef>,
 }
 
+/// A generic or non-generic type alias declaration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeAliasDef {
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub target: TypeSpec,
+}
+
 /// A trait implementation block (`impl Trait for Type`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplDef {
