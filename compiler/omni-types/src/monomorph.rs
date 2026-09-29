@@ -583,6 +583,11 @@ impl<'a> Monomorphizer<'a> {
                 TypeSpec::Array(Box::new(self.ty_to_type_spec(*elem)), *len)
             }
             TyKind::Range(elem) => TypeSpec::Range(Box::new(self.ty_to_type_spec(*elem))),
+            TyKind::Reference { lifetime, mutable, inner } => TypeSpec::Reference {
+                lifetime: lifetime.clone(),
+                mutable: *mutable,
+                inner: Box::new(self.ty_to_type_spec(*inner)),
+            },
             TyKind::Fn(params, ret) => TypeSpec::Fn(
                 params.iter().map(|&p| self.ty_to_type_spec(p)).collect(),
                 Box::new(self.ty_to_type_spec(*ret)),
