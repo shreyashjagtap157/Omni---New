@@ -181,7 +181,8 @@ impl<'a> Parser<'a> {
         let mut n = Node::new(SyntaxKind::FnDef);
         n.children.push(self.expect_kw(Kw::Fn));
         if self.at_ident() {
-            n.children.push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
+            n.children
+                .push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
         } else {
             n.children.push(Child::Node(self.error_node("expected function name")));
         }
@@ -290,7 +291,8 @@ impl<'a> Parser<'a> {
             n.children.push(self.bump_child());
         }
         if self.at_ident() {
-            n.children.push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
+            n.children
+                .push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
         } else {
             n.children.push(Child::Node(self.error_node("expected binding name")));
         }
@@ -372,7 +374,9 @@ impl<'a> Parser<'a> {
             return n;
         }
         match self.current_kind() {
-            Some(TokenKind::Ident) => Node::new(SyntaxKind::NameRef).with_token(self.bump_index()),
+            Some(TokenKind::Ident) => {
+                Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+            },
             Some(
                 TokenKind::Int
                 | TokenKind::Float
