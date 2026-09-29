@@ -449,7 +449,7 @@ impl<'a> FnMirBuilder<'a> {
             continue_block: step_block,
             break_block: exit,
             result_local: None,
-            result_ty: Some(int_ty),
+            result_ty: Some(self.tcx.intern(TyKind::Unit)),
         });
         let saved_scope = self.scope.clone();
         if let Some(name) = bound_name {
