@@ -259,11 +259,45 @@ fn semantic_enums_from_cst(
     Ok(enums)
 }
 
+fn collect_function_nodes(
+    root: &omni_syntax::SyntaxNode,
+    prefix: &str,
+    out: &mut Vec<(omni_syntax::SyntaxNode, String)>,
+) {
+    for node in root.children() {
+        match node.kind() {
+            omni_syntax::SyntaxKind::FnDef => {
+                if let Some(name) = direct_name(&node) {
+                    let qualified = if prefix.is_empty() {
+                        name
+                    } else {
+                        format!("{prefix}::{name}")
+                    };
+                    out.push((node, qualified));
+                }
+            }
+            omni_syntax::SyntaxKind::ModuleDecl => {
+                if let Some(name) = direct_name(&node) {
+                    let next = if prefix.is_empty() {
+                        name
+                    } else {
+                        format!("{prefix}::{name}")
+                    };
+                    collect_function_nodes(&node, &next, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn semantic_functions_from_cst(
     root: &omni_syntax::SyntaxNode,
 ) -> Result<Vec<GenericFnDef>, String> {
     let mut functions = Vec::new();
     let mut names = HashSet::new();
+    let mut function_nodes = Vec::new();
+    collect_function_nodes(root, "", &mut function_nodes);
 
     let enum_names: HashSet<String> = root
         .children()
@@ -275,8 +309,8 @@ fn semantic_functions_from_cst(
         .map(|a| (a.name.clone(), a))
         .collect::<HashMap<_, _>>();
 
-    for node in root.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::FnDef) {
-        let name = direct_name(&node)
+    for (node, qualified_name) in function_nodes {
+        let name = qualified_name
             .ok_or_else(|| "Semantic frontend error: function is missing a name".to_string())?;
         if !names.insert(name.clone()) {
             return Err(format!("Semantic frontend error: duplicate function '{}'", name));
