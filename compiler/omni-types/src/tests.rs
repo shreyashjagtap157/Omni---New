@@ -94,7 +94,7 @@ fn test_multi_instantiation_same_generic_function() {
         capabilities: vec![],
         body: Expr::Block(vec![
             Expr::Let {
-                name: "a".to_string(),
+                pattern: Pattern::Binding("a".to_string()),
                 ty: None,
                 init: Box::new(Expr::Call {
                     func: "identity".to_string(),
@@ -104,7 +104,7 @@ fn test_multi_instantiation_same_generic_function() {
                 body: Box::new(Expr::Literal(Lit::Int(0))),
             },
             Expr::Let {
-                name: "b".to_string(),
+                pattern: Pattern::Binding("b".to_string()),
                 ty: None,
                 init: Box::new(Expr::Call {
                     func: "identity".to_string(),
@@ -233,7 +233,7 @@ fn test_generic_arguments_in_complex_nodes() {
         body: Expr::Block(vec![
             // Field projection
             Expr::Let {
-                name: "f_elem".to_string(),
+                pattern: Pattern::Binding("f_elem".to_string()),
                 ty: None,
                 init: Box::new(Expr::Field {
                     expr: Box::new(Expr::Var("pair".to_string())),
@@ -243,7 +243,7 @@ fn test_generic_arguments_in_complex_nodes() {
             },
             // Indexing
             Expr::Let {
-                name: "i_elem".to_string(),
+                pattern: Pattern::Binding("i_elem".to_string()),
                 ty: None,
                 init: Box::new(Expr::Index {
                     expr: Box::new(Expr::Var("arr".to_string())),
