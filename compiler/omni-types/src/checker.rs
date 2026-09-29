@@ -361,7 +361,12 @@ impl TypeChecker {
                     | crate::ast::BinOp::Sub
                     | crate::ast::BinOp::Mul
                     | crate::ast::BinOp::Div
-                    | crate::ast::BinOp::Rem => Ok(l_ty),
+                    | crate::ast::BinOp::Rem
+                    | crate::ast::BinOp::BitAnd
+                    | crate::ast::BinOp::BitOr
+                    | crate::ast::BinOp::BitXor
+                    | crate::ast::BinOp::Shl
+                    | crate::ast::BinOp::Shr => Ok(l_ty),
                 }
             }
             Expr::Unary { op, expr } => {
