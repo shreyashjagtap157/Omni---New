@@ -25,6 +25,7 @@ pub enum TypeError {
     BreakOutsideLoop,
     ContinueOutsideLoop,
     InvalidLoopBreakType { expected: String, found: String },
+    UnsupportedPattern(String),
 }
 
 /// Concrete generic substitution environment mapping parameter names to concrete interned types.
@@ -565,6 +566,20 @@ impl TypeChecker {
                 }
             }
             Expr::Match { expr, arms } => {
+                for arm in arms {
+                    if matches!(
+                        arm.pattern,
+                        crate::ast::Pattern::Range {
+                            end: crate::ast::PatternRangeBoundary::Unbounded,
+                            ..
+                        }
+                    ) {
+                        return Err(TypeError::UnsupportedPattern(
+                            "unbounded range patterns are parsed but not yet type-checked".into(),
+                        ));
+                    }
+                }
+
                 let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
 
                 for arm in arms {
