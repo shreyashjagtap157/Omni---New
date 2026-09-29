@@ -18,6 +18,14 @@ The CST substrate is implemented and CI-qualified on `main`. This milestone esta
 - Recorded the CST contracts as established facts: exact source reconstruction for all input including malformed and recovery input; exact token, trivia, and interval tiling with no gap and no overlap; EOF emitted exactly once; `MissingToken` zero-width and unable to alias a source-bearing token; deterministic tree shape and diagnostics; byte-exact spans with no UTF-16 or scalar indexing.
 - Left `grammar_contract.rs`, `docs/grammar-reconciliation.md`, the normative EBNF, the specification digest, and the Candidate 2 feature-gate state unchanged.
 
+### 0.0.2.3 parser implementation
+
+- Replaced the remaining top-level item stub path with real Edition 1 parsing for functions, structs, enums, type aliases, const/static declarations, use/module/extern-crate declarations, attributes, and nested module items.
+- Implemented generic parameters/arguments, lifetime boundaries, paths, core type forms, where clauses, trait references, nested generic closer handling for `>`, `>>`, and `>>=`, and source-relative logical token pieces without losing source bytes or trivia.
+- Implemented block expressions with final-expression semantics, statement/item parsing, control-flow expressions, patterns, postfix calls/fields/indexing/method calls/await, casts, ranges, all currently lexed Edition 1 binary and assignment operators, closures, async/unsafe/try blocks, and nested macro token trees.
+- Preserved Candidate 2 as disabled.
+- Left undefined normative productions and the trait/impl separator/function-signature inconsistencies explicitly blocked rather than inventing grammar.
+
 ### Remaining 0.0.2.3 work
 
 The CST can represent the missing Edition 1 productions, but does not yet parse them. `block_expr`, the remaining binary operators, complete struct/enum bodies, `if`, `match`, loops, closures, arrays, tuples, indexing, and the other baseline productions recorded by `docs/grammar-reconciliation.md` are still absent. `parse_item_stub` remains a deliberate placeholder, so a bare `struct`/`enum` keyword is currently *accepted* rather than rejected; that is a coverage gap to close in 0.0.2.3, not a losslessness claim.
