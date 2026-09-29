@@ -410,6 +410,14 @@ impl TraitSystem {
             TypeSpec::Range(elem) => {
                 format!("range_{}_end", self.type_spec_to_mangled(elem, tcx))
             }
+            TypeSpec::Reference { lifetime, mutable, inner } => {
+                format!(
+                    "ref_{}_{}_{}",
+                    if *mutable { "mut" } else { "shared" },
+                    lifetime.as_deref().unwrap_or("anon"),
+                    self.type_spec_to_mangled(inner, tcx)
+                )
+            }
             TypeSpec::Fn(params, ret) => {
                 let p: Vec<String> =
                     params.iter().map(|t| self.type_spec_to_mangled(t, tcx)).collect();
