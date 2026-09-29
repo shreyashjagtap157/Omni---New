@@ -955,6 +955,11 @@ impl TypeChecker {
                 let e_eff = self.infer_expr_effects(end, env, local_vars)?;
                 Ok(s_eff.union(&e_eff))
             }
+            Expr::For { iterable, body, .. } => {
+                let mut eff = self.infer_expr_effects(iterable, env, local_vars)?;
+                eff = eff.union(&self.infer_expr_effects(body, env, local_vars)?);
+                Ok(eff)
+            }
             Expr::Loop { body, .. } => self.infer_expr_effects(body, env, local_vars),
             Expr::While { condition, body, .. } => {
                 let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
