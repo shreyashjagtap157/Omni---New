@@ -145,6 +145,7 @@ impl LoweringContext {
 }
 
 struct LoopContext {
+    label: Option<String>,
     continue_block: crate::ir::BasicBlock,
     break_block: crate::ir::BasicBlock,
     result_local: Option<crate::ir::Local>,
@@ -191,6 +192,7 @@ impl<'a> FnMirBuilder<'a> {
 
     fn lower_loop_expression(
         &mut self,
+        label: &Option<String>,
         body: &omni_types::ast::Expr,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         let entry = self
@@ -233,6 +235,7 @@ impl<'a> FnMirBuilder<'a> {
 
     fn lower_while_expression(
         &mut self,
+        label: &Option<String>,
         condition: &omni_types::ast::Expr,
         body: &omni_types::ast::Expr,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
@@ -263,6 +266,7 @@ impl<'a> FnMirBuilder<'a> {
 
         self.current_block = Some(body_block);
         self.loops.push(LoopContext {
+            label: label.clone(),
             continue_block: condition_block,
             break_block,
             result_local: None,
@@ -286,11 +290,17 @@ impl<'a> FnMirBuilder<'a> {
         &mut self,
         value: Option<&omni_types::ast::Expr>,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
-        let loop_index = self
-            .loops
-            .len()
-            .checked_sub(1)
-            .ok_or_else(|| "MIR lowering error: break outside loop".to_string())?;
+        let loop_index = if let Some(label) = label {
+            self.loops
+                .iter()
+                .rposition(|ctx| ctx.label.as_deref() == Some(label.as_str()))
+                .ok_or_else(|| format!("MIR lowering error: unknown break label '{}'", label))?
+        } else {
+            self.loops
+                .len()
+                .checked_sub(1)
+                .ok_or_else(|| "MIR lowering error: break outside loop".to_string())?
+        };
         let break_block = self.loops[loop_index].break_block;
         let current = self
             .current_block
@@ -342,11 +352,17 @@ impl<'a> FnMirBuilder<'a> {
     }
 
     fn lower_continue_expression(&mut self) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
-        let loop_index = self
-            .loops
-            .len()
-            .checked_sub(1)
-            .ok_or_else(|| "MIR lowering error: continue outside loop".to_string())?;
+        let loop_index = if let Some(label) = label {
+            self.loops
+                .iter()
+                .rposition(|ctx| ctx.label.as_deref() == Some(label.as_str()))
+                .ok_or_else(|| format!("MIR lowering error: unknown continue label '{}'", label))?
+        } else {
+            self.loops
+                .len()
+                .checked_sub(1)
+                .ok_or_else(|| "MIR lowering error: continue outside loop".to_string())?
+        };
         let continue_block = self.loops[loop_index].continue_block;
         let current = self
             .current_block
@@ -958,7 +974,7 @@ impl<'a> FnMirBuilder<'a> {
             }
             omni_types::ast::Expr::Loop { body } => self.lower_loop_expression(body),
             omni_types::ast::Expr::While { condition, body } => {
-                self.lower_while_expression(condition, body)
+                self.lower_while_expression(label, condition, body)
             }
             omni_types::ast::Expr::Break(value) => self.lower_break_expression(value.as_deref()),
             omni_types::ast::Expr::Continue => self.lower_continue_expression(),
