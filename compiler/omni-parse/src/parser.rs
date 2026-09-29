@@ -2309,6 +2309,21 @@ mod tests {
     }
 
     #[test]
+    fn labeled_loop_forms_preserve_label_and_colon() {
+        for src in [
+            "fn f() { 'outer: loop { break 'outer; } }",
+            "fn f() { 'outer: while true { continue 'outer; } }",
+            "fn f() { 'outer: for x in xs { continue 'outer; } }",
+        ] {
+            let mut p = Parser::from_source(src);
+            let r = p.parse_source();
+            assert!(r.is_ok(), "{src:?}: {:?}", r.diagnostics);
+            assert_eq!(r.syntax().text().to_string(), src);
+            assert!(r.syntax().descendants().any(|n| n.kind() == K::Label));
+        }
+    }
+
+    #[test]
     fn edition1_expression_families_parse_losslessly() {
         for src in [
             "fn f(x: i32) { if x > 0 { return x; } else { return 0; } }",
