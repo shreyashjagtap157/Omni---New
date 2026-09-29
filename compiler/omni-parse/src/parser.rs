@@ -161,10 +161,8 @@ impl<'a> Parser<'a> {
     fn parse_source_file(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::SourceFile);
         while !self.eof() {
-            if self.at_kw(Kw::Fn) {
-                n.children.push(Child::Node(self.parse_fn()));
-            } else if self.at_kw(Kw::Struct) || self.at_kw(Kw::Enum) {
-                n.children.push(Child::Node(self.parse_item_stub()));
+            if self.starts_item() {
+                n.children.push(Child::Node(self.parse_item()));
             } else {
                 n.children.push(Child::Node(self.error_node("expected a top-level declaration")));
                 let skipped = self.synchronize_top();
@@ -175,14 +173,79 @@ impl<'a> Parser<'a> {
         }
         n
     }
-    fn parse_item_stub(&mut self) -> Node {
-        let mut n = Node::new(SyntaxKind::ErrorNode);
-        n.children.push(self.bump_child());
-        if self.at_ident() {
-            n.children.push(self.bump_child());
+
+    fn starts_item(&self) -> bool {
+        if self.at_punct(Punct::Hash) {
+            return true;
         }
-        n
+        if self.at_kw(Kw::Pub)
+            || self.at_kw(Kw::Unsafe)
+            || self.at_kw(Kw::Async)
+            || self.at_kw(Kw::Const)
+        {
+            return true;
+        }
+        matches!(
+            self.current_kind(),
+            Some(TokenKind::Keyword(
+                Kw::Fn
+                    | Kw::Struct
+                    | Kw::Enum
+                    | Kw::Trait
+                    | Kw::Impl
+                    | Kw::Static
+                    | Kw::Use
+                    | Kw::Mod
+                    | Kw::Extern
+                    | Kw::Type
+            ))
+        )
     }
+
+    fn parse_item(&mut self) -> Node {
+        // Prefixes are recursively consumed so ordering is preserved without
+        // duplicating the item grammar in every parser entry point.
+        if self.at_punct(Punct::Hash) {
+            let attr = self.parse_attribute();
+            if self.at_punct(Punct::Semicolon) {
+                let mut n = Node::new(SyntaxKind::AttributeItem);
+                n.children.push(Child::Node(attr));
+                n.children.push(self.bump_child());
+                return n;
+            }
+            let mut n = self.parse_item();
+            n.children.insert(0, Child::Node(attr));
+            return n;
+        }
+        if self.at_kw(Kw::Pub) || self.at_kw(Kw::Unsafe) || self.at_kw(Kw::Async) || self.at_kw(Kw::Const) {
+            let modifier = self.bump_child();
+            if self.eof() {
+                let mut n = Node::new(SyntaxKind::ErrorNode);
+                n.children.push(modifier);
+                self.diagnostic("expected item after modifier");
+                return n;
+            }
+            let mut n = self.parse_item();
+            n.children.insert(0, modifier);
+            return n;
+        }
+
+        match self.current_kind() {
+            Some(TokenKind::Keyword(Kw::Fn)) => self.parse_fn(),
+            Some(TokenKind::Keyword(Kw::Struct)) => self.parse_struct_def(),
+            Some(TokenKind::Keyword(Kw::Enum)) => self.parse_enum_def(),
+            Some(TokenKind::Keyword(Kw::Trait)) => self.parse_trait_def(),
+            Some(TokenKind::Keyword(Kw::Impl)) => self.parse_impl_def(),
+            Some(TokenKind::Keyword(Kw::Type)) => self.parse_type_alias(),
+            Some(TokenKind::Keyword(Kw::Const)) => self.parse_const_def(),
+            Some(TokenKind::Keyword(Kw::Static)) => self.parse_static_def(),
+            Some(TokenKind::Keyword(Kw::Use)) => self.parse_use_decl(),
+            Some(TokenKind::Keyword(Kw::Mod)) => self.parse_module_decl(),
+            Some(TokenKind::Keyword(Kw::Extern)) => self.parse_extern_crate_decl(),
+            _ => self.error_node("expected module item"),
+        }
+    }
+
     fn parse_fn(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::FnDef);
         n.children.push(self.expect_kw(Kw::Fn));
@@ -192,197 +255,1023 @@ impl<'a> Parser<'a> {
         } else {
             n.children.push(Child::Node(self.error_node("expected function name")));
         }
-        n.children.push(Child::Node(self.parse_params()));
+        if self.at_punct(Punct::Lt) {
+            n.children.push(Child::Node(self.parse_generic_params()));
+        }
+        n.children.push(self.parse_params());
         if self.at_punct(Punct::Arrow) {
             n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_type()));
         }
+        if self.at_kw(Kw::Where) {
+            n.children.push(Child::Node(self.parse_where_clause()));
+        }
         n.children.push(Child::Node(self.parse_block()));
         n
     }
+
     fn parse_params(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::ParamList);
-        n.children.push(self.expect_punct(Punct::LParen));
-        while !self.eof() && !self.at_punct(Punct::RParen) {
-            let mut p = Node::new(SyntaxKind::Param);
-            if self.at_ident() {
-                p.children
-                    .push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
-            } else {
-                p.children.push(Child::Node(self.error_node("expected parameter name")));
-                let skipped = self.recover_until(&[Punct::Comma, Punct::RParen]);
-                if !skipped.is_empty() {
-                    p.children.push(Child::Node(self.error_node_from(skipped)));
+        n.children.push(self.expect_open(Punct::LParen));
+        if !self.at_punct(Punct::RParen) && !self.eof() {
+            loop {
+                let mut p = Node::new(SyntaxKind::Param);
+                if self.at_kw(Kw::Mut) {
+                    p.children.push(self.bump_child());
+                }
+                if self.at_ident() {
+                    p.children.push(Child::Node(
+                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                    ));
+                } else {
+                    p.children.push(Child::Node(self.error_node("expected parameter name")));
+                    let skipped = self.recover_until(&[Punct::Comma, Punct::RParen]);
+                    if !skipped.is_empty() {
+                        p.children.push(Child::Node(self.error_node_from(skipped)));
+                    }
+                }
+                p.children.push(self.expect_punct(Punct::Colon));
+                p.children.push(Child::Node(self.parse_type()));
+                n.children.push(Child::Node(p));
+                if self.at_punct(Punct::Comma) {
+                    n.children.push(self.bump_child());
+                    if self.at_punct(Punct::RParen) {
+                        break;
+                    }
+                } else {
+                    break;
                 }
             }
-            if self.at_punct(Punct::Colon) {
-                p.children.push(self.bump_child());
-                p.children.push(Child::Node(self.parse_type()));
-            } else {
-                self.diagnostic("expected `:` after parameter name");
+        }
+        n.children.push(self.expect_close(Punct::LParen));
+        n
+    }
+
+    fn parse_attribute(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::Attribute);
+        n.children.push(self.expect_punct(Punct::Hash));
+        n.children.push(self.expect_punct(Punct::LBracket));
+        n.children.push(Child::Node(self.parse_path()));
+        if self.at_punct(Punct::LParen) {
+            n.children.push(self.bump_child());
+            if !self.at_punct(Punct::RParen) {
+                loop {
+                    if self.at_ident() && self.peek_kind(1) == Some(TokenKind::Punct(Punct::Eq)) {
+                        n.children.push(Child::Node(
+                            Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                        ));
+                        n.children.push(self.bump_child());
+                    }
+                    n.children.push(Child::Node(self.parse_expr_bp(0)));
+                    if self.at_punct(Punct::Comma) {
+                        n.children.push(self.bump_child());
+                        if self.at_punct(Punct::RParen) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
             }
-            n.children.push(Child::Node(p));
+            n.children.push(self.expect_punct(Punct::RParen));
+        }
+        n.children.push(self.expect_punct(Punct::RBracket));
+        n
+    }
+
+    fn parse_generic_params(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::GenericParams);
+        n.children.push(self.expect_punct(Punct::Lt));
+        while !self.eof() && !self.at_logical_gt() {
+            n.children.push(Child::Node(self.parse_generic_param()));
             if self.at_punct(Punct::Comma) {
                 n.children.push(self.bump_child());
+                if self.at_logical_gt() {
+                    break;
+                }
             } else {
                 break;
+            }
+        }
+        n.children.push(self.consume_gt());
+        n
+    }
+
+    fn parse_generic_param(&mut self) -> Node {
+        let kind = match self.current_kind() {
+            Some(TokenKind::Punct(Punct::Apostrophe)) => SyntaxKind::LifetimeParam,
+            Some(TokenKind::Keyword(Kw::Const)) => SyntaxKind::ConstParam,
+            Some(TokenKind::Keyword(Kw::Effect)) => SyntaxKind::EffectParam,
+            Some(TokenKind::Keyword(Kw::Cap)) => SyntaxKind::CapabilityParam,
+            _ => SyntaxKind::TypeParam,
+        };
+        let mut n = Node::new(kind);
+        match kind {
+            SyntaxKind::LifetimeParam => {
+                n.children.push(Child::Node(self.parse_lifetime()));
+            }
+            SyntaxKind::ConstParam => {
+                n.children.push(self.expect_kw(Kw::Const));
+                if self.at_ident() {
+                    n.children.push(Child::Node(
+                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                    ));
+                } else {
+                    n.children.push(Child::Node(self.error_node("expected const parameter name")));
+                }
+                n.children.push(self.expect_punct(Punct::Colon));
+                n.children.push(Child::Node(self.parse_type()));
+                if self.at_punct(Punct::Eq) {
+                    n.children.push(self.bump_child());
+                    n.children.push(Child::Node(self.parse_expr_bp(0)));
+                }
+            }
+            SyntaxKind::EffectParam | SyntaxKind::CapabilityParam => {
+                n.children.push(self.bump_child());
+                if self.at_ident() {
+                    n.children.push(Child::Node(
+                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                    ));
+                } else {
+                    n.children.push(Child::Node(self.error_node("expected parameter name")));
+                }
+                if self.at_punct(Punct::Colon) {
+                    n.children.push(self.bump_child());
+                    let bound = if kind == SyntaxKind::EffectParam {
+                        self.parse_path()
+                    } else {
+                        self.parse_path()
+                    };
+                    n.children.push(Child::Node(bound));
+                }
+            }
+            _ => {
+                if self.at_ident() {
+                    n.children.push(Child::Node(
+                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                    ));
+                } else {
+                    n.children.push(Child::Node(self.error_node("expected type parameter name")));
+                }
+                if self.at_punct(Punct::Colon) {
+                    n.children.push(self.bump_child());
+                    n.children.push(Child::Node(self.parse_type_bound_list()));
+                }
+                if self.at_punct(Punct::Eq) {
+                    n.children.push(self.bump_child());
+                    n.children.push(Child::Node(self.parse_type()));
+                }
+            }
+        }
+        n
+    }
+
+    fn parse_type_bound_list(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::TypeBound);
+        n.children.push(Child::Node(self.parse_type_bound()));
+        while self.at_punct(Punct::Plus) {
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_type_bound()));
+        }
+        n
+    }
+
+    fn parse_where_clause(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::WhereClause);
+        n.children.push(self.expect_kw(Kw::Where));
+        if !self.at_punct(Punct::LBrace) && !self.eof() {
+            loop {
+                let mut pred = Node::new(SyntaxKind::WherePredicate);
+                pred.children.push(Child::Node(self.parse_type()));
+                pred.children.push(self.expect_punct(Punct::Colon));
+                pred.children.push(Child::Node(self.parse_type_bound_list()));
+                n.children.push(Child::Node(pred));
+                if self.at_punct(Punct::Comma) {
+                    n.children.push(self.bump_child());
+                    if self.at_punct(Punct::LBrace) || self.eof() {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        n
+    }
+
+    fn parse_type_bound(&mut self) -> Node {
+        if self.at_punct(Punct::Question) {
+            let mut n = Node::new(SyntaxKind::TypeBound);
+            n.children.push(self.bump_child());
+            n.children.push(self.expect_kw(Kw::Sized));
+            return n;
+        }
+        if self.at_punct(Punct::Apostrophe) {
+            return self.parse_lifetime();
+        }
+        let mut n = Node::new(SyntaxKind::TypeBound);
+        n.children.push(Child::Node(self.parse_trait_ref()));
+        n
+    }
+
+    fn parse_trait_ref(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::TraitRef);
+        if self.at_kw(Kw::Dyn) {
+            n.children.push(self.bump_child());
+        }
+        n.children.push(Child::Node(self.parse_path()));
+        n
+    }
+
+    fn parse_type_args(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::TypeArgs);
+        n.children.push(self.expect_punct(Punct::Lt));
+        while !self.eof() && !self.at_logical_gt() {
+            if self.at_punct(Punct::Apostrophe) {
+                n.children.push(Child::Node(self.parse_lifetime_arg()));
+            } else if self.at_kw(Kw::Const) {
+                let mut a = Node::new(SyntaxKind::ConstArg);
+                a.children.push(self.bump_child());
+                a.children.push(Child::Node(self.parse_expr_bp(0)));
+                n.children.push(Child::Node(a));
+            } else {
+                let mut a = Node::new(SyntaxKind::TypeArg);
+                a.children.push(Child::Node(self.parse_type()));
+                n.children.push(Child::Node(a));
+            }
+            if self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+                if self.at_logical_gt() {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        n.children.push(self.consume_gt());
+        n
+    }
+
+    fn at_logical_gt(&self) -> bool {
+        matches!(self.current_kind(), Some(TokenKind::Punct(Punct::Gt)))
+            || matches!(self.current_kind_physical(), Some(TokenKind::Punct(Punct::Shr | Punct::ShrEq))) && self.split_token.is_none()
+    }
+
+    fn parse_lifetime(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::Lifetime);
+        n.children.push(self.expect_punct(Punct::Apostrophe));
+        if self.at_ident() {
+            n.children.push(Child::Node(
+                Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+            ));
+        } else {
+            n.children.push(Child::Node(self.error_node("expected lifetime name")));
+        }
+        n
+    }
+
+    fn parse_lifetime_arg(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::LifetimeArg);
+        n.children.push(Child::Node(self.parse_lifetime()));
+        n
+    }
+
+    fn parse_type(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::Type);
+        match self.current_kind() {
+            Some(TokenKind::Punct(Punct::Amp)) => {
+                let mut r = Node::new(SyntaxKind::ReferenceType);
+                r.children.push(self.bump_child());
+                if self.at_kw(Kw::Mut) {
+                    r.children.push(self.bump_child());
+                }
+                if self.at_punct(Punct::Apostrophe) {
+                    r.children.push(Child::Node(self.parse_lifetime()));
+                }
+                r.children.push(Child::Node(self.parse_type()));
+                n.children.push(Child::Node(r));
+            }
+            Some(TokenKind::Punct(Punct::Star)) => {
+                let mut r = Node::new(SyntaxKind::RawPointerType);
+                r.children.push(self.bump_child());
+                if self.at_kw(Kw::Const) || self.at_kw(Kw::Mut) {
+                    r.children.push(self.bump_child());
+                }
+                r.children.push(Child::Node(self.parse_type()));
+                n.children.push(Child::Node(r));
+            }
+            Some(TokenKind::Punct(Punct::Bang)) => {
+                let mut t = Node::new(SyntaxKind::NeverType);
+                t.children.push(self.bump_child());
+                n.children.push(Child::Node(t));
+            }
+            Some(TokenKind::Punct(Punct::LParen)) => {
+                n.children.push(Child::Node(self.parse_paren_type()));
+            }
+            Some(TokenKind::Punct(Punct::LBracket)) => {
+                n.children.push(Child::Node(self.parse_bracket_type()));
+            }
+            Some(TokenKind::Keyword(Kw::Unsafe | Kw::Extern | Kw::Fn)) => {
+                n.children.push(Child::Node(self.parse_function_type()));
+            }
+            Some(TokenKind::Ident | TokenKind::Keyword(Kw::SelfKw | Kw::SelfRef | Kw::Dyn)) => {
+                n.children.push(Child::Node(self.parse_path_type()));
+            }
+            _ => n.children.push(Child::Node(self.error_node("expected type"))),
+        }
+        n
+    }
+
+    fn parse_paren_type(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ParenthesizedType);
+        n.children.push(self.expect_punct(Punct::LParen));
+        if self.at_punct(Punct::RParen) {
+            n.kind = SyntaxKind::TupleType;
+            n.children.push(self.bump_child());
+            return n;
+        }
+        let first = self.parse_type();
+        n.children.push(Child::Node(first));
+        if self.at_punct(Punct::Comma) {
+            n.kind = SyntaxKind::TupleType;
+            while self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+                if self.at_punct(Punct::RParen) {
+                    break;
+                }
+                n.children.push(Child::Node(self.parse_type()));
             }
         }
         n.children.push(self.expect_punct(Punct::RParen));
         n
     }
-    fn parse_type(&mut self) -> Node {
-        let mut n = Node::new(SyntaxKind::Type);
-        if self.at_ident()
-            || matches!(
-                self.current_kind(),
-                Some(TokenKind::Keyword(
-                    Kw::Never
-                        | Kw::SelfKw
-                        | Kw::Sized
-                        | Kw::Bf16
-                        | Kw::Bool
-                        | Kw::Byte
-                        | Kw::Char
-                        | Kw::Dec128
-                        | Kw::Dec32
-                        | Kw::Dec64
-                        | Kw::F128
-                        | Kw::F16
-                        | Kw::F32
-                        | Kw::F64
-                        | Kw::I128
-                        | Kw::I16
-                        | Kw::I32
-                        | Kw::I64
-                        | Kw::I8
-                        | Kw::Isize
-                        | Kw::Str
-                        | Kw::U128
-                        | Kw::U16
-                        | Kw::U32
-                        | Kw::U64
-                        | Kw::U8
-                        | Kw::Usize
-                        | Kw::True
-                        | Kw::False
-                ))
-            )
-        {
+
+    fn parse_bracket_type(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::SliceType);
+        n.children.push(self.expect_punct(Punct::LBracket));
+        n.children.push(Child::Node(self.parse_type()));
+        if self.at_punct(Punct::Semicolon) {
+            n.kind = SyntaxKind::ArrayType;
             n.children.push(self.bump_child());
-        } else {
-            n.children.push(Child::Node(self.error_node("expected type name")));
+            n.children.push(Child::Node(self.parse_expr_bp(0)));
+        }
+        n.children.push(self.expect_punct(Punct::RBracket));
+        n
+    }
+
+    fn parse_function_type(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::FunctionType);
+        if self.at_kw(Kw::Unsafe) {
+            n.children.push(self.bump_child());
+        }
+        if self.at_kw(Kw::Extern) {
+            n.children.push(self.bump_child());
+            if self.current_kind().is_some_and(|k| matches!(k, TokenKind::String | TokenKind::RawString)) {
+                n.children.push(self.bump_child());
+            }
+        }
+        n.children.push(self.expect_kw(Kw::Fn));
+        n.children.push(self.expect_punct(Punct::LParen));
+        if !self.at_punct(Punct::RParen) {
+            loop {
+                n.children.push(Child::Node(self.parse_type()));
+                if self.at_punct(Punct::Comma) {
+                    n.children.push(self.bump_child());
+                    if self.at_punct(Punct::RParen) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RParen));
+        if self.at_punct(Punct::Arrow) {
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_type()));
         }
         n
     }
+
+    fn parse_path_type(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::PathType);
+        n.children.push(Child::Node(self.parse_path()));
+        n
+    }
+
+    fn parse_path(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::Path);
+        if self.at_punct(Punct::ColonColon) {
+            n.children.push(self.bump_child());
+        }
+        n.children.push(Child::Node(self.parse_path_segment()));
+        while self.at_punct(Punct::ColonColon) {
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_path_segment()));
+        }
+        n
+    }
+
+    fn parse_path_segment(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::PathSegment);
+        if self.at_ident() || matches!(self.current_kind(), Some(TokenKind::Keyword(Kw::SelfKw | Kw::SelfRef))) {
+            n.children.push(self.bump_child());
+        } else {
+            n.children.push(Child::Node(self.error_node("expected path segment")));
+        }
+        if self.at_logical_lt() {
+            n.children.push(Child::Node(self.parse_type_args()));
+        }
+        n
+    }
+
+    fn at_logical_lt(&self) -> bool {
+        self.at_punct(Punct::Lt)
+    }
+
+    fn parse_struct_def(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::StructDef);
+        n.children.push(self.expect_kw(Kw::Struct));
+        n.children.push(self.expect_ident_node("expected struct name"));
+        if self.at_punct(Punct::Lt) {
+            n.children.push(Child::Node(self.parse_generic_params()));
+        }
+        if self.at_kw(Kw::Where) {
+            n.children.push(Child::Node(self.parse_where_clause()));
+        }
+        if self.at_punct(Punct::LBrace) {
+            n.children.push(Child::Node(self.parse_struct_body()));
+        } else {
+            n.children.push(self.expect_punct(Punct::Semicolon));
+        }
+        n
+    }
+
+    fn parse_struct_body(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::Block);
+        n.kind = SyntaxKind::StructField;
+        let mut fields = Vec::new();
+        n.children.push(self.expect_punct(Punct::LBrace));
+        while !self.eof() && !self.at_punct(Punct::RBrace) {
+            let mut f = Node::new(SyntaxKind::StructField);
+            if self.at_punct(Punct::Hash) {
+                f.children.push(Child::Node(self.parse_attribute()));
+            }
+            if self.at_kw(Kw::Pub) {
+                f.children.push(self.bump_child());
+            }
+            f.children.push(self.expect_ident_node("expected struct field name"));
+            f.children.push(self.expect_punct(Punct::Colon));
+            f.children.push(Child::Node(self.parse_type()));
+            fields.push(f);
+            n.children.push(Child::Node(fields.pop().expect("field")));
+            if self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+                if self.at_punct(Punct::RBrace) {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RBrace));
+        n
+    }
+
+    fn parse_enum_def(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::EnumDef);
+        n.children.push(self.expect_kw(Kw::Enum));
+        n.children.push(self.expect_ident_node("expected enum name"));
+        if self.at_punct(Punct::Lt) {
+            n.children.push(Child::Node(self.parse_generic_params()));
+        }
+        if self.at_kw(Kw::Where) {
+            n.children.push(Child::Node(self.parse_where_clause()));
+        }
+        n.children.push(self.expect_punct(Punct::LBrace));
+        while !self.eof() && !self.at_punct(Punct::RBrace) {
+            let mut v = Node::new(SyntaxKind::EnumVariant);
+            if self.at_punct(Punct::Hash) {
+                v.children.push(Child::Node(self.parse_attribute()));
+            }
+            v.children.push(self.expect_ident_node("expected enum variant name"));
+            if self.at_punct(Punct::LParen) {
+                v.children.push(self.bump_child());
+                if !self.at_punct(Punct::RParen) {
+                    loop {
+                        v.children.push(Child::Node(self.parse_type()));
+                        if self.at_punct(Punct::Comma) {
+                            v.children.push(self.bump_child());
+                            if self.at_punct(Punct::RParen) {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                v.children.push(self.expect_punct(Punct::RParen));
+            }
+            n.children.push(Child::Node(v));
+            if self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+                if self.at_punct(Punct::RBrace) {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RBrace));
+        n
+    }
+
+    fn parse_trait_def(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::TraitDef);
+        n.children.push(self.expect_kw(Kw::Trait));
+        n.children.push(self.expect_ident_node("expected trait name"));
+        if self.at_punct(Punct::Lt) {
+            n.children.push(Child::Node(self.parse_generic_params()));
+        }
+        if self.at_kw(Kw::Where) {
+            n.children.push(Child::Node(self.parse_where_clause()));
+        }
+        n.children.push(self.expect_punct(Punct::LBrace));
+        while !self.eof() && !self.at_punct(Punct::RBrace) {
+            let item = match self.current_kind() {
+                Some(TokenKind::Keyword(Kw::Type)) => self.parse_type_alias(),
+                Some(TokenKind::Keyword(Kw::Const)) => self.parse_const_def(),
+                _ => self.error_node("trait_item has no defined function_signature production in Edition 1 EBNF"),
+            };
+            n.children.push(Child::Node(Node {
+                kind: SyntaxKind::TraitItem,
+                children: vec![Child::Node(item)],
+            }));
+            if self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+            } else if !self.at_punct(Punct::RBrace) {
+                let skipped = self.recover_until(&[Punct::Comma, Punct::RBrace]);
+                if !skipped.is_empty() {
+                    n.children.push(Child::Node(self.error_node_from(skipped)));
+                }
+                if self.at_punct(Punct::Comma) {
+                    n.children.push(self.bump_child());
+                }
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RBrace));
+        n
+    }
+
+    fn parse_impl_def(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ImplDef);
+        n.children.push(self.expect_kw(Kw::Impl));
+        if self.at_punct(Punct::Lt) {
+            n.children.push(Child::Node(self.parse_generic_params()));
+        }
+        n.children.push(Child::Node(self.parse_trait_or_type_header()));
+        if self.at_kw(Kw::For) {
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_type()));
+        }
+        if self.at_kw(Kw::Where) {
+            n.children.push(Child::Node(self.parse_where_clause()));
+        }
+        n.children.push(self.expect_punct(Punct::LBrace));
+        while !self.eof() && !self.at_punct(Punct::RBrace) {
+            let item = match self.current_kind() {
+                Some(TokenKind::Keyword(Kw::Fn)) => self.parse_fn(),
+                Some(TokenKind::Keyword(Kw::Type)) => self.parse_type_alias(),
+                Some(TokenKind::Keyword(Kw::Const)) => self.parse_const_def(),
+                _ => self.error_node("expected impl item"),
+            };
+            n.children.push(Child::Node(Node {
+                kind: SyntaxKind::ImplItem,
+                children: vec![Child::Node(item)],
+            }));
+            if self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+            } else if !self.at_punct(Punct::RBrace) {
+                let skipped = self.recover_until(&[Punct::Comma, Punct::RBrace]);
+                if !skipped.is_empty() {
+                    n.children.push(Child::Node(self.error_node_from(skipped)));
+                }
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RBrace));
+        n
+    }
+
+    fn parse_trait_or_type_header(&mut self) -> Node {
+        if self.at_kw(Kw::Dyn) {
+            self.parse_trait_ref()
+        } else {
+            self.parse_type()
+        }
+    }
+
+    fn parse_type_alias(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::TypeAlias);
+        n.children.push(self.expect_kw(Kw::Type));
+        n.children.push(self.expect_ident_node("expected type alias name"));
+        if self.at_punct(Punct::Lt) {
+            n.children.push(Child::Node(self.parse_generic_params()));
+        }
+        if self.at_kw(Kw::Where) {
+            n.children.push(Child::Node(self.parse_where_clause()));
+        }
+        n.children.push(self.expect_punct(Punct::Eq));
+        n.children.push(Child::Node(self.parse_type()));
+        n
+    }
+
+    fn parse_const_def(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ConstDef);
+        n.children.push(self.expect_kw(Kw::Const));
+        n.children.push(self.expect_ident_node("expected const name"));
+        n.children.push(self.expect_punct(Punct::Colon));
+        n.children.push(Child::Node(self.parse_type()));
+        n.children.push(self.expect_punct(Punct::Eq));
+        n.children.push(Child::Node(self.parse_expr_bp(0)));
+        n.children.push(self.expect_punct(Punct::Semicolon));
+        n
+    }
+
+    fn parse_static_def(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::StaticDef);
+        n.children.push(self.expect_kw(Kw::Static));
+        if self.at_kw(Kw::Mut) {
+            n.children.push(self.bump_child());
+        }
+        n.children.push(self.expect_ident_node("expected static name"));
+        n.children.push(self.expect_punct(Punct::Colon));
+        n.children.push(Child::Node(self.parse_type()));
+        if self.at_punct(Punct::Eq) {
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_expr_bp(0)));
+        }
+        n.children.push(self.expect_punct(Punct::Semicolon));
+        n
+    }
+
+    fn parse_use_decl(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::UseDecl);
+        n.children.push(self.expect_kw(Kw::Use));
+        if self.at_kw(Kw::As) {
+            n.children.push(self.bump_child());
+        }
+        n.children.push(Child::Node(self.parse_use_tree()));
+        n.children.push(self.expect_punct(Punct::Semicolon));
+        n
+    }
+
+    fn parse_use_tree(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::UseTree);
+        n.children.push(Child::Node(self.parse_path()));
+        if self.at_punct(Punct::ColonColon) {
+            n.children.push(self.bump_child());
+            if self.at_punct(Punct::LBrace) {
+                n.children.push(self.bump_child());
+                while !self.eof() && !self.at_punct(Punct::RBrace) {
+                    n.children.push(Child::Node(self.parse_use_tree()));
+                    if self.at_punct(Punct::Comma) {
+                        n.children.push(self.bump_child());
+                        if self.at_punct(Punct::RBrace) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                n.children.push(self.expect_punct(Punct::RBrace));
+            } else {
+                n.children.push(Child::Node(self.parse_path_segment()));
+            }
+        }
+        if self.at_kw(Kw::As) {
+            n.children.push(self.bump_child());
+            n.children.push(self.expect_ident_node("expected alias"));
+        }
+        n
+    }
+
+    fn parse_module_decl(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ModuleDecl);
+        n.children.push(self.expect_kw(Kw::Mod));
+        n.children.push(self.expect_ident_node("expected module name"));
+        if self.at_punct(Punct::LBrace) {
+            n.children.push(self.bump_child());
+            while !self.eof() && !self.at_punct(Punct::RBrace) {
+                n.children.push(Child::Node(self.parse_item()));
+            }
+            n.children.push(self.expect_punct(Punct::RBrace));
+        } else {
+            n.children.push(self.expect_punct(Punct::Semicolon));
+        }
+        n
+    }
+
+    fn parse_extern_crate_decl(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ExternCrateDecl);
+        n.children.push(self.expect_kw(Kw::Extern));
+        n.children.push(self.expect_kw(Kw::Crate));
+        n.children.push(self.expect_ident_node("expected crate name"));
+        if self.at_kw(Kw::As) {
+            n.children.push(self.bump_child());
+            n.children.push(self.expect_ident_node("expected crate alias"));
+        }
+        n.children.push(self.expect_punct(Punct::Semicolon));
+        n
+    }
+
+    fn expect_ident_node(&mut self, msg: &str) -> Child {
+        if self.at_ident() {
+            Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index()))
+        } else {
+            Child::Node(self.error_node(msg))
+        }
+    }
+
     fn parse_block(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::Block);
         n.children.push(self.expect_punct(Punct::LBrace));
         while !self.eof() && !self.at_punct(Punct::RBrace) {
             if self.at_kw(Kw::Let) {
                 n.children.push(Child::Node(self.parse_let()));
-            } else if self.at_kw(Kw::Return) {
-                n.children.push(Child::Node(self.parse_return()));
+            } else if self.starts_item() {
+                n.children.push(Child::Node(self.parse_item_stmt()));
+            } else if self.at_punct(Punct::Hash) {
+                n.children.push(Child::Node(self.parse_item_stmt()));
             } else {
-                n.children.push(Child::Node(self.parse_expr_stmt()));
+                let expr = self.parse_expression();
+                if self.at_punct(Punct::Semicolon) {
+                    let mut s = Node::new(SyntaxKind::ExprStmt);
+                    s.children.push(Child::Node(expr));
+                    s.children.push(self.bump_child());
+                    n.children.push(Child::Node(s));
+                } else if self.at_punct(Punct::RBrace) || self.eof() {
+                    n.children.push(Child::Node(Node {
+                        kind: SyntaxKind::FinalExpr,
+                        children: vec![Child::Node(expr)],
+                    }));
+                    break;
+                } else {
+                    n.children.push(Child::Node(Node {
+                        kind: SyntaxKind::ExprStmt,
+                        children: vec![Child::Node(expr), self.expect_punct(Punct::Semicolon)],
+                    }));
+                }
             }
         }
         n.children.push(self.expect_punct(Punct::RBrace));
         n
     }
+
+    fn parse_item_stmt(&mut self) -> Node {
+        Node {
+            kind: SyntaxKind::ItemDeclStmt,
+            children: vec![Child::Node(self.parse_item())],
+        }
+    }
+
     fn parse_let(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::LetStmt);
         n.children.push(self.expect_kw(Kw::Let));
         if self.at_kw(Kw::Mut) {
             n.children.push(self.bump_child());
         }
-        if self.at_ident() {
-            n.children
-                .push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
-        } else {
-            n.children.push(Child::Node(self.error_node("expected binding name")));
-        }
+        n.children.push(Child::Node(self.parse_pattern()));
         if self.at_punct(Punct::Colon) {
             n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_type()));
         }
         n.children.push(self.expect_punct(Punct::Eq));
-        n.children.push(Child::Node(self.parse_expr_bp(0)));
+        n.children.push(Child::Node(self.parse_expression()));
         n.children.push(self.expect_punct(Punct::Semicolon));
         n
     }
+
     fn parse_return(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::ReturnExpr);
         n.children.push(self.expect_kw(Kw::Return));
-        if !self.at_punct(Punct::Semicolon) && !self.at_punct(Punct::RBrace) {
-            n.children.push(Child::Node(self.parse_expr_bp(0)));
+        if !self.at_punct(Punct::Semicolon) {
+            n.children.push(Child::Node(self.parse_expression()));
         }
         n.children.push(self.expect_punct(Punct::Semicolon));
         n
     }
-    fn parse_expr_stmt(&mut self) -> Node {
-        let mut n = Node::new(SyntaxKind::ExprStmt);
-        n.children.push(Child::Node(self.parse_expr_bp(0)));
-        if self.at_punct(Punct::Semicolon) {
-            n.children.push(self.bump_child());
-        } else {
-            self.diagnostic("expected `;` after expression");
+
+    fn parse_break(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::BreakExpr);
+        n.children.push(self.expect_kw(Kw::Break));
+        if self.at_punct(Punct::Apostrophe) {
+            n.children.push(Child::Node(self.parse_lifetime()));
         }
+        if !self.at_punct(Punct::Semicolon) {
+            n.children.push(Child::Node(self.parse_expression()));
+        }
+        n.children.push(self.expect_punct(Punct::Semicolon));
         n
     }
+
+    fn parse_continue(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ContinueExpr);
+        n.children.push(self.expect_kw(Kw::Continue));
+        if self.at_punct(Punct::Apostrophe) {
+            n.children.push(Child::Node(self.parse_lifetime()));
+        }
+        n.children.push(self.expect_punct(Punct::Semicolon));
+        n
+    }
+
+    fn parse_yield(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::YieldExpr);
+        n.children.push(self.expect_kw(Kw::Yield));
+        if !self.at_punct(Punct::Semicolon) {
+            n.children.push(Child::Node(self.parse_expression()));
+        }
+        n.children.push(self.expect_punct(Punct::Semicolon));
+        n
+    }
+
+    fn parse_expression(&mut self) -> Node {
+        self.parse_expr_bp(0)
+    }
+
     fn parse_expr_bp(&mut self, min_bp: u8) -> Node {
         let mut lhs = self.parse_prefix();
         loop {
             if self.at_punct(Punct::LParen) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
-                let mut call = Node::new(SyntaxKind::CallExpr);
-                call.children.push(Child::Node(lhs));
-                call.children.push(self.bump_child());
-                while !self.eof() && !self.at_punct(Punct::RParen) {
-                    call.children.push(Child::Node(self.parse_expr_bp(0)));
-                    if self.at_punct(Punct::Comma) {
-                        call.children.push(self.bump_child());
-                    } else {
-                        break;
-                    }
-                }
-                call.children.push(self.expect_punct(Punct::RParen));
-                lhs = call;
+                lhs = self.parse_call(lhs);
                 continue;
             }
+            if self.at_punct(Punct::Dot) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
+                self.bump_child();
+                if self.at_kw(Kw::Await) {
+                    let mut n = Node::new(SyntaxKind::AwaitExpr);
+                    n.children.push(Child::Node(lhs));
+                    n.children.push(Child::Token(self.pos.saturating_sub(1)));
+                    n.children.push(self.bump_child());
+                    lhs = n;
+                    continue;
+                }
+                let mut id = None;
+                if self.at_ident() {
+                    id = Some(self.bump_index());
+                }
+                let Some(name) = id else {
+                    let mut n = Node::new(SyntaxKind::FieldExpr);
+                    n.children.push(Child::Node(lhs));
+                    n.children.push(self.error_node("expected field or method name"));
+                    lhs = n;
+                    continue;
+                };
+                if self.at_punct(Punct::Lt) {
+                    let args = self.parse_type_args();
+                    if self.at_punct(Punct::LParen) {
+                        let mut n = Node::new(SyntaxKind::MethodCallExpr);
+                        n.children.push(Child::Node(lhs));
+                        n.children.push(Child::Token(name));
+                        n.children.push(Child::Node(args));
+                        n.children.push(Child::Node(self.parse_call_args()));
+                        lhs = n;
+                        continue;
+                    }
+                    let mut n = Node::new(SyntaxKind::FieldExpr);
+                    n.children.push(Child::Node(lhs));
+                    n.children.push(Child::Token(name));
+                    n.children.push(Child::Node(args));
+                    lhs = n;
+                    continue;
+                }
+                if self.at_punct(Punct::LParen) {
+                    let mut n = Node::new(SyntaxKind::MethodCallExpr);
+                    n.children.push(Child::Node(lhs));
+                    n.children.push(Child::Token(name));
+                    n.children.push(Child::Node(self.parse_call_args()));
+                    lhs = n;
+                } else {
+                    let mut n = Node::new(SyntaxKind::FieldExpr);
+                    n.children.push(Child::Node(lhs));
+                    n.children.push(Child::Token(name));
+                    lhs = n;
+                }
+                continue;
+            }
+            if self.at_punct(Punct::LBracket) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
+                let mut n = Node::new(SyntaxKind::IndexExpr);
+                n.children.push(Child::Node(lhs));
+                n.children.push(self.bump_child());
+                n.children.push(Child::Node(self.parse_expression()));
+                n.children.push(self.expect_punct(Punct::RBracket));
+                lhs = n;
+                continue;
+            }
+
             let Some((op, left_bp, right_bp)) = self.infix() else { break };
             if left_bp < min_bp {
                 break;
             }
-            let mut bin = Node::new(SyntaxKind::BinaryExpr);
+            if crate::precedence::is_comparison_operator(TokenKind::Punct(op))
+                && matches!(lhs.kind, SyntaxKind::BinaryExpr)
+            {
+                let last = lhs.children.get(1).and_then(|c| match c {
+                    Child::Token(i) => self.tokens.get(*i).map(|t| t.kind),
+                    _ => None,
+                });
+                if last.is_some_and(|k| crate::precedence::is_comparison_operator(k)) {
+                    self.diagnostic("comparison operators cannot be chained");
+                }
+            }
+            let mut bin_kind = SyntaxKind::BinaryExpr;
+            if crate::precedence::is_assignment_operator(TokenKind::Punct(op)) {
+                bin_kind = SyntaxKind::AssignExpr;
+            } else if matches!(op, Punct::DotDot | Punct::DotDotEq) {
+                bin_kind = SyntaxKind::RangeExpr;
+            }
+            let mut bin = Node::new(bin_kind);
             bin.children.push(Child::Node(lhs));
             bin.children.push(self.bump_child());
             bin.children.push(Child::Node(self.parse_expr_bp(right_bp)));
-            let _ = op;
             lhs = bin;
+        }
+        if self.at_kw(Kw::As) && 26 >= min_bp {
+            let mut n = Node::new(SyntaxKind::CastExpr);
+            n.children.push(Child::Node(lhs));
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_type()));
+            lhs = n;
         }
         lhs
     }
+
+    fn parse_call(&mut self, lhs: Node) -> Node {
+        let mut n = Node::new(SyntaxKind::CallExpr);
+        n.children.push(Child::Node(lhs));
+        n.children.push(Child::Node(self.parse_call_args()));
+        n
+    }
+
+    fn parse_call_args(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::CallExpr);
+        n.children.push(self.bump_child());
+        if !self.at_punct(Punct::RParen) {
+            loop {
+                n.children.push(Child::Node(self.parse_expression()));
+                if self.at_punct(Punct::Comma) {
+                    n.children.push(self.bump_child());
+                    if self.at_punct(Punct::RParen) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RParen));
+        n
+    }
+
     fn parse_prefix(&mut self) -> Node {
-        if matches!(
-            self.current_kind(),
-            Some(TokenKind::Punct(Punct::Minus | Punct::Bang | Punct::Amp))
-        ) {
-            let mut n = Node::new(SyntaxKind::UnaryExpr);
-            n.children.push(self.bump_child());
-            n.children.push(Child::Node(self.parse_expr_bp(crate::precedence::UNARY_BINDING_POWER)));
-            return n;
-        }
-        if self.at_punct(Punct::LParen) {
-            let mut n = Node::new(SyntaxKind::UnaryExpr);
-            n.children.push(self.bump_child());
-            n.children.push(Child::Node(self.parse_expr_bp(0)));
-            n.children.push(self.expect_punct(Punct::RParen));
-            return n;
-        }
         match self.current_kind() {
+            Some(TokenKind::Punct(
+                Punct::Minus | Punct::Bang | Punct::Amp | Punct::Star | Punct::Tilde,
+            )) => {
+                let mut n = Node::new(SyntaxKind::UnaryExpr);
+                n.children.push(self.bump_child());
+                if self.tokens.get(self.pos.saturating_sub(1)).map(|t| t.kind)
+                    == Some(TokenKind::Punct(Punct::Amp))
+                    && self.at_kw(Kw::Mut)
+                {
+                    n.children.push(self.bump_child());
+                }
+                n.children.push(Child::Node(self.parse_expr_bp(crate::precedence::UNARY_BINDING_POWER)));
+                n
+            }
+            Some(TokenKind::Keyword(Kw::Return)) => self.parse_return(),
+            Some(TokenKind::Keyword(Kw::Break)) => self.parse_break(),
+            Some(TokenKind::Keyword(Kw::Continue)) => self.parse_continue(),
+            Some(TokenKind::Keyword(Kw::Yield)) => self.parse_yield(),
+            Some(TokenKind::Keyword(Kw::If)) => self.parse_if_expr(),
+            Some(TokenKind::Keyword(Kw::Match)) => self.parse_match_expr(),
+            Some(TokenKind::Keyword(Kw::Loop)) => self.parse_loop_expr(None),
+            Some(TokenKind::Keyword(Kw::While)) => self.parse_while_expr(None),
+            Some(TokenKind::Keyword(Kw::For)) => self.parse_for_expr(None),
+            Some(TokenKind::Keyword(Kw::Try)) => self.parse_try_expr(),
+            Some(TokenKind::Keyword(Kw::Async)) => self.parse_async_block(),
+            Some(TokenKind::Keyword(Kw::Unsafe)) => self.parse_unsafe_block(),
+            Some(TokenKind::Punct(Punct::LBrace)) => self.parse_block_expr(),
+            Some(TokenKind::Punct(Punct::LParen)) => self.parse_paren_expr(),
+            Some(TokenKind::Punct(Punct::LBracket)) => self.parse_array_expr(),
+            Some(TokenKind::Punct(Punct::Pipe)) => self.parse_closure_expr(),
             Some(TokenKind::Ident) => {
-                Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
-            },
+                let path = self.parse_path_expr_or_macro();
+                if self.at_punct(Punct::LBrace) {
+                    self.parse_struct_expr_from_path(path)
+                } else {
+                    path
+                }
+            }
             Some(
                 TokenKind::Int
                 | TokenKind::Float
@@ -398,38 +1287,423 @@ impl<'a> Parser<'a> {
             _ => self.error_node("expected expression"),
         }
     }
-    /// Return the precedence entry for the subset of binary operators the
-    /// current parser actually implements. The numeric precedence itself lives
-    /// only in `precedence::binding_power`; widening this match is the deliberate
-    /// point at which a later grammar wave adds another binary production.
-    fn infix(&self) -> Option<(Punct, u8, u8)> {
-        let TokenKind::Punct(p) = self.current_kind()? else {
-            return None;
-        };
-        if !matches!(
-            p,
-            Punct::Eq
-                | Punct::Pipe
-                | Punct::EqEq
-                | Punct::NotEq
-                | Punct::Lt
-                | Punct::Le
-                | Punct::Gt
-                | Punct::Ge
-                | Punct::Plus
-                | Punct::Minus
-                | Punct::Star
-                | Punct::Slash
-        ) {
-            return None;
+
+    fn parse_block_expr(&mut self) -> Node {
+        self.parse_block()
+    }
+
+    fn parse_paren_expr(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ParenthesizedExpr);
+        n.children.push(self.bump_child());
+        if self.at_punct(Punct::RParen) {
+            n.kind = SyntaxKind::TupleExpr;
+            n.children.push(self.bump_child());
+            return n;
         }
-        let (left_bp, right_bp) = binding_power(TokenKind::Punct(p));
-        if left_bp == crate::precedence::NO_BINDING.0 {
-            None
-        } else {
-            Some((p, left_bp, right_bp))
+        n.children.push(Child::Node(self.parse_expression()));
+        let mut is_tuple = false;
+        while self.at_punct(Punct::Comma) {
+            is_tuple = true;
+            n.children.push(self.bump_child());
+            if self.at_punct(Punct::RParen) {
+                break;
+            }
+            n.children.push(Child::Node(self.parse_expression()));
+        }
+        n.children.push(self.expect_punct(Punct::RParen));
+        if is_tuple {
+            n.kind = SyntaxKind::TupleExpr;
+        }
+        n
+    }
+
+    fn parse_array_expr(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ArrayExpr);
+        n.children.push(self.bump_child());
+        if !self.at_punct(Punct::RBracket) {
+            loop {
+                n.children.push(Child::Node(self.parse_expression()));
+                if self.at_punct(Punct::Comma) {
+                    n.children.push(self.bump_child());
+                    if self.at_punct(Punct::RBracket) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RBracket));
+        n
+    }
+
+    fn parse_struct_expr_from_path(&mut self, path: Node) -> Node {
+        let mut n = Node::new(SyntaxKind::StructExpr);
+        n.children.push(Child::Node(path));
+        n.children.push(self.bump_child());
+        while !self.eof() && !self.at_punct(Punct::RBrace) {
+            let mut f = Node::new(SyntaxKind::StructExprField);
+            f.children.push(self.expect_ident_node("expected field name"));
+            if self.at_punct(Punct::Colon) {
+                f.children.push(self.bump_child());
+                f.children.push(Child::Node(self.parse_expression()));
+            }
+            n.children.push(Child::Node(f));
+            if self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+                if self.at_punct(Punct::RBrace) {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RBrace));
+        n
+    }
+
+    fn parse_path_expr_or_macro(&mut self) -> Node {
+        let path = self.parse_path();
+        if self.at_punct(Punct::Bang) {
+            let mut n = Node::new(SyntaxKind::MacroInvocation);
+            n.children.push(Child::Node(path));
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_macro_args()));
+            return n;
+        }
+        Node {
+            kind: SyntaxKind::PathExpr,
+            children: vec![Child::Node(path)],
         }
     }
+
+    fn parse_macro_args(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::TokenTree);
+        match self.current_kind() {
+            Some(TokenKind::Punct(Punct::LParen)) => self.parse_token_tree_delimited(Punct::LParen, &mut n),
+            Some(TokenKind::Punct(Punct::LBracket)) => self.parse_token_tree_delimited(Punct::LBracket, &mut n),
+            Some(TokenKind::Punct(Punct::LBrace)) => self.parse_token_tree_delimited(Punct::LBrace, &mut n),
+            _ => {
+                n.children.push(Child::Node(self.error_node("expected macro delimiter")));
+            }
+        }
+        n
+    }
+
+    fn parse_token_tree_delimited(&mut self, open: Punct, n: &mut Node) {
+        n.children.push(self.bump_child());
+        let close = matching_close(open).expect("grammar delimiter");
+        while !self.eof() && !self.at_punct(close) {
+            match self.current_kind() {
+                Some(TokenKind::Punct(Punct::LParen)) => {
+                    let mut child = Node::new(SyntaxKind::TokenTree);
+                    self.parse_token_tree_delimited(Punct::LParen, &mut child);
+                    n.children.push(Child::Node(child));
+                }
+                Some(TokenKind::Punct(Punct::LBracket)) => {
+                    let mut child = Node::new(SyntaxKind::TokenTree);
+                    self.parse_token_tree_delimited(Punct::LBracket, &mut child);
+                    n.children.push(Child::Node(child));
+                }
+                Some(TokenKind::Punct(Punct::LBrace)) => {
+                    let mut child = Node::new(SyntaxKind::TokenTree);
+                    self.parse_token_tree_delimited(Punct::LBrace, &mut child);
+                    n.children.push(Child::Node(child));
+                }
+                _ => n.children.push(self.bump_child()),
+            }
+        }
+        n.children.push(self.expect_punct(close));
+    }
+
+    fn parse_closure_expr(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::ClosureExpr);
+        n.children.push(self.bump_child());
+        if self.at_punct(Punct::Pipe) {
+            n.children.push(self.bump_child());
+        } else {
+            loop {
+                let mut p = Node::new(SyntaxKind::ClosureParam);
+                if self.at_kw(Kw::Mut) {
+                    p.children.push(self.bump_child());
+                }
+                p.children.push(self.expect_ident_node("expected closure parameter"));
+                if self.at_punct(Punct::Colon) {
+                    p.children.push(self.bump_child());
+                    p.children.push(Child::Node(self.parse_type()));
+                }
+                n.children.push(Child::Node(p));
+                if self.at_punct(Punct::Comma) {
+                    n.children.push(self.bump_child());
+                    if self.at_punct(Punct::Pipe) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            n.children.push(self.expect_punct(Punct::Pipe));
+        }
+        if self.at_punct(Punct::Arrow) {
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_type()));
+        }
+        n.children.push(Child::Node(self.parse_expression()));
+        n
+    }
+
+    fn parse_if_expr(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::IfExpr);
+        n.children.push(self.expect_kw(Kw::If));
+        n.children.push(Child::Node(self.parse_expression()));
+        n.children.push(Child::Node(self.parse_block()));
+        if self.at_kw(Kw::Else) {
+            n.children.push(self.bump_child());
+            if self.at_kw(Kw::If) {
+                n.children.push(Child::Node(self.parse_if_expr()));
+            } else {
+                n.children.push(Child::Node(self.parse_block()));
+            }
+        }
+        n
+    }
+
+    fn parse_match_expr(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::MatchExpr);
+        n.children.push(self.expect_kw(Kw::Match));
+        n.children.push(Child::Node(self.parse_expression()));
+        n.children.push(self.expect_punct(Punct::LBrace));
+        while !self.eof() && !self.at_punct(Punct::RBrace) {
+            let mut arm = Node::new(SyntaxKind::MatchArm);
+            arm.children.push(Child::Node(self.parse_pattern()));
+            if self.at_kw(Kw::If) {
+                arm.children.push(self.bump_child());
+                arm.children.push(Child::Node(self.parse_expression()));
+            }
+            arm.children.push(self.expect_punct(Punct::FatArrow));
+            arm.children.push(Child::Node(self.parse_expression()));
+            n.children.push(Child::Node(arm));
+            if self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+            } else if !self.at_punct(Punct::RBrace) {
+                let skipped = self.recover_until(&[Punct::Comma, Punct::RBrace]);
+                if !skipped.is_empty() {
+                    n.children.push(Child::Node(self.error_node_from(skipped)));
+                }
+            }
+        }
+        n.children.push(self.expect_punct(Punct::RBrace));
+        n
+    }
+
+    fn parse_loop_expr(&mut self, _label: Option<Node>) -> Node {
+        let mut n = Node::new(SyntaxKind::LoopExpr);
+        n.children.push(self.expect_kw(Kw::Loop));
+        n.children.push(Child::Node(self.parse_block()));
+        n
+    }
+
+    fn parse_while_expr(&mut self, _label: Option<Node>) -> Node {
+        let mut n = Node::new(SyntaxKind::WhileExpr);
+        n.children.push(self.expect_kw(Kw::While));
+        n.children.push(Child::Node(self.parse_expression()));
+        n.children.push(Child::Node(self.parse_block()));
+        n
+    }
+
+    fn parse_for_expr(&mut self, _label: Option<Node>) -> Node {
+        let mut n = Node::new(SyntaxKind::ForExpr);
+        n.children.push(self.expect_kw(Kw::For));
+        n.children.push(Child::Node(self.parse_pattern()));
+        n.children.push(self.expect_kw(Kw::In));
+        n.children.push(Child::Node(self.parse_expression()));
+        n.children.push(Child::Node(self.parse_block()));
+        n
+    }
+
+    fn parse_try_expr(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::TryBlock);
+        n.children.push(self.expect_kw(Kw::Try));
+        n.children.push(Child::Node(self.parse_block()));
+        if self.at_kw(Kw::Catch) {
+            n.kind = SyntaxKind::TryExpr;
+            let mut catch = Node::new(SyntaxKind::CatchClause);
+            catch.children.push(self.bump_child());
+            catch.children.push(self.expect_punct(Punct::LParen));
+            catch.children.push(Child::Node(self.parse_pattern()));
+            catch.children.push(self.expect_punct(Punct::RParen));
+            catch.children.push(Child::Node(self.parse_block()));
+            n.children.push(Child::Node(catch));
+        }
+        n
+    }
+
+    fn parse_async_block(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::AsyncBlock);
+        n.children.push(self.expect_kw(Kw::Async));
+        if self.at_kw(Kw::Move) {
+            n.children.push(self.bump_child());
+        }
+        n.children.push(Child::Node(self.parse_block()));
+        n
+    }
+
+    fn parse_unsafe_block(&mut self) -> Node {
+        let mut n = Node::new(SyntaxKind::UnsafeBlock);
+        n.children.push(self.expect_kw(Kw::Unsafe));
+        n.children.push(Child::Node(self.parse_block()));
+        n
+    }
+
+    fn parse_pattern(&mut self) -> Node {
+        let mut lhs = self.parse_pattern_atom();
+        if self.at_punct(Punct::Pipe) {
+            let mut n = Node::new(SyntaxKind::OrPattern);
+            n.children.push(Child::Node(lhs));
+            while self.at_punct(Punct::Pipe) {
+                n.children.push(self.bump_child());
+                n.children.push(Child::Node(self.parse_pattern_atom()));
+            }
+            lhs = n;
+        }
+        if self.at_kw(Kw::If) {
+            let mut n = Node::new(SyntaxKind::GuardPattern);
+            n.children.push(Child::Node(lhs));
+            n.children.push(self.bump_child());
+            n.children.push(Child::Node(self.parse_expression()));
+            lhs = n;
+        }
+        lhs
+    }
+
+    fn parse_pattern_atom(&mut self) -> Node {
+        match self.current_kind() {
+            Some(TokenKind::Punct(Punct::Underscore)) => {
+                let mut n = Node::new(SyntaxKind::WildcardPattern);
+                n.children.push(self.bump_child());
+                n
+            }
+            Some(TokenKind::Punct(Punct::Amp)) => {
+                let mut n = Node::new(SyntaxKind::ReferencePattern);
+                n.children.push(self.bump_child());
+                if self.at_kw(Kw::Mut) {
+                    n.children.push(self.bump_child());
+                }
+                n.children.push(Child::Node(self.parse_pattern()));
+                n
+            }
+            Some(TokenKind::Punct(Punct::LParen)) => {
+                let mut n = Node::new(SyntaxKind::TuplePattern);
+                n.children.push(self.bump_child());
+                if !self.at_punct(Punct::RParen) {
+                    loop {
+                        n.children.push(Child::Node(self.parse_pattern()));
+                        if self.at_punct(Punct::Comma) {
+                            n.children.push(self.bump_child());
+                            if self.at_punct(Punct::RParen) {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                n.children.push(self.expect_punct(Punct::RParen));
+                n
+            }
+            Some(TokenKind::Punct(Punct::LBracket)) => {
+                let mut n = Node::new(SyntaxKind::SlicePattern);
+                n.children.push(self.bump_child());
+                if !self.at_punct(Punct::RBracket) {
+                    loop {
+                        n.children.push(Child::Node(self.parse_pattern()));
+                        if self.at_punct(Punct::Comma) {
+                            n.children.push(self.bump_child());
+                            if self.at_punct(Punct::RBracket) {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                n.children.push(self.expect_punct(Punct::RBracket));
+                n
+            }
+            Some(TokenKind::Punct(Punct::Apostrophe)) => self.parse_lifetime(),
+            Some(TokenKind::Ident) => {
+                let path = self.parse_path();
+                if self.at_punct(Punct::LBrace) {
+                    let mut n = Node::new(SyntaxKind::StructPattern);
+                    n.children.push(Child::Node(path));
+                    n.children.push(self.bump_child());
+                    while !self.eof() && !self.at_punct(Punct::RBrace) {
+                        let mut f = Node::new(SyntaxKind::PatternField);
+                        f.children.push(self.expect_ident_node("expected pattern field"));
+                        if self.at_punct(Punct::Colon) {
+                            f.children.push(self.bump_child());
+                            f.children.push(Child::Node(self.parse_pattern()));
+                        }
+                        n.children.push(Child::Node(f));
+                        if self.at_punct(Punct::Comma) {
+                            n.children.push(self.bump_child());
+                            if self.at_punct(Punct::RBrace) {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    n.children.push(self.expect_punct(Punct::RBrace));
+                    n
+                } else if self.at_punct(Punct::LParen) {
+                    let mut n = Node::new(SyntaxKind::EnumPattern);
+                    n.children.push(Child::Node(path));
+                    n.children.push(self.bump_child());
+                    if !self.at_punct(Punct::RParen) {
+                        loop {
+                            n.children.push(Child::Node(self.parse_pattern()));
+                            if self.at_punct(Punct::Comma) {
+                                n.children.push(self.bump_child());
+                                if self.at_punct(Punct::RParen) {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    n.children.push(self.expect_punct(Punct::RParen));
+                    n
+                } else {
+                    let mut n = Node::new(SyntaxKind::IdentifierPattern);
+                    n.children.push(Child::Node(path));
+                    if self.at_punct(Punct::At) {
+                        n.kind = SyntaxKind::BindingPattern;
+                        n.children.push(self.bump_child());
+                        n.children.push(Child::Node(self.parse_pattern()));
+                    }
+                    n
+                }
+            }
+            Some(
+                TokenKind::Int
+                | TokenKind::Float
+                | TokenKind::Char
+                | TokenKind::Byte
+                | TokenKind::String
+                | TokenKind::RawString
+                | TokenKind::InterpolatedString,
+            )
+            | Some(TokenKind::Keyword(Kw::True | Kw::False)) => {
+                let mut n = Node::new(SyntaxKind::LiteralPattern);
+                n.children.push(Child::Node(Node::new(SyntaxKind::LiteralExpr).with_token(self.bump_index())));
+                n
+            }
+            _ => self.error_node("expected pattern"),
+        }
+    }
+
     fn emit_node(&self, b: &mut GreenNodeBuilder, n: &Node) {
         b.start_node(n.kind.into());
         for child in &n.children {
