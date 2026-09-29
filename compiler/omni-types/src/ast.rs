@@ -43,6 +43,8 @@ pub enum BinOp {
     Rem,
     BitAnd,
     BitOr,
+    LogicalAnd,
+    LogicalOr,
     BitXor,
     Shl,
     Shr,
