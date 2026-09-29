@@ -1059,6 +1059,97 @@ impl<'a> FnMirBuilder<'a> {
                 ));
                 Ok(Some((crate::ir::Operand::Copy(place), array_ty)))
             }
+            omni_types::ast::Expr::Field { expr, field } => {
+                let (base, base_ty) = self
+                    .lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: field base is Unit".to_string())?;
+                let result_ty = match self.tcx.get(base_ty).clone() {
+                    TyKind::Struct(name, args) => {
+                        let def = self.struct_defs.get(&name).ok_or_else(|| format!(
+                            "MIR lowering error: unknown struct '{}'",
+                            name
+                        ))?;
+                        let mut found = None;
+                        for f in &def.fields {
+                            if f.name == *field {
+                                found = Some(self.tcx.lower_type_spec(&f.ty, self.subst));
+                                break;
+                            }
+                        }
+                        found.ok_or_else(|| format!(
+                            "MIR lowering error: field '{}' not found on '{}'",
+                            field, name
+                        ))?
+                    }
+                    TyKind::Tuple(types) => {
+                        let index = field.parse::<usize>().map_err(|_| {
+                            "MIR lowering error: tuple field must be a numeric index".to_string()
+                        })?;
+                        *types.get(index).ok_or_else(|| {
+                            format!("MIR lowering error: tuple field index {} out of bounds", index)
+                        })?
+                    }
+                    _ => return Err(format!(
+                        "MIR lowering error: field projection requires struct or tuple, found {:?}",
+                        self.tcx.get(base_ty)
+                    )),
+                };
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: field has no live block".to_string())?;
+                let local = self.new_temp(Some("_field_tmp".to_string()), result_ty);
+                let place = crate::ir::Place { local };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Field {
+                        base,
+                        field: field.clone(),
+                        ty: result_ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
+            }
+            omni_types::ast::Expr::Index { expr, index } => {
+                let (base, base_ty) = self
+                    .lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: index base is Unit".to_string())?;
+                let (index_op, index_ty) = self
+                    .lower_expr(index)?
+                    .ok_or_else(|| "MIR lowering error: index is Unit".to_string())?;
+                let int_ty = self.tcx.intern(TyKind::Int);
+                if index_ty != int_ty {
+                    return Err(format!(
+                        "MIR lowering error: index expression must be Int, found {:?}",
+                        index_ty
+                    ));
+                }
+                let result_ty = match self.tcx.get(base_ty).clone() {
+                    TyKind::Array(elem, _) => elem,
+                    TyKind::Tuple(types) => {
+                        let position = match index.as_ref() {
+                            omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n)) if *n >= 0 => *n as usize,
+                            _ => return Err("MIR lowering error: tuple index must be a constant Int".to_string()),
+                        };
+                        *types.get(position).ok_or_else(|| {
+                            format!("MIR lowering error: tuple index {} out of bounds", position)
+                        })?
+                    }
+                    other => return Err(format!(
+                        "MIR lowering error: indexing requires Array or Tuple, found {:?}",
+                        other
+                    )),
+                };
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: index has no live block".to_string())?;
+                let local = self.new_temp(Some("_index_tmp".to_string()), result_ty);
+                let place = crate::ir::Place { local };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Index {
+                        base,
+                        index: index_op,
+                        ty: result_ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
+            }
             omni_types::ast::Expr::Struct { .. } => {
                 Err("MIR lowering error: struct literal construction requires an aggregate storage/layout contract".into())
             }
