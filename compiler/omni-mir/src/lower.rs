@@ -1589,9 +1589,9 @@ impl<'a> FnMirBuilder<'a> {
                 let bool_ty = self.tcx.intern(TyKind::Bool);
                 let int_ty = self.tcx.intern(TyKind::Int);
                 match op {
-                    omni_types::ast::UnOp::Neg | omni_types::ast::UnOp::BitNot if inner_ty != int_ty => {
+                    omni_types::ast::UnOp::Neg if inner_ty != int_ty && inner_ty != self.tcx.intern(TyKind::Float) => {
                         return Err(format!(
-                            "MIR lowering error: integer unary operator requires Int, found {:?}",
+                            "MIR lowering error: unary operator requires Int or Float for '-', found {:?}",
                             inner_ty
                         ));
                     }
