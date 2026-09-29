@@ -249,10 +249,14 @@ impl TypeChecker {
 
         // If trait bounds are specified on this function, verify them against concrete substitutions
         if !fn_def.bounds.is_empty() {
-            if let Some(ref checker) = self.trait_checker {
-                checker(&fn_def.bounds, &derived_subst, &self.tcx)
-                    .map_err(TypeError::TraitObligationUnsatisfied)?;
-            }
+            let Some(ref checker) = self.trait_checker else {
+                return Err(TypeError::TraitObligationUnsatisfied(
+                    "trait bounds cannot be discharged because no trait obligation checker is attached"
+                        .to_string(),
+                ));
+            };
+            checker(&fn_def.bounds, &derived_subst, &self.tcx)
+                .map_err(TypeError::TraitObligationUnsatisfied)?;
         }
 
         // Verify capability requirements at call site
