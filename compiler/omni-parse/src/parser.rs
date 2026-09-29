@@ -2071,7 +2071,6 @@ impl<'a> Parser<'a> {
     /// Consume one token or return the deterministic zero-width missing-token
     /// representation. This prevents EOF from ever being aliased as a missing
     /// source-bearing token.
-false
 
     /// Consume an expected opening delimiter. Pair identity is delegated to
     /// the single delimiter-pair authority in precedence.rs.
