@@ -63,6 +63,9 @@ impl MonomorphizedProgram {
             TypeSpec::Array(elem, _) | TypeSpec::Range(elem) => {
                 Self::verify_type_spec_concrete(elem, enclosing_fn)
             }
+            TypeSpec::Reference { inner, .. } => {
+                Self::verify_type_spec_concrete(inner, enclosing_fn)
+            }
             TypeSpec::Fn(params, ret) => {
                 for param in params {
                     Self::verify_type_spec_concrete(param, enclosing_fn)?;
