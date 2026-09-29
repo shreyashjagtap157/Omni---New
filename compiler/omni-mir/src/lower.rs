@@ -972,6 +972,12 @@ impl<'a> FnMirBuilder<'a> {
                 }
                 Ok(last)
             }
+            omni_types::ast::Expr::Struct { .. } => {
+                Err("MIR lowering error: struct literal construction requires an aggregate storage/layout contract".into())
+            }
+            omni_types::ast::Expr::EnumVariant { .. } => {
+                Err("MIR lowering error: enum variant construction requires tagged aggregate storage/layout".into())
+            }
             omni_types::ast::Expr::Call { func, generic_args: _, args } => {
                 let (param_tys, ret_ty) = self.fn_sigs.get(func).cloned().ok_or_else(|| {
                     format!(
