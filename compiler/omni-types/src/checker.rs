@@ -446,6 +446,36 @@ impl TypeChecker {
                 let elem_ty = self.infer_expr(start, env, local_vars)?;
                 Ok(self.tcx.intern(TyKind::Range(elem_ty)))
             }
+            Expr::If { condition, then_branch, else_branch } => {
+                let condition_ty = self.infer_expr(condition, env, local_vars)?;
+                let bool_ty = self.tcx.intern(TyKind::Bool);
+                if condition_ty != bool_ty {
+                    return Err(TypeError::MismatchedTypes {
+                        expected: "bool".to_string(),
+                        found: self.tcx.mangle(condition_ty),
+                    });
+                }
+                let then_ty = self.infer_expr(then_branch, env, local_vars)?;
+                if let Some(else_expr) = else_branch {
+                    let else_ty = self.infer_expr(else_expr, env, local_vars)?;
+                    if then_ty != else_ty {
+                        return Err(TypeError::MismatchedTypes {
+                            expected: self.tcx.mangle(then_ty),
+                            found: self.tcx.mangle(else_ty),
+                        });
+                    }
+                    Ok(then_ty)
+                } else {
+                    let unit_ty = self.tcx.intern(TyKind::Unit);
+                    if then_ty != unit_ty {
+                        return Err(TypeError::MismatchedTypes {
+                            expected: self.tcx.mangle(unit_ty),
+                            found: self.tcx.mangle(then_ty),
+                        });
+                    }
+                    Ok(unit_ty)
+                }
+            }
             Expr::Match { expr, arms } => {
                 let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
 
@@ -596,6 +626,14 @@ impl TypeChecker {
                 let s_eff = self.infer_expr_effects(start, env, local_vars)?;
                 let e_eff = self.infer_expr_effects(end, env, local_vars)?;
                 Ok(s_eff.union(&e_eff))
+            }
+            Expr::If { condition, then_branch, else_branch } => {
+                let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
+                eff = eff.union(&self.infer_expr_effects(then_branch, env, local_vars)?);
+                if let Some(e) = else_branch {
+                    eff = eff.union(&self.infer_expr_effects(e, env, local_vars)?);
+                }
+                Ok(eff)
             }
             Expr::Match { expr, arms } => {
                 let mut eff = self.infer_expr_effects(expr, env, local_vars)?;
