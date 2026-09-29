@@ -46,7 +46,7 @@ use omni_lex::{Scanner, Span, Token, TokenKind};
 use omni_syntax::{SyntaxKind, SyntaxNode};
 use rowan::GreenNodeBuilder;
 
-use crate::precedence::{matching_close, matching_open};
+use crate::precedence::{binding_power, matching_close, matching_open};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -327,7 +327,7 @@ impl<'a> Parser<'a> {
     fn parse_expr_bp(&mut self, min_bp: u8) -> Node {
         let mut lhs = self.parse_prefix();
         loop {
-            if self.at_punct(Punct::LParen) && 7 >= min_bp {
+            if self.at_punct(Punct::LParen) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
                 let mut call = Node::new(SyntaxKind::CallExpr);
                 call.children.push(Child::Node(lhs));
                 call.children.push(self.bump_child());
@@ -363,7 +363,7 @@ impl<'a> Parser<'a> {
         ) {
             let mut n = Node::new(SyntaxKind::UnaryExpr);
             n.children.push(self.bump_child());
-            n.children.push(Child::Node(self.parse_expr_bp(6)));
+            n.children.push(Child::Node(self.parse_expr_bp(crate::precedence::UNARY_BINDING_POWER)));
             return n;
         }
         if self.at_punct(Punct::LParen) {
@@ -392,17 +392,36 @@ impl<'a> Parser<'a> {
             _ => self.error_node("expected expression"),
         }
     }
+    /// Return the precedence entry for the subset of binary operators the
+    /// current parser actually implements. The numeric precedence itself lives
+    /// only in `precedence::binding_power`; widening this match is the deliberate
+    /// point at which a later grammar wave adds another binary production.
     fn infix(&self) -> Option<(Punct, u8, u8)> {
-        match self.current_kind() {
-            Some(TokenKind::Punct(Punct::Eq)) => Some((Punct::Eq, 1, 1)),
-            Some(TokenKind::Punct(Punct::Pipe)) => Some((Punct::Pipe, 2, 3)),
-            Some(TokenKind::Punct(Punct::EqEq | Punct::NotEq)) => Some((Punct::EqEq, 3, 4)),
-            Some(TokenKind::Punct(Punct::Lt | Punct::Le | Punct::Gt | Punct::Ge)) => {
-                Some((Punct::Lt, 4, 5))
-            }
-            Some(TokenKind::Punct(Punct::Plus | Punct::Minus)) => Some((Punct::Plus, 5, 6)),
-            Some(TokenKind::Punct(Punct::Star | Punct::Slash)) => Some((Punct::Star, 7, 8)),
-            _ => None,
+        let TokenKind::Punct(p) = self.current_kind()? else {
+            return None;
+        };
+        if !matches!(
+            p,
+            Punct::Eq
+                | Punct::Pipe
+                | Punct::EqEq
+                | Punct::NotEq
+                | Punct::Lt
+                | Punct::Le
+                | Punct::Gt
+                | Punct::Ge
+                | Punct::Plus
+                | Punct::Minus
+                | Punct::Star
+                | Punct::Slash
+        ) {
+            return None;
+        }
+        let (left_bp, right_bp) = binding_power(TokenKind::Punct(p));
+        if left_bp == crate::precedence::NO_BINDING.0 {
+            None
+        } else {
+            Some((p, left_bp, right_bp))
         }
     }
     fn emit_node(&self, b: &mut GreenNodeBuilder, n: &Node) {
