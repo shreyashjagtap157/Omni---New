@@ -405,7 +405,8 @@ fn test_mir_semantic_gate() {
 
 #[test]
 fn test_pattern_usefulness_and_exhaustiveness_bool_and_option() {
-    use crate::ast::{MatchArm, Pattern};
+    use crate::ast::{MatchArm, Pattern,
+    UnOp};
 
     let mut checker = TypeChecker::new();
     let bool_ty = checker.tcx.intern(TyKind::Bool);
@@ -892,7 +893,7 @@ fn test_reference_and_dereference_types() {
     locals.insert("x".to_string(), checker.tcx.intern(TyKind::Int));
 
     let shared = Expr::Unary {
-        op: BinTestUnOp::BorrowShared,
+        op: UnOp::BorrowShared,
         expr: Box::new(Expr::Var("x".to_string())),
     };
     let shared_ty = checker
@@ -904,7 +905,7 @@ fn test_reference_and_dereference_types() {
     ));
 
     let mutable = Expr::Unary {
-        op: BinTestUnOp::BorrowMut,
+        op: UnOp::BorrowMut,
         expr: Box::new(Expr::Var("x".to_string())),
     };
     let mutable_ty = checker
@@ -913,7 +914,7 @@ fn test_reference_and_dereference_types() {
     assert!(matches!(checker.tcx.get(mutable_ty), TyKind::Reference { mutable: true, .. }));
 
     let deref = Expr::Unary {
-        op: BinTestUnOp::Deref,
+        op: UnOp::Deref,
         expr: Box::new(shared),
     };
     assert_eq!(
