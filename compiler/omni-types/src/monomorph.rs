@@ -386,6 +386,15 @@ impl<'a> Monomorphizer<'a> {
                 let mono_val = self.monomorphize_expr(value, env, local_vars)?;
                 Ok(Expr::Assign { target: Box::new(mono_target), value: Box::new(mono_val) })
             }
+            Expr::CompoundAssign { op, target, value } => {
+                let mono_target = self.monomorphize_expr(target, env, local_vars)?;
+                let mono_val = self.monomorphize_expr(value, env, local_vars)?;
+                Ok(Expr::CompoundAssign {
+                    op: *op,
+                    target: Box::new(mono_target),
+                    value: Box::new(mono_val),
+                })
+            }
             Expr::Block(stmts) => {
                 let mut mono_stmts = Vec::new();
                 for stmt in stmts {
