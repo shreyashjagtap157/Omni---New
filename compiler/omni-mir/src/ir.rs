@@ -120,6 +120,7 @@ pub enum Rvalue {
     Use(Operand),
     BinaryOp(BinOp, Operand, Operand),
     UnaryOp(UnOp, Operand),
+    Cast { operand: Operand, from: Ty, to: Ty },
 }
 
 /// A literal scalar value in MIR.
