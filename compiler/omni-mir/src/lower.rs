@@ -1434,6 +1434,56 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_construction_is_rejected_at_mir_boundary() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "struct_ctor".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Struct {
+                    name: "Pair".to_string(),
+                    generic_args: vec![],
+                    fields: vec![
+                        ("first".to_string(), Expr::Literal(Lit::Int(1))),
+                        ("second".to_string(), Expr::Literal(Lit::Int(2))),
+                    ],
+                },
+            }],
+        };
+        let err = ctx.lower_monomorphized_program(&prog).expect_err("aggregate construction must fail closed");
+        assert!(err.contains("struct literal construction requires an aggregate storage/layout contract"));
+    }
+
+    #[test]
+    fn enum_construction_is_rejected_at_mir_boundary() {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "enum_ctor".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::EnumVariant {
+                    enum_name: "Option".to_string(),
+                    variant: "None".to_string(),
+                    generic_args: vec![TypeSpec::Int],
+                    args: vec![],
+                },
+            }],
+        };
+        let err = ctx.lower_monomorphized_program(&prog).expect_err("enum construction must fail closed");
+        assert!(err.contains("enum variant construction requires tagged aggregate storage/layout"));
+    }
+
+    #[test]
     fn test_mir_lowering_concrete_gate_pass() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
