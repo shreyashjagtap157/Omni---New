@@ -752,15 +752,24 @@ mod tests {
     }
 
     #[test]
-    fn lifetime_syntax_is_lossless_but_remains_diagnosed_until_contract_is_resolved() {
+    fn lifetime_syntax_is_lexed_as_apostrophe_plus_identifier_but_not_parsed_yet() {
         let src = "fn f(x: &'a T) { return 1; }";
         let mut p = Parser::from_source(src);
         let r = p.parse_source();
-        assert!(!r.is_ok(), "the current lexer Error token must not be silently reinterpreted");
+        assert!(!r.is_ok(), "lifetime grammar is not implemented in this parser wave");
         assert_eq!(r.syntax().text().to_string(), src);
         assert!(r.syntax().descendants_with_tokens().any(|e| {
-            matches!(e, SyntaxElement::Token(t) if t.kind() == K::ErrorToken)
+            matches!(e, SyntaxElement::Token(t) if t.kind() == K::Punct && t.text() == "'")
         }));
+        assert!(r.syntax().descendants_with_tokens().any(|e| {
+            matches!(e, SyntaxElement::Token(t) if t.kind() == K::Ident && t.text() == "a")
+        }));
+        assert!(
+            !r.syntax().descendants_with_tokens().any(|e| {
+                matches!(e, SyntaxElement::Token(t) if t.kind() == K::ErrorToken && t.text() == "'a")
+            }),
+            "lifetime spelling must not survive as a lexical ErrorToken"
+        );
     }
 
     #[test]
