@@ -248,10 +248,11 @@ fn semantic_functions_from_cst(
             .find(|n| n.kind() == omni_syntax::SyntaxKind::Block)
             .ok_or_else(|| format!("Semantic frontend error: function '{}' has no body", name))?;
 
+        let bounds = bounds_from_fn_cst(&node, &type_params)?;
         functions.push(GenericFnDef {
             name,
             type_params,
-            bounds: Vec::new(),
+            bounds,
             params,
             return_type,
             effects: omni_effects::EffectRow::pure(),
@@ -261,6 +262,94 @@ fn semantic_functions_from_cst(
     }
 
     Ok(functions)
+}
+
+fn bound_trait_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
+    node.descendants()
+        .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+        .last()
+        .and_then(|n| direct_name(&n))
+}
+
+fn bounds_from_fn_cst(
+    node: &omni_syntax::SyntaxNode,
+    type_params: &[String],
+) -> Result<Vec<(String, omni_types::ast::TraitBound)>, String> {
+    let generic_names = type_params.iter().cloned().collect::<HashSet<_>>();
+    let mut bounds = Vec::new();
+
+    if let Some(generic_params) = node
+        .children()
+        .find(|n| n.kind() == omni_syntax::SyntaxKind::GenericParams)
+    {
+        for param in generic_params
+            .children()
+            .filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeParam)
+        {
+            let name = direct_name(&param)
+                .ok_or_else(|| "Semantic frontend error: type parameter has no name".to_string())?;
+            for bound in param.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::TypeBound) {
+                let trait_refs = bound
+                    .descendants()
+                    .filter(|n| n.kind() == omni_syntax::SyntaxKind::TraitRef)
+                    .collect::<Vec<_>>();
+                if trait_refs.is_empty() {
+                    return Err(format!(
+                        "Semantic frontend error: type parameter '{}' uses an unsupported non-trait bound",
+                        name
+                    ));
+                }
+                for trait_ref in trait_refs {
+                    let trait_name = bound_trait_name(&trait_ref).ok_or_else(|| {
+                        format!("Semantic frontend error: type parameter '{}' has malformed trait bound", name)
+                    })?;
+                    bounds.push((name.clone(), omni_types::ast::TraitBound::Positive(trait_name)));
+                }
+            }
+        }
+    }
+
+    if let Some(where_clause) = node
+        .children()
+        .find(|n| n.kind() == omni_syntax::SyntaxKind::WhereClause)
+    {
+        for predicate in where_clause
+            .children()
+            .filter(|n| n.kind() == omni_syntax::SyntaxKind::WherePredicate)
+        {
+            let target = predicate
+                .children()
+                .next()
+                .and_then(|n| {
+                    n.descendants()
+                        .filter(|d| d.kind() == omni_syntax::SyntaxKind::PathSegment)
+                        .last()
+                        .and_then(|seg| direct_name(&seg))
+                })
+                .ok_or_else(|| "Semantic frontend error: where predicate has no target type".to_string())?;
+            if !generic_names.contains(&target) {
+                continue;
+            }
+            let trait_refs = predicate
+                .descendants()
+                .filter(|n| n.kind() == omni_syntax::SyntaxKind::TraitRef)
+                .collect::<Vec<_>>();
+            if trait_refs.is_empty() {
+                return Err(format!(
+                    "Semantic frontend error: where predicate for '{}' has no supported trait bound",
+                    target
+                ));
+            }
+            for trait_ref in trait_refs {
+                let trait_name = bound_trait_name(&trait_ref).ok_or_else(|| {
+                    format!("Semantic frontend error: where predicate for '{}' is malformed", target)
+                })?;
+                bounds.push((target.clone(), omni_types::ast::TraitBound::Positive(trait_name)));
+            }
+        }
+    }
+
+    Ok(bounds)
 }
 
 fn label_from_cst(node: &omni_syntax::SyntaxNode) -> Option<String> {
