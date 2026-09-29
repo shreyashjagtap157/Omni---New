@@ -537,11 +537,21 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::BinOp::Eq
                     | omni_types::ast::BinOp::Ne
                     | omni_types::ast::BinOp::Lt
-                    | omni_types::ast::BinOp::Gt => self.tcx.intern(TyKind::Bool),
+                    | omni_types::ast::BinOp::Le
+                    | omni_types::ast::BinOp::Gt
+                    | omni_types::ast::BinOp::Ge
+                    | omni_types::ast::BinOp::LogicalAnd
+                    | omni_types::ast::BinOp::LogicalOr => self.tcx.intern(TyKind::Bool),
                     omni_types::ast::BinOp::Add
                     | omni_types::ast::BinOp::Sub
                     | omni_types::ast::BinOp::Mul
-                    | omni_types::ast::BinOp::Div => lhs_ty,
+                    | omni_types::ast::BinOp::Div
+                    | omni_types::ast::BinOp::Rem
+                    | omni_types::ast::BinOp::BitAnd
+                    | omni_types::ast::BinOp::BitOr
+                    | omni_types::ast::BinOp::BitXor
+                    | omni_types::ast::BinOp::Shl
+                    | omni_types::ast::BinOp::Shr => lhs_ty,
                 };
                 let curr_block = self.current_block.ok_or_else(|| {
                     "MIR lowering error: binary expression has no live continuation block"
@@ -748,6 +758,9 @@ impl<'a> FnMirBuilder<'a> {
                     crate::ir::Rvalue::BinaryOp(mir_op, target_op, value_op),
                 ));
                 Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
+            }
+            omni_types::ast::Expr::If { condition, then_branch, else_branch } => {
+                self.lower_if_expression(condition, then_branch, else_branch.as_deref())
             }
             omni_types::ast::Expr::Match { expr, arms } => {
                 self.lower_match_expression(expr, arms)
