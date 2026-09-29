@@ -265,13 +265,23 @@ impl Resolver {
                     }
                 }
             }
-            SyntaxKind::ModuleDecl => {
-                for c in node.children() {
-                    match c.kind() {
-                        SyntaxKind::FnDef => self.resolve_fn(c, out, errors),
-                        SyntaxKind::ConstDef | SyntaxKind::StaticDef => self.resolve_node(&c, out, errors),
-                        _ => {}
+            SyntaxKind::MatchExpr => {
+                let mut children = node.children();
+                if let Some(scrutinee) = children.next() {
+                    self.resolve_node(&scrutinee, out, errors);
+                }
+                for arm in children.filter(|n| n.kind() == SyntaxKind::MatchArm) {
+                    self.push_rib();
+                    if let Some(pattern) = arm.children().next() {
+                        self.declare_pattern_bindings(&pattern, out, errors);
                     }
+                    let arm_nodes = arm.children().collect::<Vec<_>>();
+                    for child in arm_nodes.into_iter().skip(1) {
+                        if child.kind() != SyntaxKind::Lifetime {
+                            self.resolve_node(&child, out, errors);
+                        }
+                    }
+                    self.pop_rib();
                 }
             }
             SyntaxKind::StructDef
@@ -290,6 +300,7 @@ impl Resolver {
             | SyntaxKind::TypeBound
             | SyntaxKind::TraitRef
             | SyntaxKind::TypeArgs
+            | SyntaxKind::ConstArg
             | SyntaxKind::Lifetime
             | SyntaxKind::LifetimeArg
             | SyntaxKind::WhereClause
@@ -301,6 +312,54 @@ impl Resolver {
             }
         }
     }
+    fn declare_pattern_bindings(
+        &mut self,
+        pattern: &SyntaxNode,
+        out: &mut ResolvedNames,
+        errors: &mut Vec<ResolveError>,
+    ) {
+        match pattern.kind() {
+            SyntaxKind::IdentifierPattern | SyntaxKind::BindingPattern => {
+                if let Some(name) = direct_name(pattern) {
+                    self.declare_and_record(&name, out, true, errors);
+                }
+                for child in pattern.children() {
+                    if matches!(child.kind(), SyntaxKind::PatternField) {
+                        self.declare_pattern_bindings(&child, out, errors);
+                    }
+                }
+            }
+            SyntaxKind::TuplePattern
+            | SyntaxKind::SlicePattern
+            | SyntaxKind::OrPattern
+            | SyntaxKind::ReferencePattern => {
+                for child in pattern.children() {
+                    self.declare_pattern_bindings(&child, out, errors);
+                }
+            }
+            SyntaxKind::StructPattern | SyntaxKind::EnumPattern => {
+                for child in pattern.children() {
+                    if !matches!(child.kind(), SyntaxKind::Path | SyntaxKind::PathSegment) {
+                        self.declare_pattern_bindings(&child, out, errors);
+                    }
+                }
+            }
+            SyntaxKind::PatternField => {
+                if let Some(sub) = pattern.children().nth(1) {
+                    self.declare_pattern_bindings(&sub, out, errors);
+                } else if let Some(name) = direct_name(pattern) {
+                    self.declare_and_record(&name, out, true, errors);
+                }
+            }
+            SyntaxKind::RangePattern | SyntaxKind::LiteralPattern | SyntaxKind::WildcardPattern => {}
+            _ => {
+                for child in pattern.children() {
+                    self.declare_pattern_bindings(&child, out, errors);
+                }
+            }
+        }
+    }
+
     fn declare_and_record(
         &mut self,
         node: &SyntaxNode,
