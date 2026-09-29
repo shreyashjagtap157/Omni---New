@@ -180,6 +180,102 @@ impl<'a> FnMirBuilder<'a> {
         }
     }
 
+    fn lower_if_expression(
+        &mut self,
+        condition: &omni_types::ast::Expr,
+        then_branch: &omni_types::ast::Expr,
+        else_branch: Option<&omni_types::ast::Expr>,
+    ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+        let (cond_op, cond_ty) = self
+            .lower_expr(condition)?
+            .ok_or_else(|| "MIR lowering error: if condition is Unit".to_string())?;
+        let bool_ty = self.tcx.intern(TyKind::Bool);
+        if cond_ty != bool_ty {
+            return Err(format!("MIR lowering error: if condition has type {:?}, expected Bool", cond_ty));
+        }
+        let entry = self.current_block.ok_or_else(|| "MIR lowering error: if has no live entry block".to_string())?;
+        let then_block = self.new_block();
+        let else_block = self.new_block();
+        let join_block = self.new_block();
+        self.blocks[entry].terminator = Some(crate::ir::Terminator::SwitchInt {
+            discr: cond_op,
+            targets: vec![(1, then_block)],
+            otherwise: else_block,
+        });
+
+        self.current_block = Some(then_block);
+        let then_result = self.lower_expr(then_branch)?;
+        let then_end = self.current_block;
+
+        let else_result = if let Some(else_expr) = else_branch {
+            self.current_block = Some(else_block);
+            let result = self.lower_expr(else_expr)?;
+            let end = self.current_block;
+            (result, end)
+        } else {
+            (None, Some(else_block))
+        };
+
+        let result_ty = match (&then_result, &else_result.0) {
+            (Some((_, then_ty)), Some((_, else_ty))) if then_ty == else_ty => *then_ty,
+            (None, None) => bool_ty,
+            (Some(_), None) | (None, Some(_)) => {
+                return Err("MIR lowering error: non-unit if branch requires an else value".into());
+            }
+            (Some((_, a)), Some((_, b))) => {
+                return Err(format!("MIR lowering error: if branches have types {:?} and {:?}", a, b));
+            }
+        };
+
+        let result_local = if result_ty == self.tcx.intern(TyKind::Unit) {
+            None
+        } else {
+            Some(self.new_temp(Some("_if_tmp".to_string()), result_ty))
+        };
+
+        if let (Some((operand, _)), Some(end)) = (&then_result, then_end) {
+            let place = result_local.map(|l| crate::ir::Place { local: l });
+            if let Some(place) = place {
+                self.blocks[end].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Use(operand.clone()),
+                ));
+            }
+            if self.blocks[end].terminator.is_none() {
+                self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+            }
+        } else if let Some(end) = then_end {
+            if self.blocks[end].terminator.is_none() {
+                self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+            }
+        }
+
+        if let (Some((operand, _)), Some(end)) = (&else_result.0, else_result.1) {
+            let place = result_local.map(|l| crate::ir::Place { local: l });
+            if let Some(place) = place {
+                self.blocks[end].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Use(operand.clone()),
+                ));
+            }
+            if self.blocks[end].terminator.is_none() {
+                self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+            }
+        } else if let Some(end) = else_result.1 {
+            if self.blocks[end].terminator.is_none() {
+                self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+            }
+        }
+
+        self.current_block = Some(join_block);
+        if let Some(local) = result_local {
+            let place = crate::ir::Place { local };
+            Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn lower_short_circuit(
         &mut self,
         op: omni_types::ast::BinOp,
