@@ -292,63 +292,51 @@ impl<'a> FnMirBuilder<'a> {
         label: Option<&str>,
         value: Option<&omni_types::ast::Expr>,
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
-        let loop_index = if let Some(label) = label {
-            self.loops
-                .iter()
-                .rposition(|ctx| ctx.label.as_deref() == Some(label.as_str()))
-                .ok_or_else(|| format!("MIR lowering error: unknown break label '{}'", label))?
+        let value_result = if let Some(expr) = value {
+            Some(
+                self.lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: break value is Unit".to_string())?,
+            )
         } else {
-            self.loops
-                .len()
-                .checked_sub(1)
-                .ok_or_else(|| "MIR lowering error: break outside loop".to_string())?
+            None
         };
-        let break_block = self.loops[loop_index].break_block;
-        let current = self
+        let block = self
             .current_block
             .ok_or_else(|| "MIR lowering error: break has no live block".to_string())?;
+        let loop_index = self.find_loop_index(label)?;
+        let value_ty = value_result
+            .as_ref()
+            .map(|(_, ty)| *ty)
+            .unwrap_or_else(|| self.tcx.intern(TyKind::Unit));
 
-        if let Some(value) = value {
-            let (operand, ty) = self
-                .lower_expr(value)?
-                .ok_or_else(|| "MIR lowering error: break value is Unit".to_string())?;
-            let context = &mut self.loops[loop_index];
-            if let Some(expected) = context.result_ty {
-                if expected != ty {
-                    return Err(format!(
-                        "MIR lowering error: break values have types {:?} and {:?}",
-                        expected, ty
-                    ));
-                }
-            } else {
-                let local = self.new_temp(Some("_loop_result".to_string()), ty);
-                let context = &mut self.loops[loop_index];
-                context.result_ty = Some(ty);
-                context.result_local = Some(local);
+        let break_target = self.loop_stack[loop_index].break_target;
+        if let Some(existing) = self.loop_stack[loop_index].break_ty {
+            if existing != value_ty {
+                return Err(format!(
+                    "MIR lowering error: break type {:?} does not match loop break type {:?}",
+                    value_ty, existing
+                ));
             }
-            let local = self.loops[loop_index]
-                .result_local
-                .expect("value break has result local");
-            self.blocks[current].statements.push(crate::ir::Statement::Assign(
-                crate::ir::Place { local },
-                crate::ir::Rvalue::Use(operand),
-            ));
         } else {
-            let context = &mut self.loops[loop_index];
-            let unit_ty = self.tcx.intern(TyKind::Unit);
-            if let Some(expected) = context.result_ty {
-                if expected != unit_ty {
-                    return Err(format!(
-                        "MIR lowering error: bare break conflicts with break type {:?}",
-                        expected
-                    ));
-                }
-            } else {
-                context.result_ty = Some(unit_ty);
-            }
+            self.loop_stack[loop_index].break_ty = Some(value_ty);
         }
 
-        self.blocks[current].terminator = Some(crate::ir::Terminator::Goto(break_block));
+        if let Some((operand, _)) = value_result {
+            let result_local = if let Some(local) = self.loop_stack[loop_index].result_local {
+                local
+            } else {
+                let local = self.new_temp(Some("_loop_result".to_string()), value_ty);
+                self.loop_stack[loop_index].result_local = Some(local);
+                local
+            };
+            let place = crate::ir::Place { local: result_local };
+            self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                place,
+                crate::ir::Rvalue::Use(operand),
+            ));
+        }
+
+        self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(break_target));
         self.current_block = None;
         Ok(None)
     }
