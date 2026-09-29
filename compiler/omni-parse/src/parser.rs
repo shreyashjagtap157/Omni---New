@@ -2177,6 +2177,64 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn edition1_items_types_and_nested_generics_parse() {
+        for src in [
+            "struct Pair<T> { pub first: T, second: i32 }",
+            "enum Option<T> { Some(T), None }",
+            "type Id<T> = fn(T) -> T",
+            "const N: i32 = 3;",
+            "static mut N: i32 = 3;",
+            "use foo::{bar, baz as qux};",
+            "extern crate foo as f;",
+            "mod inner { fn nested() {} }",
+            "fn f<T: Foo<Bar<Baz>>>() { let x: &'a T = y; return x; }",
+        ] {
+            let mut p = Parser::from_source(src);
+            let r = p.parse_source();
+            assert!(r.is_ok(), "{src:?}: {:?}", r.diagnostics);
+            assert_eq!(r.syntax().text().to_string(), src);
+        }
+    }
+
+    #[test]
+    fn edition1_expression_families_parse_losslessly() {
+        for src in [
+            "fn f(x: i32) { if x > 0 { return x; } else { return 0; } }",
+            "fn f(x: i32) { while x > 0 { break; } for y in x { continue; } }",
+            "fn f(x: i32) { match x { 0 => 1, _ => 2, }; }",
+            "fn f() { let x = [1, 2, 3][0]; return x; }",
+            "fn f() { let x = (1, 2, 3); return x; }",
+            "fn f() { let x = S { a: 1, b: 2 }; return x.a; }",
+            "fn f() { let x = move |a: i32| -> i32 a * 2; return x(3); }",
+            "fn f() { let x = async move { 1 }; return x; }",
+            "fn f() { let x = unsafe { 1 }; return x; }",
+            "fn f() { let x = try { 1 }; return x; }",
+            "fn f() { foo!(a, (b, [c])); }",
+            "fn f() { a = b += c * d; }",
+        ] {
+            let mut p = Parser::from_source(src);
+            let r = p.parse_source();
+            assert!(r.is_ok(), "{src:?}: {:?}", r.diagnostics);
+            assert_eq!(r.syntax().text().to_string(), src);
+        }
+    }
+
+    #[test]
+    fn comparison_chaining_is_rejected_but_lossless() {
+        let src = "fn f() { return a < b < c; }";
+        let mut p = Parser::from_source(src);
+        let r = p.parse_source();
+        assert!(!r.is_ok());
+        assert_eq!(r.syntax().text().to_string(), src);
+        assert!(
+            r.diagnostics.iter().any(|d| d.message.contains("cannot be chained")),
+            "comparison chaining must have a dedicated diagnostic: {:?}",
+            r.diagnostics
+        );
+    }
+
     #[test]
     fn parses_nested_expression_and_call() {
         let mut p =
@@ -2371,9 +2429,8 @@ mod tests {
             // is therefore *accepted* today. That is a coverage gap, not a
             // losslessness claim, so it is asserted as-is rather than quietly
             // promoted to "rejected".
-            "struct",
-            "struct S",
-            "enum E",
+            "struct S {}",
+            "enum E {}",
         ] {
             assert_lossless(src);
             let mut p = Parser::from_source(src);
