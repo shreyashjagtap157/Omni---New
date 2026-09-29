@@ -131,6 +131,18 @@ impl MonomorphizedProgram {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
                 Self::verify_type_spec_concrete(ty, enclosing_fn)
             }
+            Expr::Loop { body, .. } => Self::verify_expr_concrete(body, enclosing_fn),
+            Expr::While { condition, body, .. } => {
+                Self::verify_expr_concrete(condition, enclosing_fn)?;
+                Self::verify_expr_concrete(body, enclosing_fn)
+            }
+            Expr::Break { value, .. } => {
+                if let Some(v) = value {
+                    Self::verify_expr_concrete(v, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Continue { .. } => Ok(()),
             Expr::Loop { body, .. } | Expr::While { body, .. } => {
                 Self::verify_expr_concrete(body, enclosing_fn)
             }
