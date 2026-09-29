@@ -1123,6 +1123,13 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_compiles_value_if_expression() {
+        let source = "fn main(x: i64) -> i64 { let value = if x > 0 { 42 } else { 7 }; return value; }";
+        let object = compile_source_to_object(source).expect("if-expression native compilation");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
     fn source_pipeline_preserves_unit_call_without_fabricating_result() {
         let source = "fn touch() { return; } fn main() -> i64 { touch(); return 7; }";
         let object = compile_source_to_object(source).expect("unit call native compilation");
