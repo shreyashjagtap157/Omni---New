@@ -729,6 +729,18 @@ mod tests {
     }
 
     #[test]
+    fn lifetime_syntax_is_lossless_but_remains_diagnosed_until_contract_is_resolved() {
+        let src = "fn f(x: &'a T) { return 1; }";
+        let mut p = Parser::from_source(src);
+        let r = p.parse_source();
+        assert!(!r.is_ok(), "the current lexer Error token must not be silently reinterpreted");
+        assert_eq!(r.syntax().text().to_string(), src);
+        assert!(r.syntax().descendants_with_tokens().any(|e| {
+            matches!(e, SyntaxElement::Token(t) if t.kind() == K::ErrorToken)
+        }));
+    }
+
+    #[test]
     fn parses_nested_expression_and_call() {
         let mut p =
             Parser::from_source("fn main(a: i32) -> i32 { let x = add(a, 2) * 3; return x; }");
