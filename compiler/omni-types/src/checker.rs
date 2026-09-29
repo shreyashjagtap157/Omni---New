@@ -417,14 +417,12 @@ impl TypeChecker {
                 let inner_ty = self.infer_expr(expr, env, local_vars)?;
                 match op {
                     crate::ast::UnOp::Neg => {
-                        let expected = self.tcx.intern(TyKind::Int);
-                        if inner_ty != expected {
-                            return Err(TypeError::MismatchedTypes {
-                                expected: self.tcx.mangle(expected),
-                                found: self.tcx.mangle(inner_ty),
-                            });
+                        let int_ty = self.tcx.intern(TyKind::Int);
+                        let float_ty = self.tcx.intern(TyKind::Float);
+                        if inner_ty != int_ty && inner_ty != float_ty {
+                            return Err(TypeError::UnsupportedOperator("numeric-negation".into()));
                         }
-                        Ok(expected)
+                        Ok(inner_ty)
                     }
                     crate::ast::UnOp::Not => {
                         let expected = self.tcx.intern(TyKind::Bool);
@@ -442,6 +440,19 @@ impl TypeChecker {
                         }
                         Ok(inner_ty)
                     }
+                    crate::ast::UnOp::BorrowShared | crate::ast::UnOp::BorrowMut => {
+                        Ok(self.tcx.intern(TyKind::Reference {
+                            lifetime: None,
+                            mutable: matches!(op, crate::ast::UnOp::BorrowMut),
+                            inner: inner_ty,
+                        }))
+                    }
+                    crate::ast::UnOp::Deref => match self.tcx.get(inner_ty).clone() {
+                        TyKind::Reference { inner, .. } => Ok(inner),
+                        _ => Err(TypeError::UnsupportedOperator(
+                            "dereference requires a reference type".into(),
+                        )),
+                    },
                 }
             }
             Expr::Field { expr, field } => {
