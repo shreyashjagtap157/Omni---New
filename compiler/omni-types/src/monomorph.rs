@@ -119,6 +119,20 @@ impl MonomorphizedProgram {
                 Self::verify_expr_concrete(start, enclosing_fn)?;
                 Self::verify_expr_concrete(end, enclosing_fn)
             }
+            Expr::If { condition, then_branch, else_branch } => {
+                let mono_condition = self.monomorphize_expr(condition, env, local_vars)?;
+                let mono_then = self.monomorphize_expr(then_branch, env, local_vars)?;
+                let mono_else = if let Some(e) = else_branch {
+                    Some(Box::new(self.monomorphize_expr(e, env, local_vars)?))
+                } else {
+                    None
+                };
+                Ok(Expr::If {
+                    condition: Box::new(mono_condition),
+                    then_branch: Box::new(mono_then),
+                    else_branch: mono_else,
+                })
+            }
             Expr::Match { expr, arms } => {
                 Self::verify_expr_concrete(expr, enclosing_fn)?;
                 for arm in arms {
