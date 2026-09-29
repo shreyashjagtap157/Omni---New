@@ -545,11 +545,13 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         omni_syntax::SyntaxKind::UnaryExpr => {
             let token = node.first_token().ok_or_else(|| "Semantic frontend error: unary expression has no token".to_string())?;
             let operand = node.children().last().ok_or_else(|| "Semantic frontend error: unary expression has no operand".to_string())?;
-            match token.text() {
-                "-" => Ok(Expr::Unary { op: UnOp::Neg, expr: Box::new(expr_from_node(&operand)?) }),
-                "!" => Ok(Expr::Unary { op: UnOp::Not, expr: Box::new(expr_from_node(&operand)?) }),
-                other => Err(format!("Semantic frontend error: unsupported unary operator '{}'", other)),
-            }
+            let op = match token.text() {
+                "-" => UnOp::Neg,
+                "!" => UnOp::Not,
+                "~" => UnOp::BitNot,
+                other => return Err(format!("Semantic frontend error: unsupported unary operator '{}'", other)),
+            };
+            Ok(Expr::Unary { op, expr: Box::new(expr_from_node(&operand)?) })
         }
         omni_syntax::SyntaxKind::CallExpr => {
             let mut children = node.children();
