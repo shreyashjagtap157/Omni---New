@@ -134,6 +134,11 @@ mod tests {
     }
 
     #[test]
+    fn labeled_loop_control_is_parsed_losslessly() {
+        ok("fn f() { 'outer: loop { while true { break 'outer; } continue 'outer; } }");
+    }
+
+    #[test]
     fn logical_boolean_operators_are_edition1_surface() {
         ok("fn f() -> bool { return true && false || true; }");
     }
