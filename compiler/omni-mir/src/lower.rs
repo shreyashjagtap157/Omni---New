@@ -894,6 +894,24 @@ impl<'a> FnMirBuilder<'a> {
                     .push(crate::ir::Statement::Assign(target_place, crate::ir::Rvalue::Use(value_op)));
                 Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
             }
+            omni_types::ast::Expr::Cast { expr, ty } => {
+                let (operand, from_ty) = self
+                    .lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: cast source is Unit".to_string())?;
+                let to_ty = self.tcx.lower_type_spec(ty, self.subst);
+                let scalar = |t: Ty, tcx: &TyCtxt| matches!(tcx.get(t), TyKind::Int | TyKind::Byte | TyKind::Char);
+                if !scalar(from_ty, self.tcx) || !scalar(to_ty, self.tcx) {
+                    return Err(format!("MIR lowering error: unsupported non-scalar cast {:?} -> {:?}", from_ty, to_ty));
+                }
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: cast has no live block".to_string())?;
+                let temp = self.new_temp(Some("_cast_tmp".to_string()), to_ty);
+                let place = crate::ir::Place { local: temp };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Cast { operand, from: from_ty, to: to_ty },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), to_ty)))
+            }
             omni_types::ast::Expr::CompoundAssign { op, target, value } => {
                 let Expr::Var(name) = target.as_ref() else {
                     return Err("MIR lowering error: compound assignment target must be a local variable in the native backend".into());
