@@ -280,79 +280,186 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
 
 fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
     match node.kind() {
-        omni_syntax::SyntaxKind::ExprStmt => node
+        omni_syntax::SyntaxKind::ExprStmt
+        | omni_syntax::SyntaxKind::FinalExpr
+        | omni_syntax::SyntaxKind::ParenthesizedExpr => node
             .children()
             .next()
-            .ok_or_else(|| "Semantic frontend error: empty expression statement".to_string())
+            .ok_or_else(|| "Semantic frontend error: expression wrapper is empty".to_string())
             .and_then(|n| expr_from_node(&n)),
+        omni_syntax::SyntaxKind::Block => expr_from_block(node),
         omni_syntax::SyntaxKind::ReturnExpr => {
             let value = node.children().next().map(|n| expr_from_node(&n)).transpose()?;
             Ok(Expr::Return(value.map(Box::new)))
         }
         omni_syntax::SyntaxKind::LiteralExpr => {
-            let token = node
-                .first_token()
-                .ok_or_else(|| "Semantic frontend error: literal node has no token".to_string())?;
+            let token = node.first_token().ok_or_else(|| "Semantic frontend error: literal node has no token".to_string())?;
             Ok(Expr::Literal(lit_from_text(token.text())?))
         }
         omni_syntax::SyntaxKind::NameRef => {
             let name = node.text().to_string().trim().to_string();
-            if name.is_empty() {
-                Err("Semantic frontend error: empty name reference".into())
-            } else {
-                Ok(Expr::Var(name))
-            }
+            (!name.is_empty()).then_some(Expr::Var(name))
+                .ok_or_else(|| "Semantic frontend error: empty name reference".to_string())
         }
-        omni_syntax::SyntaxKind::BinaryExpr => {
-            let child_nodes: Vec<_> = node.children().collect();
-            if child_nodes.len() != 2 {
-                return Err("Semantic frontend error: malformed binary expression".into());
+        omni_syntax::SyntaxKind::PathExpr => Ok(Expr::Var(node.text().to_string().trim().to_string())),
+        omni_syntax::SyntaxKind::BinaryExpr
+        | omni_syntax::SyntaxKind::AssignExpr
+        | omni_syntax::SyntaxKind::RangeExpr => {
+            let parts = node.children().collect::<Vec<_>>();
+            if parts.len() != 2 {
+                return Err(format!("Semantic frontend error: {:?} must contain two operand nodes", node.kind()));
             }
-            let op = node
-                .children_with_tokens()
+            let op = node.children_with_tokens()
                 .filter_map(|e| e.into_token())
                 .find(|t| t.kind() == omni_syntax::SyntaxKind::Punct)
                 .map(|t| t.text().to_string())
-                .ok_or_else(|| {
-                    "Semantic frontend error: binary expression has no operator".to_string()
-                })?;
-            Ok(Expr::Binary {
-                op: bin_op_from_text(&op)?,
-                lhs: Box::new(expr_from_node(&child_nodes[0])?),
-                rhs: Box::new(expr_from_node(&child_nodes[1])?),
-            })
+                .ok_or_else(|| "Semantic frontend error: expression has no operator token".to_string())?;
+            match node.kind() {
+                omni_syntax::SyntaxKind::AssignExpr => Ok(Expr::Assign {
+                    target: Box::new(expr_from_node(&parts[0])?),
+                    value: Box::new(expr_from_node(&parts[1])?),
+                }),
+                omni_syntax::SyntaxKind::RangeExpr => Ok(Expr::Range {
+                    start: Box::new(expr_from_node(&parts[0])?),
+                    end: Box::new(expr_from_node(&parts[1])?),
+                }),
+                _ => Ok(Expr::Binary {
+                    op: bin_op_from_text(&op)?,
+                    lhs: Box::new(expr_from_node(&parts[0])?),
+                    rhs: Box::new(expr_from_node(&parts[1])?),
+                }),
+            }
         }
         omni_syntax::SyntaxKind::UnaryExpr => {
-            let first_token = node.first_token().ok_or_else(|| {
-                "Semantic frontend error: unary expression has no token".to_string()
-            })?;
-            let operand = node.children().next().ok_or_else(|| {
-                "Semantic frontend error: unary expression has no operand".to_string()
-            })?;
-            match first_token.text() {
+            let token = node.first_token().ok_or_else(|| "Semantic frontend error: unary expression has no token".to_string())?;
+            let operand = node.children().last().ok_or_else(|| "Semantic frontend error: unary expression has no operand".to_string())?;
+            match token.text() {
                 "-" => Ok(Expr::Unary { op: UnOp::Neg, expr: Box::new(expr_from_node(&operand)?) }),
                 "!" => Ok(Expr::Unary { op: UnOp::Not, expr: Box::new(expr_from_node(&operand)?) }),
-                "(" => expr_from_node(&operand),
-                other => Err(format!(
-                    "Semantic frontend error: unsupported unary punctuation '{}'",
-                    other
-                )),
+                other => Err(format!("Semantic frontend error: unsupported unary operator '{}'", other)),
             }
         }
         omni_syntax::SyntaxKind::CallExpr => {
-            let child_nodes: Vec<_> = node.children().collect();
-            let callee = child_nodes.first().ok_or_else(|| {
-                "Semantic frontend error: call expression has no callee".to_string()
-            })?;
-            let func = direct_name(callee).ok_or_else(|| {
-                "Semantic frontend error: only direct named calls are supported by the current native backend"
-                    .to_string()
-            })?;
-            let args =
-                child_nodes.iter().skip(1).map(expr_from_node).collect::<Result<Vec<_>, _>>()?;
+            let mut children = node.children();
+            let callee = children.next().ok_or_else(|| "Semantic frontend error: call has no callee".to_string())?;
+            let func = direct_name(&callee)
+                .or_else(|| (callee.kind() == omni_syntax::SyntaxKind::PathExpr).then(|| callee.text().to_string().trim().to_string()))
+                .ok_or_else(|| "Semantic frontend error: only direct named calls are supported".to_string())?;
+            let args = children.map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?;
             Ok(Expr::Call { func, generic_args: Vec::new(), args })
         }
+        omni_syntax::SyntaxKind::FieldExpr => {
+            let mut children = node.children();
+            let base = children.next().ok_or_else(|| "Semantic frontend error: field has no base".to_string())?;
+            let field = node.children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .rev()
+                .find(|t| t.kind() == omni_syntax::SyntaxKind::Ident)
+                .map(|t| t.text().to_string())
+                .ok_or_else(|| "Semantic frontend error: field has no name".to_string())?;
+            Ok(Expr::Field { expr: Box::new(expr_from_node(&base)?), field })
+        }
+        omni_syntax::SyntaxKind::IndexExpr => {
+            let mut children = node.children();
+            let base = children.next().ok_or_else(|| "Semantic frontend error: index has no base".to_string())?;
+            let index = children.next().ok_or_else(|| "Semantic frontend error: index has no expression".to_string())?;
+            Ok(Expr::Index { expr: Box::new(expr_from_node(&base)?), index: Box::new(expr_from_node(&index)?) })
+        }
+        omni_syntax::SyntaxKind::ArrayExpr => Ok(Expr::Array(node.children().map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?)),
+        omni_syntax::SyntaxKind::TupleExpr => Ok(Expr::Tuple(node.children().map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?)),
+        omni_syntax::SyntaxKind::MatchExpr => {
+            let mut children = node.children();
+            let scrutinee = children.next().ok_or_else(|| "Semantic frontend error: match has no scrutinee".to_string())?;
+            let arms = children.filter(|n| n.kind() == omni_syntax::SyntaxKind::MatchArm)
+                .map(|n| match_arm_from_cst(&n))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Expr::Match { expr: Box::new(expr_from_node(&scrutinee)?), arms })
+        }
+        omni_syntax::SyntaxKind::ClosureExpr => {
+            let params = node.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::ClosureParam)
+                .map(|n| {
+                    let name = direct_name(&n).ok_or_else(|| "Semantic frontend error: closure parameter has no name".to_string())?;
+                    let ty = direct_type(&n).map(type_spec_from_cst).transpose()?.ok_or_else(|| format!("Semantic frontend error: closure parameter '{}' requires a type", name))?;
+                    Ok((name, ty))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            let body = node.children().rev().find(|n| n.kind() != omni_syntax::SyntaxKind::ClosureParam)
+                .ok_or_else(|| "Semantic frontend error: closure has no body".to_string())?;
+            Ok(Expr::Lambda { params, body: Box::new(expr_from_node(&body)?) })
+        }
+        omni_syntax::SyntaxKind::AwaitExpr
+        | omni_syntax::SyntaxKind::MethodCallExpr
+        | omni_syntax::SyntaxKind::CastExpr
+        | omni_syntax::SyntaxKind::MacroInvocation
+        | omni_syntax::SyntaxKind::AsyncBlock
+        | omni_syntax::SyntaxKind::UnsafeBlock
+        | omni_syntax::SyntaxKind::TryBlock
+        | omni_syntax::SyntaxKind::TryExpr
+        | omni_syntax::SyntaxKind::IfExpr
+        | omni_syntax::SyntaxKind::WhileExpr
+        | omni_syntax::SyntaxKind::ForExpr
+        | omni_syntax::SyntaxKind::LoopExpr
+        => Err(format!("Semantic frontend error: native AST lowering does not yet support {:?}", node.kind())),
         other => Err(format!("Semantic frontend error: unsupported expression node {:?}", other)),
+    }
+}
+
+fn match_arm_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::MatchArm, String> {
+    let mut children = node.children();
+    let pattern = children.next().ok_or_else(|| "Semantic frontend error: match arm has no pattern".to_string())?;
+    let rest = children.collect::<Vec<_>>();
+    let (guard, body) = match rest.as_slice() {
+        [body] => (None, body),
+        [guard, body] => (Some(guard), body),
+        _ => return Err("Semantic frontend error: malformed match arm".into()),
+    };
+    Ok(omni_types::ast::MatchArm {
+        pattern: pattern_from_cst(&pattern)?,
+        guard: guard.map(expr_from_node).transpose()?,
+        body: expr_from_node(body)?,
+    })
+}
+
+fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::Pattern, String> {
+    match node.kind() {
+        omni_syntax::SyntaxKind::WildcardPattern => Ok(omni_types::ast::Pattern::Wildcard),
+        omni_syntax::SyntaxKind::IdentifierPattern | omni_syntax::SyntaxKind::BindingPattern => {
+            let name = direct_name(node).ok_or_else(|| "Semantic frontend error: pattern has no binding name".to_string())?;
+            Ok(omni_types::ast::Pattern::Binding(name))
+        }
+        omni_syntax::SyntaxKind::LiteralPattern => {
+            let lit_node = node.children().next().ok_or_else(|| "Semantic frontend error: literal pattern is empty".to_string())?;
+            let token = lit_node.first_token().ok_or_else(|| "Semantic frontend error: literal pattern has no token".to_string())?;
+            Ok(omni_types::ast::Pattern::Lit(lit_from_text(token.text())?))
+        }
+        omni_syntax::SyntaxKind::TuplePattern => Ok(omni_types::ast::Pattern::Tuple(node.children().map(|n| pattern_from_cst(&n)).collect::<Result<Vec<_>, _>>()?)),
+        omni_syntax::SyntaxKind::OrPattern => Ok(omni_types::ast::Pattern::Or(node.children().map(|n| pattern_from_cst(&n)).collect::<Result<Vec<_>, _>>()?)),
+        omni_syntax::SyntaxKind::RangePattern => {
+            let parts = node.children().collect::<Vec<_>>();
+            let start = parts.first().ok_or_else(|| "Semantic frontend error: range pattern has no start".to_string())?;
+            let end = parts.get(1).ok_or_else(|| "Semantic frontend error: range pattern has no end".to_string())?;
+            let start_lit = match expr_from_node(start)? { Expr::Literal(l) => l, _ => return Err("Semantic frontend error: non-literal range pattern unsupported".into()) };
+            let end_lit = match expr_from_node(end)? { Expr::Literal(l) => l, _ => return Err("Semantic frontend error: non-literal range pattern unsupported".into()) };
+            Ok(omni_types::ast::Pattern::Range {
+                start: omni_types::ast::PatternRangeBoundary::Inclusive(start_lit),
+                end: omni_types::ast::PatternRangeBoundary::Exclusive(end_lit),
+            })
+        }
+        omni_syntax::SyntaxKind::StructPattern => {
+            let mut parts = node.children();
+            let path = parts.next().ok_or_else(|| "Semantic frontend error: struct pattern has no path".to_string())?;
+            let fields = parts.map(|f| {
+                let name = direct_name(&f).ok_or_else(|| "Semantic frontend error: pattern field has no name".to_string())?;
+                let sub = f.children().nth(1).map(|n| pattern_from_cst(&n)).transpose()?.unwrap_or(omni_types::ast::Pattern::Binding(name.clone()));
+                Ok((name, sub))
+            }).collect::<Result<Vec<_>, String>>()?;
+            Ok(omni_types::ast::Pattern::Struct { name: path.text().to_string().trim().to_string(), fields })
+        }
+        omni_syntax::SyntaxKind::EnumPattern => Err("Semantic frontend error: enum pattern lowering is not yet defined for the current AST shape".into()),
+        omni_syntax::SyntaxKind::ReferencePattern
+        | omni_syntax::SyntaxKind::SlicePattern
+        | omni_syntax::SyntaxKind::GuardPattern => Err(format!("Semantic frontend error: pattern lowering does not yet support {:?}", node.kind())),
+        other => Err(format!("Semantic frontend error: unsupported pattern node {:?}", other)),
     }
 }
 
