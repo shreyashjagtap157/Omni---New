@@ -120,6 +120,11 @@ pub enum Expr {
     Unary { op: UnOp, expr: Box<Expr> },
     Field { expr: Box<Expr>, field: String },
     Index { expr: Box<Expr>, index: Box<Expr> },
+    Struct {
+        name: String,
+        generic_args: Vec<TypeSpec>,
+        fields: Vec<(String, Expr)>,
+    },
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
     Range { start: Box<Expr>, end: Box<Expr>, inclusive: bool },
