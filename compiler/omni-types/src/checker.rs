@@ -293,6 +293,12 @@ impl TypeChecker {
             (TyKind::Range(e_elem), TyKind::Range(f_elem)) => {
                 self.unify_types(e_elem, f_elem, subst)
             }
+            (
+                TyKind::Reference { lifetime: e_lifetime, mutable: e_mutable, inner: e_inner },
+                TyKind::Reference { lifetime: f_lifetime, mutable: f_mutable, inner: f_inner },
+            ) if e_mutable == f_mutable && e_lifetime == f_lifetime => {
+                self.unify_types(e_inner, f_inner, subst)
+            }
             (TyKind::Fn(e_p, e_r), TyKind::Fn(f_p, f_r)) if e_p.len() == f_p.len() => {
                 for (e, f) in e_p.into_iter().zip(f_p) {
                     self.unify_types(e, f, subst)?;
