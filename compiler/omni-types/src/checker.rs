@@ -376,12 +376,17 @@ impl TypeChecker {
                         }
                         Ok(bool_ty)
                     }
-                    crate::ast::BinOp::Eq | crate::ast::BinOp::Ne => Ok(self.tcx.intern(TyKind::Bool)),
+                    crate::ast::BinOp::Eq | crate::ast::BinOp::Ne => {
+                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Bool) {
+                            return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
+                        }
+                        Ok(self.tcx.intern(TyKind::Bool))
+                    }
                     crate::ast::BinOp::Lt
                     | crate::ast::BinOp::Le
                     | crate::ast::BinOp::Gt
                     | crate::ast::BinOp::Ge => {
-                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float) {
+                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char) {
                             return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
                         }
                         Ok(self.tcx.intern(TyKind::Bool))
