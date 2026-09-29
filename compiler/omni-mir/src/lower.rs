@@ -74,6 +74,7 @@ impl LoweringContext {
                 fn_sigs: &fn_sigs,
                 return_ty: ret_ty,
                 current_block: None,
+                loops: Vec::new(),
             };
 
             let entry_block = builder.new_block();
@@ -143,6 +144,13 @@ impl LoweringContext {
     }
 }
 
+struct LoopContext {
+    continue_block: crate::ir::BasicBlock,
+    break_block: crate::ir::BasicBlock,
+    result_local: Option<crate::ir::Local>,
+    result_ty: Option<Ty>,
+}
+
 struct FnMirBuilder<'a> {
     tcx: &'a mut TyCtxt,
     subst: &'a omni_types::checker::SubstEnv,
@@ -152,6 +160,7 @@ struct FnMirBuilder<'a> {
     fn_sigs: &'a HashMap<String, (Vec<Ty>, Ty)>,
     return_ty: Ty,
     current_block: Option<crate::ir::BasicBlock>,
+    loops: Vec<LoopContext>,
 }
 
 impl<'a> FnMirBuilder<'a> {
@@ -178,6 +187,171 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Lit::Byte(_) => self.tcx.intern(TyKind::Byte),
             omni_types::ast::Lit::String(_) => self.tcx.intern(TyKind::String),
         }
+    }
+
+    fn lower_loop_expression(
+        &mut self,
+        body: &omni_types::ast::Expr,
+    ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+        let entry = self
+            .current_block
+            .ok_or_else(|| "MIR lowering error: loop has no live entry block".to_string())?;
+        let header = self.new_block();
+        let break_block = self.new_block();
+        self.blocks[entry].terminator = Some(crate::ir::Terminator::Goto(header));
+
+        self.current_block = Some(header);
+        self.loops.push(LoopContext {
+            continue_block: header,
+            break_block,
+            result_local: None,
+            result_ty: None,
+        });
+
+        let body_result = self.lower_expr(body)?;
+        if let Some(block) = self.current_block {
+            if self.blocks[block].terminator.is_none() {
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(header));
+            }
+        }
+        let context = self.loops.pop().expect("loop context balanced");
+        self.current_block = Some(break_block);
+
+        if let Some(local) = context.result_local {
+            let ty = context.result_ty.expect("result type accompanies result local");
+            Ok(Some((crate::ir::Operand::Copy(crate::ir::Place { local }), ty)))
+        } else if let Some(ty) = context.result_ty {
+            if matches!(self.tcx.get(ty), TyKind::Unit) {
+                Ok(None)
+            } else {
+                Err("MIR lowering error: loop break value has no result storage".into())
+            }
+        } else if body_result.is_some() {
+            Err("MIR lowering error: loop body produces a value without break".into())
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn lower_while_expression(
+        &mut self,
+        condition: &omni_types::ast::Expr,
+        body: &omni_types::ast::Expr,
+    ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+        let entry = self
+            .current_block
+            .ok_or_else(|| "MIR lowering error: while has no live entry block".to_string())?;
+        let condition_block = self.new_block();
+        let body_block = self.new_block();
+        let break_block = self.new_block();
+        self.blocks[entry].terminator = Some(crate::ir::Terminator::Goto(condition_block));
+
+        self.current_block = Some(condition_block);
+        let (condition_op, condition_ty) = self
+            .lower_expr(condition)?
+            .ok_or_else(|| "MIR lowering error: while condition is Unit".to_string())?;
+        let bool_ty = self.tcx.intern(TyKind::Bool);
+        if condition_ty != bool_ty {
+            return Err(format!(
+                "MIR lowering error: while condition has type {:?}, expected Bool",
+                condition_ty
+            ));
+        }
+        self.blocks[condition_block].terminator = Some(crate::ir::Terminator::SwitchInt {
+            discr: condition_op,
+            targets: vec![(1, body_block)],
+            otherwise: break_block,
+        });
+
+        self.current_block = Some(body_block);
+        self.loops.push(LoopContext {
+            continue_block: condition_block,
+            break_block,
+            result_local: None,
+            result_ty: Some(bool_ty),
+        });
+        self.lower_expr(body)?;
+        if let Some(block) = self.current_block {
+            if self.blocks[block].terminator.is_none() {
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(condition_block));
+            }
+        }
+        let context = self.loops.pop().expect("while loop context balanced");
+        if context.result_ty != Some(bool_ty) || context.result_local.is_some() {
+            return Err("MIR lowering error: while loop break values are unsupported".into());
+        }
+        self.current_block = Some(break_block);
+        Ok(None)
+    }
+
+    fn lower_break_expression(
+        &mut self,
+        value: Option<&omni_types::ast::Expr>,
+    ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+        let loop_index = self
+            .loops
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| "MIR lowering error: break outside loop".to_string())?;
+        let break_block = self.loops[loop_index].break_block;
+        let current = self
+            .current_block
+            .ok_or_else(|| "MIR lowering error: break has no live block".to_string())?;
+
+        if let Some(value) = value {
+            let (operand, ty) = self
+                .lower_expr(value)?
+                .ok_or_else(|| "MIR lowering error: break value is Unit".to_string())?;
+            let context = &mut self.loops[loop_index];
+            if let Some(expected) = context.result_ty {
+                if expected != ty {
+                    return Err(format!(
+                        "MIR lowering error: break values have types {:?} and {:?}",
+                        expected, ty
+                    ));
+                }
+            } else {
+                context.result_ty = Some(ty);
+                context.result_local = Some(self.new_temp(Some("_loop_result".to_string()), ty));
+            }
+            let local = context.result_local.expect("value break has result local");
+            self.blocks[current].statements.push(crate::ir::Statement::Assign(
+                crate::ir::Place { local },
+                crate::ir::Rvalue::Use(operand),
+            ));
+        } else {
+            let context = &mut self.loops[loop_index];
+            let unit_ty = self.tcx.intern(TyKind::Unit);
+            if let Some(expected) = context.result_ty {
+                if expected != unit_ty {
+                    return Err(format!(
+                        "MIR lowering error: bare break conflicts with break type {:?}",
+                        expected
+                    ));
+                }
+            } else {
+                context.result_ty = Some(unit_ty);
+            }
+        }
+
+        self.blocks[current].terminator = Some(crate::ir::Terminator::Goto(break_block));
+        self.current_block = None;
+        Ok(None)
+    }
+
+    fn lower_continue_expression(&mut self) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
+        let loop_index = self
+            .loops
+            .len()
+            .checked_sub(1)
+            .ok_or_else(|| "MIR lowering error: continue outside loop".to_string())?;
+        let continue_block = self.loops[loop_index].continue_block;
+        let current = self
+            .current_block
+            .ok_or_else(|| "MIR lowering error: continue has no live block".to_string())?;
+        self.blocks[current].terminator = Some(crate::ir::Terminator::Goto(continue_block));
+        self.current_block = None;
+        Ok(None)
     }
 
     fn lower_if_expression(
@@ -762,6 +936,12 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Expr::If { condition, then_branch, else_branch } => {
                 self.lower_if_expression(condition, then_branch, else_branch.as_deref())
             }
+            omni_types::ast::Expr::Loop { body } => self.lower_loop_expression(body),
+            omni_types::ast::Expr::While { condition, body } => {
+                self.lower_while_expression(condition, body)
+            }
+            omni_types::ast::Expr::Break(value) => self.lower_break_expression(value.as_deref()),
+            omni_types::ast::Expr::Continue => self.lower_continue_expression(),
             omni_types::ast::Expr::Match { expr, arms } => {
                 self.lower_match_expression(expr, arms)
             }
