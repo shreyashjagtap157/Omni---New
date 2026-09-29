@@ -381,6 +381,10 @@ impl MirVerifier {
                                     Self::check_operand(fn_name, operand, num_locals)?;
                                 }
                             }
+                            Rvalue::Range { start, end, .. } => {
+                                Self::check_operand(fn_name, start, num_locals)?;
+                                Self::check_operand(fn_name, end, num_locals)?;
+                            }
                             Rvalue::Field { base, .. } => Self::check_operand(fn_name, base, num_locals)?,
                             Rvalue::Index { base, index, .. } => {
                                 Self::check_operand(fn_name, base, num_locals)?;
@@ -788,7 +792,24 @@ impl MirVerifier {
                     }
                 }
                 Ok(*ty)
-            }            Rvalue::Struct { name, fields, ty } => {
+            }            Rvalue::Range { start, end, inclusive: _, ty } => {
+                let start_ty = Self::operand_type(tcx, func, start)?;
+                let end_ty = Self::operand_type(tcx, func, end)?;
+                let TyKind::Range(elem_ty) = tcx.get(*ty) else {
+                    return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: "range rvalue does not have a Range MIR type".to_string(),
+                    });
+                };
+                if start_ty != *elem_ty || end_ty != *elem_ty {
+                    return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: "range endpoint types do not match range element type".to_string(),
+                    });
+                }
+                Ok(*ty)
+            }
+            Rvalue::Struct { name, fields, ty } => {
                 match tcx.get(*ty) {
                     TyKind::Struct(actual_name, _) if actual_name == name => {}
                     _ => return Err(MirVerificationError::AggregateTypeMismatch {
