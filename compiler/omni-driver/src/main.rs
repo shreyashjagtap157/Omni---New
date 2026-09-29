@@ -918,6 +918,13 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_compiles_if_expression_values() {
+        let source = "fn choose(a: bool) -> i64 { if a { 1 } else { 2 } } fn main() -> i64 { return choose(true); }";
+        let object = compile_source_to_object(source).expect("if expression must compile");
+        assert!(!object.is_empty());
+    }
+
+    #[test]
     fn rejects_invalid_optimization_level() {
         let args = vec![
             "omni-driver".to_string(),
