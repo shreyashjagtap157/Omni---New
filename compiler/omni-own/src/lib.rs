@@ -153,6 +153,30 @@ impl OwnershipState {
 
     /// Returns the current state of a place, defaulting to uninitialized.
     pub fn state(&self, place: &Place) -> PlaceState {
+        if let Some(state) = self.places.get(place).copied() {
+            if state != PlaceState::Initialized {
+                return state;
+            }
+        }
+
+        let ancestor_moved = self.places.iter().any(|(candidate, state)| {
+            matches!(state, PlaceState::Moved | PlaceState::PartiallyMoved)
+                && is_prefix(candidate, place)
+                && candidate != place
+        });
+        if ancestor_moved {
+            return PlaceState::Moved;
+        }
+
+        let descendant_moved = self.places.iter().any(|(candidate, state)| {
+            matches!(state, PlaceState::Moved | PlaceState::PartiallyMoved)
+                && is_prefix(place, candidate)
+                && candidate != place
+        });
+        if descendant_moved {
+            return PlaceState::PartiallyMoved;
+        }
+
         self.places.get(place).copied().unwrap_or(PlaceState::Uninitialized)
     }
 
@@ -179,7 +203,11 @@ impl OwnershipState {
     pub fn move_place(&mut self, place: Place) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
         self.ensure_access_allowed(&place, AccessKind::Move)?;
-        self.places.insert(place, PlaceState::Moved);
+        if place.projections.is_empty() {
+            self.places.insert(place, PlaceState::Moved);
+        } else {
+            self.move_projection(place)?;
+        }
         Ok(())
     }
 
@@ -284,15 +312,14 @@ impl OwnershipState {
 }
 
 /// Returns whether two places may alias the same storage.
+fn is_prefix(prefix: &Place, value: &Place) -> bool {
+    prefix.root == value.root
+        && prefix.projections.len() <= value.projections.len()
+        && prefix.projections.iter().zip(&value.projections).all(|(a, b)| a == b)
+}
+
 fn places_overlap(a: &Place, b: &Place) -> bool {
-    if a.root != b.root {
-        return false;
-    }
-    let common = a.projections.iter().zip(&b.projections);
-    common.all(|(left, right)| left == right)
-        || a.projections.len() == b.projections.len()
-        || a.projections.len() < b.projections.len()
-        || b.projections.len() < a.projections.len()
+    is_prefix(a, b) || is_prefix(b, a)
 }
 
 /// Convenience ownership checker for a single function/control-flow region.
@@ -397,6 +424,28 @@ mod tests {
             checker.access(x, AccessKind::Move),
             Err(OwnershipError::BorrowConflict { .. })
         ));
+    }
+
+    #[test]
+    fn disjoint_fields_do_not_conflict() {
+        let mut checker = OwnershipChecker::new();
+        let x = Place::root("x");
+        let a = x.project(Projection::Field("a".into()));
+        let b = x.project(Projection::Field("b".into()));
+        checker.declare_initialized("x");
+        checker.issue_mut(a.clone(), "ra").expect("field a loan");
+        checker.issue_shared(b.clone(), "rb").expect("disjoint field b loan");
+        checker.state().loans().count();
+    }
+
+    #[test]
+    fn moving_a_field_partially_moves_the_parent() {
+        let mut checker = OwnershipChecker::new();
+        let x = Place::root("x");
+        let a = x.project(Projection::Field("a".into()));
+        checker.declare_initialized("x");
+        checker.access(a, AccessKind::Move).expect("move field");
+        assert_eq!(checker.state().state(&x), PlaceState::PartiallyMoved);
     }
 
     #[test]
