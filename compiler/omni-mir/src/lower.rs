@@ -998,6 +998,67 @@ impl<'a> FnMirBuilder<'a> {
                 }
                 Ok(last)
             }
+            omni_types::ast::Expr::Tuple(elements) => {
+                let mut operands = Vec::with_capacity(elements.len());
+                let mut types = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let (operand, ty) = self
+                        .lower_expr(element)?
+                        .ok_or_else(|| "MIR lowering error: tuple element is Unit".to_string())?;
+                    operands.push(operand);
+                    types.push(ty);
+                }
+                let tuple_ty = self.tcx.intern(TyKind::Tuple(types));
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: tuple has no live block".to_string())?;
+                let local = self.new_temp(Some("_tuple_tmp".to_string()), tuple_ty);
+                let place = crate::ir::Place { local };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Aggregate {
+                        kind: crate::ir::AggregateKind::Tuple,
+                        operands,
+                        ty: tuple_ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), tuple_ty)))
+            }
+            omni_types::ast::Expr::Array(elements) => {
+                if elements.is_empty() {
+                    return Err("MIR lowering error: empty array requires contextual element type".into());
+                }
+                let mut operands = Vec::with_capacity(elements.len());
+                let mut elem_ty = None;
+                for element in elements {
+                    let (operand, ty) = self
+                        .lower_expr(element)?
+                        .ok_or_else(|| "MIR lowering error: array element is Unit".to_string())?;
+                    if let Some(expected) = elem_ty {
+                        if expected != ty {
+                            return Err(format!(
+                                "MIR lowering error: array elements have incompatible types {:?} and {:?}",
+                                expected, ty
+                            ));
+                        }
+                    } else {
+                        elem_ty = Some(ty);
+                    }
+                    operands.push(operand);
+                }
+                let elem_ty = elem_ty.expect("non-empty array has an element type");
+                let array_ty = self.tcx.intern(TyKind::Array(elem_ty, elements.len()));
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: array has no live block".to_string())?;
+                let local = self.new_temp(Some("_array_tmp".to_string()), array_ty);
+                let place = crate::ir::Place { local };
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place,
+                    crate::ir::Rvalue::Aggregate {
+                        kind: crate::ir::AggregateKind::Array,
+                        operands,
+                        ty: array_ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place), array_ty)))
+            }
             omni_types::ast::Expr::Struct { .. } => {
                 Err("MIR lowering error: struct literal construction requires an aggregate storage/layout contract".into())
             }
