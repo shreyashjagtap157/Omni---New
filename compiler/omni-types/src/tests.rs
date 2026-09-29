@@ -1079,6 +1079,27 @@ fn test_unary_operations_enforce_operand_types() {
 }
 
 #[test]
+fn test_let_binding_preserves_structured_pattern() {
+    let mut checker = TypeChecker::new();
+    let env = SubstEnv::new();
+    let locals = HashMap::new();
+    let expr = Expr::Let {
+        pattern: Pattern::Tuple(vec![
+            Pattern::Binding("a".to_string()),
+            Pattern::Binding("b".to_string()),
+        ]),
+        ty: None,
+        init: Box::new(Expr::Tuple(vec![
+            Expr::Literal(Lit::Int(1)),
+            Expr::Literal(Lit::Bool(true)),
+        ])),
+        body: Box::new(Expr::Var("a".to_string())),
+    };
+    let ty = checker.infer_expr(&expr, &env, &locals).expect("tuple let pattern");
+    assert_eq!(ty, checker.tcx.intern(TyKind::Int));
+}
+
+#[test]
 fn test_let_binding_rejects_initializer_type_mismatch() {
     let mut checker = TypeChecker::new();
     let env = SubstEnv::new();
