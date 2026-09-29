@@ -979,6 +979,10 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Expr::While { label, condition, body } => {
                 self.lower_while_expression(label.as_deref(), condition, body)
             }
+            omni_types::ast::Expr::For { .. } => {
+                Err("MIR lowering error: for iteration requires aggregate/iterator lowering".into())
+            }
+
             omni_types::ast::Expr::Break { label, value } => {
                 self.lower_break_expression(label.as_deref(), value.as_deref())
             }
