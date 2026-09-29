@@ -208,7 +208,7 @@ impl<'a> FnMirBuilder<'a> {
             result_ty: None,
         });
 
-        let body_result = self.lower_expr(body)?;
+        self.lower_expr(body)?;
         if let Some(block) = self.current_block {
             if self.blocks[block].terminator.is_none() {
                 self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(header));
@@ -226,8 +226,6 @@ impl<'a> FnMirBuilder<'a> {
             } else {
                 Err("MIR lowering error: loop break value has no result storage".into())
             }
-        } else if body_result.is_some() {
-            Err("MIR lowering error: loop body produces a value without break".into())
         } else {
             Ok(None)
         }
@@ -268,7 +266,7 @@ impl<'a> FnMirBuilder<'a> {
             continue_block: condition_block,
             break_block,
             result_local: None,
-            result_ty: Some(bool_ty),
+            result_ty: Some(self.tcx.intern(TyKind::Unit)),
         });
         self.lower_expr(body)?;
         if let Some(block) = self.current_block {
@@ -277,7 +275,7 @@ impl<'a> FnMirBuilder<'a> {
             }
         }
         let context = self.loops.pop().expect("while loop context balanced");
-        if context.result_ty != Some(bool_ty) || context.result_local.is_some() {
+        if context.result_ty != Some(self.tcx.intern(TyKind::Unit)) || context.result_local.is_some() {
             return Err("MIR lowering error: while loop break values are unsupported".into());
         }
         self.current_block = Some(break_block);
@@ -311,10 +309,14 @@ impl<'a> FnMirBuilder<'a> {
                     ));
                 }
             } else {
+                let local = self.new_temp(Some("_loop_result".to_string()), ty);
+                let context = &mut self.loops[loop_index];
                 context.result_ty = Some(ty);
-                context.result_local = Some(self.new_temp(Some("_loop_result".to_string()), ty));
+                context.result_local = Some(local);
             }
-            let local = context.result_local.expect("value break has result local");
+            let local = self.loops[loop_index]
+                .result_local
+                .expect("value break has result local");
             self.blocks[current].statements.push(crate::ir::Statement::Assign(
                 crate::ir::Place { local },
                 crate::ir::Rvalue::Use(operand),
