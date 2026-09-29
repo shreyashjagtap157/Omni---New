@@ -384,11 +384,48 @@ impl<'a> FnMirBuilder<'a> {
                     None => Ok(None),
                 }
             }
-            omni_types::ast::Expr::CompoundAssign { op, target, value } => {
-                let (target_op, target_ty) = self.lower_expr(target)?.ok_or_else(|| "MIR lowering error: compound assignment target is Unit".to_string())?;
-                let (value_op, value_ty) = self.lower_expr(value)?.ok_or_else(|| "MIR lowering error: compound assignment value is Unit".to_string())?;
+            omni_types::ast::Expr::Assign { target, value } => {
+                let Expr::Var(name) = target.as_ref() else {
+                    return Err("MIR lowering error: assignment target must be a local variable in the native backend".into());
+                };
+                let target_local = *self.scope.get(name).ok_or_else(|| {
+                    format!("MIR lowering error: assignment target '{}' is not bound", name)
+                })?;
+                let (value_op, value_ty) = self.lower_expr(value)?.ok_or_else(|| {
+                    "MIR lowering error: assignment value is Unit".to_string()
+                })?;
+                let target_ty = self.local_ty(target_local)?;
                 if target_ty != value_ty {
-                    return Err(format!("MIR lowering error: compound assignment operands have incompatible types {:?} and {:?}", target_ty, value_ty));
+                    return Err(format!(
+                        "MIR lowering error: assignment '{}' expects {:?}, found {:?}",
+                        name, target_ty, value_ty
+                    ));
+                }
+                let target_place = crate::ir::Place { local: target_local };
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: assignment has no live block".to_string())?;
+                self.blocks[block]
+                    .statements
+                    .push(crate::ir::Statement::Assign(target_place, crate::ir::Rvalue::Use(value_op)));
+                Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
+            }
+            omni_types::ast::Expr::CompoundAssign { op, target, value } => {
+                let Expr::Var(name) = target.as_ref() else {
+                    return Err("MIR lowering error: compound assignment target must be a local variable in the native backend".into());
+                };
+                let target_local = *self.scope.get(name).ok_or_else(|| {
+                    format!("MIR lowering error: compound assignment target '{}' is not bound", name)
+                })?;
+                let target_place = crate::ir::Place { local: target_local };
+                let target_ty = self.local_ty(target_local)?;
+                let target_op = crate::ir::Operand::Copy(target_place);
+                let (value_op, value_ty) = self.lower_expr(value)?.ok_or_else(|| {
+                    "MIR lowering error: compound assignment value is Unit".to_string()
+                })?;
+                if target_ty != value_ty {
+                    return Err(format!(
+                        "MIR lowering error: compound assignment operands have incompatible types {:?} and {:?}",
+                        target_ty, value_ty
+                    ));
                 }
                 let mir_op = match op {
                     omni_types::ast::AssignOp::Add => crate::ir::BinOp::Add,
@@ -402,17 +439,15 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::AssignOp::Shl => crate::ir::BinOp::Shl,
                     omni_types::ast::AssignOp::Shr => crate::ir::BinOp::Shr,
                     omni_types::ast::AssignOp::Assign => {
-                        return Err("MIR lowering error: plain assignment is not a compound arithmetic operation".into());
+                        return Err("MIR lowering error: plain assignment is not a compound operation".into());
                     },
                 };
                 let block = self.current_block.ok_or_else(|| "MIR lowering error: compound assignment has no live block".to_string())?;
-                let tmp = self.new_temp(Some("_compound_tmp".to_string()), target_ty);
-                let place = crate::ir::Place { local: tmp };
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    target_place,
                     crate::ir::Rvalue::BinaryOp(mir_op, target_op, value_op),
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), target_ty)))
+                Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
             }
             omni_types::ast::Expr::Return(opt_expr) => {
                 let ret_result = if let Some(inner) = opt_expr {
