@@ -133,6 +133,7 @@ pub enum Expr {
     Block(Vec<Expr>),
     Loop { label: Option<String>, body: Box<Expr> },
     While { label: Option<String>, condition: Box<Expr>, body: Box<Expr> },
+    For { label: Option<String>, pattern: Pattern, iterable: Box<Expr>, body: Box<Expr> },
     Break { label: Option<String>, value: Option<Box<Expr>> },
     Continue { label: Option<String> },
     Return(Option<Box<Expr>>),
