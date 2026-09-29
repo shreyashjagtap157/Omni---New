@@ -593,6 +593,11 @@ impl TypeChecker {
                 let v_eff = self.infer_expr_effects(value, env, local_vars)?;
                 Ok(t_eff.union(&v_eff))
             }
+            Expr::CompoundAssign { target, value, .. } => {
+                let t_eff = self.infer_expr_effects(target, env, local_vars)?;
+                let v_eff = self.infer_expr_effects(value, env, local_vars)?;
+                Ok(t_eff.union(&v_eff))
+            }
             Expr::Block(stmts) => {
                 let mut eff = EffectRow::pure();
                 for stmt in stmts {
