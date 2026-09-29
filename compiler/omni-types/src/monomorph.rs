@@ -120,18 +120,12 @@ impl MonomorphizedProgram {
                 Self::verify_expr_concrete(end, enclosing_fn)
             }
             Expr::If { condition, then_branch, else_branch } => {
-                let mono_condition = self.monomorphize_expr(condition, env, local_vars)?;
-                let mono_then = self.monomorphize_expr(then_branch, env, local_vars)?;
-                let mono_else = if let Some(e) = else_branch {
-                    Some(Box::new(self.monomorphize_expr(e, env, local_vars)?))
-                } else {
-                    None
-                };
-                Ok(Expr::If {
-                    condition: Box::new(mono_condition),
-                    then_branch: Box::new(mono_then),
-                    else_branch: mono_else,
-                })
+                Self::verify_expr_concrete(condition, enclosing_fn)?;
+                Self::verify_expr_concrete(then_branch, enclosing_fn)?;
+                if let Some(e) = else_branch {
+                    Self::verify_expr_concrete(e, enclosing_fn)?;
+                }
+                Ok(())
             }
             Expr::Cast { expr, ty } => {
                 let mono_expr = self.monomorphize_expr(expr, env, local_vars)?;
@@ -383,6 +377,25 @@ impl<'a> Monomorphizer<'a> {
                 let mono_start = self.monomorphize_expr(start, env, local_vars)?;
                 let mono_end = self.monomorphize_expr(end, env, local_vars)?;
                 Ok(Expr::Range { start: Box::new(mono_start), end: Box::new(mono_end) })
+            }
+            Expr::If { condition, then_branch, else_branch } => {
+                let mono_condition = self.monomorphize_expr(condition, env, local_vars)?;
+                let mono_then = self.monomorphize_expr(then_branch, env, local_vars)?;
+                let mono_else = if let Some(e) = else_branch {
+                    Some(Box::new(self.monomorphize_expr(e, env, local_vars)?))
+                } else {
+                    None
+                };
+                Ok(Expr::If {
+                    condition: Box::new(mono_condition),
+                    then_branch: Box::new(mono_then),
+                    else_branch: mono_else,
+                })
+            }
+            Expr::Cast { expr, ty } => {
+                let mono_expr = self.monomorphize_expr(expr, env, local_vars)?;
+                let mono_ty = self.substitute_type_spec(ty, env);
+                Ok(Expr::Cast { expr: Box::new(mono_expr), ty: mono_ty })
             }
             Expr::Match { expr, arms } => {
                 let mono_expr = self.monomorphize_expr(expr, env, local_vars)?;
