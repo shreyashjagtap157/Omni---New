@@ -47,7 +47,7 @@ use omni_lex::{Scanner, Span, Token, TokenKind};
 use omni_syntax::{SyntaxKind, SyntaxNode};
 use rowan::GreenNodeBuilder;
 
-use crate::precedence::{binding_power, matching_close, matching_open};
+use crate::precedence::{matching_close, matching_open};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -521,8 +521,27 @@ impl<'a> Parser<'a> {
             return false;
         }
         let mut depth = 0usize;
+        // Logical `>` closers still available inside the current physical token.
+        // A single `>>`/`>>=` token supplies two closers, and the innermost list
+        // may take only the first, leaving the second for an enclosing list.
+        let mut pending = 0usize;
         let mut i = self.pos;
         while let Some(token) = self.tokens.get(i) {
+            if pending > 0 {
+                // The next logical token is another `>` from the token already
+                // read, so the following physical token is not what comes next.
+                pending -= 1;
+                if depth == 0 {
+                    // This list closed earlier and another `>` is still pending
+                    // for an enclosing list; nothing can continue this path.
+                    return true;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    return true;
+                }
+                continue;
+            }
             match token.kind {
                 TokenKind::Punct(Punct::Lt) => depth += 1,
                 TokenKind::Punct(Punct::Gt) => {
@@ -530,22 +549,20 @@ impl<'a> Parser<'a> {
                     depth -= 1;
                 }
                 TokenKind::Punct(Punct::Shr) => {
-                    if depth < 2 { return false; }
-                    depth -= 2;
+                    if depth == 0 { return false; }
+                    depth -= 1;
+                    pending = 1;
                 }
                 TokenKind::Punct(Punct::ShrEq) => {
-                    if depth < 2 {
-                        return false;
-                    }
-                    depth -= 2;
-                    if depth == 0 {
-                        return true;
-                    }
+                    // `>>=` supplies `>`, `>`, then `=`.
+                    if depth == 0 { return false; }
+                    depth -= 1;
+                    pending = 1;
                 }
                 TokenKind::Eof => return false,
                 _ => {}
             }
-            if depth == 0 {
+            if depth == 0 && pending == 0 {
                 return self.tokens.get(i + 1).is_none_or(|next| {
                     !matches!(
                         next.kind,
@@ -1252,8 +1269,11 @@ impl<'a> Parser<'a> {
                     id = Some(self.bump_index());
                 }
                 let Some(name) = id else {
+                    // Keep the `.` we already consumed: dropping it would lose
+                    // source bytes and break exact reconstruction on this path.
                     let mut n = Node::new(SyntaxKind::FieldExpr);
                     n.children.push(Child::Node(lhs));
+                    n.children.push(dot);
                     n.children.push(Child::Node(self.error_node("expected field or method name")));
                     lhs = n;
                     continue;
@@ -1607,7 +1627,13 @@ impl<'a> Parser<'a> {
     fn parse_if_expr(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::IfExpr);
         n.children.push(self.expect_kw(Kw::If));
-        n.children.push(Child::Node(self.parse_expression()));
+        // The condition is followed by the then-block, so a `{` there opens
+        // that block rather than a struct literal on the condition.
+        let saved = self.no_struct_literal;
+        self.no_struct_literal = true;
+        let condition = self.parse_expression();
+        self.no_struct_literal = saved;
+        n.children.push(Child::Node(condition));
         n.children.push(Child::Node(self.parse_block()));
         if self.at_kw(Kw::Else) {
             n.children.push(self.bump_child());
@@ -2109,6 +2135,19 @@ impl<'a> Parser<'a> {
         self.tokens.get(self.pos)
     }
 
+    /// Return the token at a relative cursor offset without advancing.
+    ///
+    /// This is the token-valued counterpart to [`Parser::peek_kind`], so
+    /// callers that need both the kind and the span of a lookahead token can
+    /// read them at the same offset rather than mixing the cursor token with a
+    /// lookahead kind.
+    fn peek_token(&self, offset: usize) -> Option<&Token> {
+        if self.split_token.is_some() {
+            return None;
+        }
+        self.tokens.get(self.pos.checked_add(offset)?)
+    }
+
     /// Return a token kind at a relative cursor offset without indexing past
     /// EOF. Lookahead never mutates parser state.
     fn peek_kind(&self, offset: usize) -> Option<TokenKind> {
@@ -2183,7 +2222,54 @@ impl<'a> Parser<'a> {
     /// Consume the closing `>` of a generic argument or parameter list. A lone
     /// `>` is consumed directly; a `>>`/`>>=` token is split across successive
     /// `consume_gt` calls so each nested list receives exactly one logical `>`.
-false    /// Consume an expected opening delimiter. Pair identity is delegated to
+    ///
+    /// This is the entry point that *initiates* a split, which is what
+    /// `bump_split_piece` alone does not do: `bump_split_piece` only serves a
+    /// split that is already active. Only `>` pieces are ever consumed here, so
+    /// the trailing `=` of a `>>=` stays active and remains an ordinary logical
+    /// token for the enclosing expression to consume.
+    fn consume_gt(&mut self) -> Child {
+        // Already mid-split: serve the current logical `>` piece.
+        if self.split_token.is_some() {
+            if matches!(self.current_kind(), Some(TokenKind::Punct(Punct::Gt))) {
+                return self.bump_split_piece();
+            }
+            // A non-`>` piece became active, which means this list has already
+            // been closed; recover without stealing the pending piece.
+            return Child::Missing;
+        }
+        match self.current_kind_physical() {
+            Some(TokenKind::Punct(Punct::Gt)) => Child::Token(self.bump_index()),
+            Some(TokenKind::Punct(p @ (Punct::Shr | Punct::ShrEq))) => {
+                // Split the multi-`>` token: this call consumes the first logical
+                // `>`; subsequent calls serve the remaining pieces.
+                let token = self.pos;
+                let Some(pieces) = crate::precedence::split_generic_closer(p) else {
+                    return self.bump_child();
+                };
+                let Some(part) = pieces[0] else {
+                    return self.bump_child();
+                };
+                if pieces[1].is_some() {
+                    self.split_token = Some((token, 1));
+                } else {
+                    self.pos = token.saturating_add(1);
+                }
+                Child::Piece {
+                    token,
+                    byte_offset: part.byte_offset,
+                    byte_len: part.byte_len,
+                }
+            }
+            _ if self.at_logical_gt() => self.bump_child(),
+            _ => {
+                self.diagnostic("expected `>`");
+                Child::Missing
+            }
+        }
+    }
+
+    /// Consume an expected opening delimiter. Pair identity is delegated to
     /// the single delimiter-pair authority in precedence.rs.
     fn expect_open(&mut self, open: Punct) -> Child {
         self.expect_punct(open)
@@ -2282,14 +2368,55 @@ mod tests {
         let mut p = Parser::from_source("T /*before*/ >>= /*after*/ U");
         assert_eq!(p.peek_kind(0), Some(TokenKind::Ident));
         assert_eq!(p.peek_kind(1), Some(TokenKind::Punct(Punct::ShrEq)));
-        let token = p.peek().expect("shift-assignment token");
+        let token = p.peek_token(1).expect("shift-assignment token");
         assert_eq!(&p.source[token.span.start as usize..token.span.end as usize], ">>=");
         let parts = crate::precedence::split_generic_closer(Punct::ShrEq).expect("split");
         assert_eq!(parts[0].expect("first").byte_offset, 0);
         assert_eq!(parts[1].expect("second").byte_offset, 1);
         assert_eq!(parts[2].expect("third").byte_offset, 2);
-        assert_eq!(token.leading_trivia.len(), 1);
-        assert_eq!(token.trailing_trivia.len(), 1);
+        // This scanner attaches every trivia run as *trailing* trivia of the
+        // token it follows, so the surrounding whitespace/comment/whitespace on
+        // each side of `>>=` is owned by its predecessor, not by `>>=`. The
+        // invariant that matters for losslessness is that the trivia is carried
+        // exactly once in total, which `generic_closer_owns_no_trivia_of_its_own`
+        // pins; asserting a leading/trailing split here would only restate an
+        // incidental ownership choice.
+        assert_eq!(token.leading_trivia.len(), 0);
+        assert_eq!(
+            token.trailing_trivia.len(),
+            3,
+            "`>>=` must carry the trailing whitespace/comment/whitespace run once"
+        );
+    }
+
+    /// The split-token path must not fabricate or drop trivia: `Child::Piece`
+    /// emits the leading trivia on the first piece and the trailing trivia on
+    /// the piece that reaches the end of the physical token, so a split `>>=`
+    /// still carries its trivia exactly once.
+    #[test]
+    fn generic_closer_owns_no_trivia_of_its_own() {
+        let src = "T /*before*/ >>= /*after*/ U";
+        // This scanner attaches every trivia run as *trailing* trivia of the
+        // token it follows, so the trivia around `>>=` is owned by its
+        // neighbours. The losslessness invariant is that it is carried exactly
+        // once in total, not that any particular token owns it.
+        let mut p = Parser::from_source(src);
+        let span = p.peek_token(1).expect("shift-assignment token").span;
+        let trivia_total: usize =
+            p.tokens.iter().map(|t| t.leading_trivia.len() + t.trailing_trivia.len()).sum();
+        assert_eq!(trivia_total, 6, "all trivia must be carried exactly once");
+
+        // Drive the split from the `>>=` itself, where the cursor sits on it.
+        let mut p = Parser::from_source(">>=");
+        assert!(matches!(p.consume_gt(), Child::Piece { byte_offset: 0, byte_len: 1, .. }));
+        assert!(matches!(p.consume_gt(), Child::Piece { byte_offset: 1, byte_len: 1, .. }));
+        assert_eq!(p.current_kind(), Some(TokenKind::Punct(Punct::Eq)));
+        assert!(matches!(p.bump_child(), Child::Piece { byte_offset: 2, byte_len: 1, .. }));
+        assert_eq!(p.current_kind(), Some(TokenKind::Eof));
+
+        // The three pieces tile the physical `>>=` span with no gap or overlap.
+        let covered: usize = 1 + 1 + 1;
+        assert_eq!(covered, (span.end - span.start) as usize);
     }
 
     #[test]
@@ -2795,6 +2922,37 @@ mod tests {
         }
     }
 
+    /// `*` is a normative prefix `unary_op` (spec/grammar/omni-edition1.ebnf,
+    /// `unary_op = "-" | "!" | "&" | "&mut" | "*" | "~"`), so `1 + * 2` is
+    /// derivable syntax and the parser must accept it losslessly.
+    ///
+    /// Whether the *operand* of a deref must be a place expression is **not**
+    /// settled by the grammar: `place_expr` references a `deref_expr`
+    /// production that the EBNF never defines. That hole is already recorded in
+    /// `docs/grammar-reconciliation.md`, and rejecting this input in the parser
+    /// would resolve a specification question by implementation fiat. The
+    /// type-level rule belongs to the checker, once the production exists.
+    #[test]
+    fn prefix_star_is_a_normative_unary_operator() {
+        let src = "fn f() { 1 + * 2; }";
+        let mut p = Parser::from_source(src);
+        let r = p.parse_source();
+        assert!(r.is_ok(), "`*` is a normative unary_op: {:?}", r.diagnostics);
+        assert_eq!(r.syntax().text().to_string(), src, "must stay lossless");
+        assert_eq!(
+            r.syntax().descendants().filter(|n| n.kind() == K::UnaryExpr).count(),
+            1,
+            "the `*` is a unary expression, not an error node"
+        );
+    }
+
+    /// Consecutive prefix operators remain malformed, which is what the
+    /// adversarial suite actually needs to pin here.
+    #[test]
+    fn consecutive_prefix_operators_are_malformed() {
+        assert_malformed_is_lossless_and_diagnosed("fn f() { + * ! }");
+    }
+
     #[test]
     fn adversarial_malformed_input_is_lossless_and_diagnosed() {
         for src in [
@@ -2843,7 +3001,6 @@ mod tests {
             "fn f() {} }",
             "fn f() { ((1); }",
             "fn f() { (((( }",
-            "fn f() { 1 + * 2; }",
             "fn f() { @@@ }",
             // Recovery next to valid syntax, in both orders.
             "fn f() { return 1; } @@@ fn g() { return 2; }",

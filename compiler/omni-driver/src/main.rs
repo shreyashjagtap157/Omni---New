@@ -603,14 +603,40 @@ fn label_from_cst(node: &omni_syntax::SyntaxNode) -> Option<String> {
 }
 
 fn direct_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
-    if node.kind() == omni_syntax::SyntaxKind::NameRef {
+    if matches!(
+        node.kind(),
+        omni_syntax::SyntaxKind::NameRef | omni_syntax::SyntaxKind::PathSegment
+    ) {
         let name = node.text().to_string().trim().to_string();
         return (!name.is_empty()).then_some(name);
     }
     node.children()
-        .find(|n| n.kind() == omni_syntax::SyntaxKind::NameRef)
+        .find(|n| {
+            matches!(
+                n.kind(),
+                omni_syntax::SyntaxKind::NameRef | omni_syntax::SyntaxKind::PathSegment
+            )
+        })
         .map(|n| n.text().to_string().trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+/// The identifier a binding pattern introduces.
+///
+/// The parser lowers `let x` and a match binding `x` to
+/// `IdentifierPattern > Path > PathSegment`, so the name is not a `NameRef`.
+/// `direct_name` handles the leaf, but the intermediate `Path` has to be
+/// traversed to reach it.
+fn pattern_binding_text(node: &omni_syntax::SyntaxNode) -> Option<String> {
+    if node.kind() == omni_syntax::SyntaxKind::PathSegment {
+        return direct_name(node);
+    }
+    for child in node.children() {
+        if let Some(name) = pattern_binding_text(&child) {
+            return Some(name);
+        }
+    }
+    None
 }
 
 fn direct_type(node: &omni_syntax::SyntaxNode) -> Option<omni_syntax::SyntaxNode> {
@@ -848,7 +874,13 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
             omni_syntax::SyntaxKind::ExprStmt
             | omni_syntax::SyntaxKind::ReturnExpr
             | omni_syntax::SyntaxKind::BreakExpr
-            | omni_syntax::SyntaxKind::ContinueExpr => {
+            | omni_syntax::SyntaxKind::ContinueExpr
+            // `loop`, `while` and `for` are Edition 1 statements and the parser
+            // emits them as bare loop nodes, not wrapped in `ExprStmt`, because
+            // they take no trailing `;`. They still have to be lowered.
+            | omni_syntax::SyntaxKind::LoopExpr
+            | omni_syntax::SyntaxKind::WhileExpr
+            | omni_syntax::SyntaxKind::ForExpr => {
                 values.push(expr_from_node(statement)?);
             }
             omni_syntax::SyntaxKind::ItemDeclStmt => {
@@ -1248,6 +1280,10 @@ fn call_target_from_cst(node: &omni_syntax::SyntaxNode) -> Result<(String, Vec<T
         .last()
         .ok_or_else(|| "Semantic frontend error: call target has no path segment".to_string())?;
     let name = direct_name(&segment)
+        // A turbofish is part of the segment's text (`id<i64>`); the callee being
+        // referenced is the identifier before the type arguments.
+        .map(|n| n.split('<').next().unwrap_or_default().trim().to_string())
+        .filter(|n| !n.is_empty())
         .ok_or_else(|| "Semantic frontend error: call target has no name".to_string())?;
     let args_node = node
         .children()
@@ -1301,7 +1337,7 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
                     }
                 }
             }
-            let name = direct_name(node)
+            let name = pattern_binding_text(node)
                 .ok_or_else(|| "Semantic frontend error: pattern has no binding name".to_string())?;
             Ok(omni_types::ast::Pattern::Binding(name))
         }
@@ -1742,14 +1778,18 @@ mod tests {
 
     #[test]
     fn source_pipeline_executes_explicit_numeric_casts() {
-        let source = "fn main() -> i64 { let x = 7 as f64; let y = x as i64; if y == 7 { return 42; } return 0; }";
+        // GRAM-0002: `expr_stmt = expression ";"`. Only the block's trailing
+        // `final_expression` may omit the `;`, so the `if` statement here needs
+        // one before the following `return`.
+        let source =
+            "fn main() -> i64 { let x = 7 as f64; let y = x as i64; if y == 7 { return 42; }; return 0; }";
         let object = compile_source_to_object(source).expect("numeric cast native compilation");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_executes_float_arithmetic_and_comparison() {
-        let source = "fn add(a: f64, b: f64) -> f64 { return a + b; } fn main() -> i64 { let x = add(1.5, 2.5); if x >= 4.0 { return 42; } return 0; }";
+        let source = "fn add(a: f64, b: f64) -> f64 { return a + b; } fn main() -> i64 { let x = add(1.5, 2.5); if x >= 4.0 { return 42; }; return 0; }";
         let object = compile_source_to_object(source).expect("float native compilation");
         let dir = std::env::temp_dir();
         static SEQ: AtomicU64 = AtomicU64::new(600);
@@ -1914,7 +1954,10 @@ mod tests {
 
     #[test]
     fn source_pipeline_compiles_value_if_expression() {
-        let source = "fn main(x: i64) -> i64 { let value = if x > 0 { 42 } else { 7 }; return value; }";
+        // The E2E harness links `main` with no arguments, so the condition is
+        // supplied by a helper rather than by a `main` parameter, matching every
+        // other end-to-end fixture in this module.
+        let source = "fn pick(x: i64) -> i64 { let value = if x > 0 { 42 } else { 7 }; return value; } fn main() -> i64 { return pick(1); }";
         let object = compile_source_to_object(source).expect("if-expression native compilation");
         assert!(!object.is_empty());
     }

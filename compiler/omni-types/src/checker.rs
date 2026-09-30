@@ -746,8 +746,13 @@ impl TypeChecker {
                     }
                     Ok(then_ty)
                 } else {
+                    // An `if` with no `else` is a statement unless its
+                    // then-block produces a value. A then-block that ends in
+                    // `return` (or is otherwise unreachable) never falls
+                    // through, so it is admissible here even though its
+                    // inferred type is the returned type rather than Unit.
                     let unit_ty = self.tcx.intern(TyKind::Unit);
-                    if then_ty != unit_ty {
+                    if then_ty != unit_ty && !self.block_diverges(then_branch) {
                         return Err(TypeError::MismatchedTypes {
                             expected: self.tcx.mangle(unit_ty),
                             found: self.tcx.mangle(then_ty),
@@ -977,6 +982,22 @@ impl TypeChecker {
                     Ok(self.tcx.intern(TyKind::Unit))
                 }
             }
+        }
+    }
+
+    /// True when an expression transfers control away instead of falling
+    /// through to its continuation.
+    ///
+    /// A block whose final statement is `return`, `break` or `continue` never
+    /// reaches the code after it, so it produces no value. This is a structural
+    /// check on the syntax tree, deliberately independent of the inferred type,
+    /// because `Expr::Return` is typed as its operand's type rather than as
+    /// `Never`.
+    fn block_diverges(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Return(_) | Expr::Break { .. } | Expr::Continue { .. } => true,
+            Expr::Block(stmts) => stmts.last().is_some_and(|s| self.block_diverges(s)),
+            _ => false,
         }
     }
 

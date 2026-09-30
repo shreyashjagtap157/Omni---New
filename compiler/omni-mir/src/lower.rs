@@ -7,6 +7,21 @@ use omni_types::intern::{Ty, TyCtxt, TyKind};
 use omni_types::monomorph::MonomorphizedProgram;
 use std::collections::HashMap;
 
+/// True when an expression transfers control away instead of falling through.
+///
+/// `Expr::Return` is typed as its operand's type rather than as `Never`, so the
+/// inferred type alone cannot tell a diverging branch from a value-producing
+/// one. This structural check is what lets `if c { return 1; }` be lowered as
+/// the Unit statement it is.
+fn expr_diverges(expr: &omni_types::ast::Expr) -> bool {
+    use omni_types::ast::Expr;
+    match expr {
+        Expr::Return(_) | Expr::Break { .. } | Expr::Continue { .. } => true,
+        Expr::Block(stmts) => stmts.last().is_some_and(expr_diverges),
+        _ => false,
+    }
+}
+
 pub struct LoweringContext {
     body: Body,
     struct_defs: HashMap<String, omni_types::ast::StructDef>,
@@ -85,6 +100,7 @@ impl LoweringContext {
                 return_ty: ret_ty,
                 current_block: None,
                 loops: Vec::new(),
+                diverged: false,
             };
 
             let entry_block = builder.new_block();
@@ -108,8 +124,15 @@ impl LoweringContext {
                         ));
                     }
                     None => {
+                        // A `None` body result means control never produced a
+                        // value on this path. That is admissible for a `Never`
+                        // return type, which is how a diverging function (for
+                        // example one whose only statement is an infinite
+                        // `loop`) is typed. Any other non-Unit return type would
+                        // need a value the body never produced.
                         let unit_ty = builder.tcx.intern(TyKind::Unit);
-                        if ret_ty != unit_ty {
+                        let never_ty = builder.tcx.intern(TyKind::Never);
+                        if ret_ty != unit_ty && ret_ty != never_ty {
                             return Err(format!(
                                 "MIR lowering error in '{}': function body has no value, expected {:?}",
                                 func.name, ret_ty
@@ -180,6 +203,12 @@ struct FnMirBuilder<'a> {
     return_ty: Ty,
     current_block: Option<crate::ir::BasicBlock>,
     loops: Vec<LoopContext>,
+    /// Set once the enclosing *function* has transferred control to its return
+    /// place. `current_block` is also cleared by `break`/`continue`, but those
+    /// only leave the current basic block inside a loop, so a block statement
+    /// list must keep lowering after them; only a real `return` makes the
+    /// remaining statements unreachable.
+    diverged: bool,
 }
 
 impl<'a> FnMirBuilder<'a> {
@@ -286,8 +315,15 @@ impl<'a> FnMirBuilder<'a> {
             result_local: None,
             result_ty: None,
         });
+        // A `return` in the loop body diverges that path only; the loop's own
+        // back edge keeps the body reachable, so the divergence flag does not
+        // escape the loop.
+        let outer_diverged = self.diverged;
+        self.diverged = false;
 
         self.lower_expr(body)?;
+        let _body_diverged = self.diverged;
+        self.diverged = outer_diverged;
         if let Some(block) = self.current_block {
             if self.blocks[block].terminator.is_none() {
                 self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(header));
@@ -583,6 +619,11 @@ impl<'a> FnMirBuilder<'a> {
         self.current_block = Some(then_block);
         let then_result = self.lower_expr(then_branch)?;
         let then_end = self.current_block;
+        // A `return` inside the then-branch diverges only that branch; the else
+        // branch and the code after the `if` are still reachable, so the
+        // function-wide divergence flag is restored rather than left set.
+        let then_diverged = self.diverged;
+        self.diverged = false;
 
         let else_result = if let Some(else_expr) = else_branch {
             self.current_block = Some(else_block);
@@ -592,10 +633,20 @@ impl<'a> FnMirBuilder<'a> {
         } else {
             (None, Some(else_block))
         };
+        let else_diverged = self.diverged;
+        // The `if` itself diverges only when *both* arms transfer control away.
+        // With no `else` arm the empty else path always falls through to the
+        // join block, so the `if` is not a diverging statement.
+        self.diverged = then_diverged && else_diverged && else_branch.is_some();
 
         let result_ty = match (&then_result, &else_result.0) {
             (Some((_, then_ty)), Some((_, else_ty))) if then_ty == else_ty => *then_ty,
             (None, None) => self.tcx.intern(TyKind::Unit),
+            // A branch that transfers control away (`return`, `break`,
+            // `continue`) yields no value even though `lower_expr` reports the
+            // operand's type for a `return`. Treating it as value-producing
+            // would reject the ordinary `if c { return 1; }` statement form.
+            (Some(_), None) if expr_diverges(then_branch) => self.tcx.intern(TyKind::Unit),
             (Some(_), None) | (None, Some(_)) => {
                 return Err("MIR lowering error: non-unit if branch requires an else value".into());
             }
@@ -704,6 +755,7 @@ impl<'a> FnMirBuilder<'a> {
 
         let mut result_ty = None;
         let mut result_local = None;
+        let mut any_arm_diverged = false;
 
         for (index, arm) in arms.iter().enumerate() {
             self.current_block = Some(arm_blocks[index]);
@@ -714,6 +766,11 @@ impl<'a> FnMirBuilder<'a> {
 
             let body = self.lower_expr(&arm.body)?;
             self.scope = saved_scope;
+            // Each arm is an independent path: a `return` in one arm must not
+            // mark the other arms, or the code after the `match`, as diverged.
+            let arm_diverged = self.diverged;
+            self.diverged = false;
+            any_arm_diverged |= arm_diverged;
 
             if let Some((_, ty)) = &body {
                 if let Some(expected) = result_ty {
@@ -749,11 +806,20 @@ impl<'a> FnMirBuilder<'a> {
             }
         }
 
-        if otherwise_block == otherwise {
-            self.current_block = Some(otherwise);
+        // The implicit `otherwise` block only needs an `Unreachable` terminator
+        // when it is still the switch's fallthrough target. When an arm supplies
+        // the wildcard, `otherwise_block` points at that arm instead and `otherwise`
+        // is left with no predecessor edge; it must still be terminated, or the
+        // verifier rejects the function with "BasicBlock N lacks a valid
+        // terminator".
+        if self.blocks[otherwise].terminator.is_none() {
             self.blocks[otherwise].terminator = Some(crate::ir::Terminator::Unreachable);
         }
 
+        // The `match` itself diverges only when *every* arm transfers control
+        // away and there is no fallthrough target; otherwise the join block is
+        // reachable and execution continues after the `match`.
+        self.diverged = any_arm_diverged && wildcard_target.is_none();
         self.current_block = Some(join);
         match result_local {
             Some(local) => Ok(Some((
@@ -1058,8 +1124,19 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Expr::Block(exprs) => {
                 let mut last = None;
                 for expr in exprs {
-                    if self.current_block.is_none() {
+                    if self.diverged {
+                        // The whole function has left through a `return`, so no
+                        // later statement in this block is reachable.
                         break;
+                    }
+                    if self.current_block.is_none() {
+                        // `break`/`continue` only end the current basic block
+                        // *inside a loop*; control still has somewhere to go, so
+                        // the remaining statements are lowered into a fresh
+                        // block rather than dropped. Outside a loop the block
+                        // would be unreachable, which is left to the verifier.
+                        let resume = self.new_block();
+                        self.current_block = Some(resume);
                     }
                     last = self.lower_expr(expr)?;
                 }
@@ -1494,7 +1571,14 @@ impl<'a> FnMirBuilder<'a> {
                 }
                 self.blocks[curr_block].terminator = Some(crate::ir::Terminator::Return);
                 self.current_block = None;
+                self.diverged = true;
                 Ok(ret_result)
+            }
+            omni_types::ast::Expr::Break { label, value } => {
+                self.lower_break_expression(label.as_deref(), value.as_deref())
+            }
+            omni_types::ast::Expr::Continue { label } => {
+                self.lower_continue_expression(label.as_deref())
             }
             unsupported => {
                 Err(format!("Unsupported AST expression form for MIR lowering: {:?}", unsupported))
@@ -1761,8 +1845,19 @@ mod tests {
         }).count() >= 2);
     }
 
+    /// Struct construction lowers to typed MIR rather than failing in the
+    /// lowering pass. Commit `1f0eaee` ("lower struct and enum constructors
+    /// into typed MIR") deliberately replaced the previous fail-closed arm here,
+    /// so the old expectation that lowering rejects a struct literal is a stale
+    /// assumption and no longer describes this compiler.
+    ///
+    /// The aggregate layout boundary is real, but it lives one layer down: the
+    /// IR carries the constructor and its declared type, and `omni-codegen`
+    /// refuses to emit native code for it until a target layout contract exists.
+    /// Asserting the boundary here would be asserting a rule this layer does not
+    /// own.
     #[test]
-    fn aggregate_construction_is_rejected_at_mir_boundary() {
+    fn aggregate_construction_lowers_to_typed_mir() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
@@ -1770,7 +1865,7 @@ mod tests {
                 type_params: vec![],
                 bounds: vec![],
                 params: vec![],
-                return_type: TypeSpec::Int,
+                return_type: TypeSpec::Struct("Pair".to_string(), vec![]),
                 effects: omni_effects::EffectRow::pure(),
                 capabilities: vec![],
                 body: Expr::Struct {
@@ -1783,12 +1878,24 @@ mod tests {
                 },
             }],
         };
-        let err = ctx.lower_monomorphized_program(&prog).expect_err("aggregate construction must fail closed");
-        assert!(err.contains("struct literal construction requires an aggregate storage/layout contract"));
+        let mut mir = ctx
+            .lower_monomorphized_program(&prog)
+            .expect("struct construction must lower to MIR");
+        let f = &mir.functions[0];
+        assert_eq!(f.name, "struct_ctor");
+        let ty = mir.tcx.intern(TyKind::Struct("Pair".to_string(), vec![]));
+        assert!(
+            f.body.blocks.iter().any(|b| b.statements.iter().any(|s| matches!(
+                s,
+                crate::ir::Statement::Assign(_, crate::ir::Rvalue::Struct { name, ty: t, .. })
+                    if name == "Pair" && *t == ty
+            ))),
+            "struct construction must emit a typed Rvalue::Struct"
+        );
     }
 
     #[test]
-    fn enum_construction_is_rejected_at_mir_boundary() {
+    fn enum_construction_lowers_to_typed_mir() {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
@@ -1796,7 +1903,7 @@ mod tests {
                 type_params: vec![],
                 bounds: vec![],
                 params: vec![],
-                return_type: TypeSpec::Unit,
+                return_type: TypeSpec::Enum("Option".to_string(), vec![TypeSpec::Int]),
                 effects: omni_effects::EffectRow::pure(),
                 capabilities: vec![],
                 body: Expr::EnumVariant {
@@ -1807,8 +1914,22 @@ mod tests {
                 },
             }],
         };
-        let err = ctx.lower_monomorphized_program(&prog).expect_err("enum construction must fail closed");
-        assert!(err.contains("enum variant construction requires tagged aggregate storage/layout"));
+        let mut mir = ctx
+            .lower_monomorphized_program(&prog)
+            .expect("enum construction must lower to MIR");
+        let f = &mir.functions[0];
+        let int_ty = mir.tcx.intern(TyKind::Int);
+        let ty = mir.tcx.intern(TyKind::Enum("Option".to_string(), vec![int_ty]));
+        assert!(
+            f.body.blocks.iter().any(|b| b.statements.iter().any(|s| matches!(
+                s,
+                crate::ir::Statement::Assign(
+                    _,
+                    crate::ir::Rvalue::EnumVariant { enum_name, variant, ty: t, .. }
+                ) if enum_name == "Option" && variant == "None" && *t == ty
+            ))),
+            "enum construction must emit a typed Rvalue::EnumVariant carrying its arguments"
+        );
     }
 
     #[test]

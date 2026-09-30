@@ -220,19 +220,19 @@ impl Resolver {
             }
             SyntaxKind::LetStmt => {
                 let children_vec: Vec<_> = node.children().collect();
-                if let Some(name) =
-                    children_vec.iter().find(|n| n.kind() == SyntaxKind::NameRef).cloned()
-                {
-                    // Initializer is resolved before introducing the binding: a declaration
-                    // cannot recursively refer to itself by name.
+                // A `let` binding is parsed as `IdentifierPattern > Path >
+                // PathSegment` (or `BindingPattern` when `mut` is present), so
+                // the declared name is a `PathSegment`, not a `NameRef`. The
+                // initializer is resolved before introducing the binding: a
+                // declaration cannot recursively refer to itself by name.
+                if let Some(name) = pattern_binding_name(&children_vec) {
                     let mut after_name = false;
                     for c in &children_vec {
-                        if c.kind() == SyntaxKind::NameRef && c.text() == name.text() {
-                            after_name = true;
-                            continue;
-                        }
                         if after_name {
                             self.resolve_node(c, out, errors);
+                        }
+                        if is_pattern_node(c.kind()) {
+                            after_name = true;
                         }
                     }
                     self.declare_and_record(&name, out, true, errors);
@@ -295,7 +295,6 @@ impl Resolver {
             | SyntaxKind::GenericParams
             | SyntaxKind::GenericParam
             | SyntaxKind::Type
-            | SyntaxKind::Path
             | SyntaxKind::PathSegment
             | SyntaxKind::TypeBound
             | SyntaxKind::TraitRef
@@ -305,6 +304,86 @@ impl Resolver {
             | SyntaxKind::LifetimeArg
             | SyntaxKind::WhereClause
             | SyntaxKind::WherePredicate => {}
+            SyntaxKind::ForExpr => {
+                // `for i in range { .. }` introduces `i` for the body only, so
+                // the body is resolved inside a fresh rib. The iterable must be
+                // resolved *before* that rib exists, otherwise `i` would be in
+                // scope for its own definition.
+                let children: Vec<SyntaxNode> = node.children().collect();
+                let pattern = children.iter().find(|c| is_pattern_node(c.kind()));
+                let rest: Vec<SyntaxNode> = children
+                    .iter()
+                    .filter(|c| Some(c.kind()) != pattern.map(|p| p.kind()))
+                    .cloned()
+                    .collect();
+                let mut saw_iterable = false;
+                self.push_rib();
+                for child in &rest {
+                    if !saw_iterable {
+                        self.resolve_node(child, out, errors);
+                        saw_iterable = true;
+                        if let Some(p) = pattern {
+                            self.declare_pattern_bindings(p, out, errors);
+                        }
+                    } else {
+                        self.resolve_node(child, out, errors);
+                    }
+                }
+                self.pop_rib();
+            }
+            SyntaxKind::StructExpr => {
+                // `Pair { first: 1, .. }`: the leading path names a type, not a
+                // runtime value, and each `StructExprField` label is a field
+                // name. Only the field *values* are runtime references, so the
+                // path and the labels are skipped deliberately.
+                for child in node.children() {
+                    if child.kind() == SyntaxKind::StructExprField {
+                        for value in child.children() {
+                            if value.kind() == SyntaxKind::NameRef {
+                                continue;
+                            }
+                            self.resolve_node(&value, out, errors);
+                        }
+                    }
+                }
+            }
+            SyntaxKind::Path => {
+                // An expression `Path` with exactly one segment is a bare
+                // reference to a local or function (`x`, `helper`). Qualified
+                // paths (`a::b`), type positions, and struct-constructor paths
+                // (`Pair { .. }`) are not name references, so only the
+                // single-segment case is resolved here. Previously `Path` was
+                // skipped entirely, which left every ordinary identifier
+                // reference unresolved.
+                let segments: Vec<SyntaxNode> = node
+                    .children()
+                    .filter(|n| n.kind() == SyntaxKind::PathSegment)
+                    .collect();
+                if segments.len() != 1 {
+                    return;
+                }
+                // A path that is the head of a struct expression names a type.
+                if node.parent().is_some_and(|p| p.kind() == SyntaxKind::StructExpr) {
+                    return;
+                }
+                let text = segments[0]
+                    .text()
+                    .to_string()
+                    .trim()
+                    .split('<')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if let Ok(id) = self.resolve(&text) {
+                    out.references.insert(start_u32(&segments[0]), id);
+                } else {
+                    errors.push(ResolveError::UnresolvedName {
+                        name: text,
+                        span: Some(start_u32(&segments[0])),
+                    });
+                }
+            }
             _ => {
                 for c in node.children() {
                     self.resolve_node(&c, out, errors);
@@ -320,8 +399,11 @@ impl Resolver {
     ) {
         match pattern.kind() {
             SyntaxKind::IdentifierPattern | SyntaxKind::BindingPattern => {
-                if let Some(name) = direct_name(pattern) {
-                    self.declare_and_record(&name, out, true, errors);
+                // The parser nests the bound name as `IdentifierPattern > Path >
+                // PathSegment`, so use the pattern-aware lookup rather than the
+                // `NameRef`-only `direct_name`.
+                if let Some(seg) = first_path_segment(pattern) {
+                    self.declare_and_record(&seg, out, true, errors);
                 }
                 for child in pattern.children() {
                     if matches!(child.kind(), SyntaxKind::PatternField) {
@@ -432,6 +514,65 @@ fn direct_name(node: &SyntaxNode) -> Option<SyntaxNode> {
     node.children().find(|n| n.kind() == SyntaxKind::NameRef)
 }
 
+/// True for the node kinds the parser uses for a `let` binding pattern.
+fn is_pattern_node(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::IdentifierPattern
+            | SyntaxKind::BindingPattern
+            | SyntaxKind::WildcardPattern
+            | SyntaxKind::TuplePattern
+            | SyntaxKind::StructPattern
+            | SyntaxKind::EnumPattern
+            | SyntaxKind::ReferencePattern
+            | SyntaxKind::RangePattern
+            | SyntaxKind::OrPattern
+    )
+}
+
+/// Extract the identifier a binding pattern introduces.
+///
+/// The parser lowers `let x` / `let mut x` to `IdentifierPattern` or
+/// `BindingPattern` wrapping a `Path > PathSegment`, so the name is not a
+/// `NameRef`. Nested patterns (`(a, b)`, `Some(x)`, `&y`, `A | B`) bind one
+/// name per leaf, which `declare_pattern_bindings` walks separately; this helper
+/// only reports whether the `let` itself introduces a name.
+fn pattern_binding_name(children: &[SyntaxNode]) -> Option<SyntaxNode> {
+    for child in children {
+        if !is_pattern_node(child.kind()) {
+            continue;
+        }
+        // A tuple/enum/struct pattern binds several names, so `let` cannot
+        // introduce a single one; the caller falls back to resolving children.
+        match child.kind() {
+            SyntaxKind::IdentifierPattern | SyntaxKind::BindingPattern => {
+                if let Some(seg) = first_path_segment(child) {
+                    return Some(seg);
+                }
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// The first `PathSegment` under `node`, if any.
+///
+/// The parser wraps a pattern's name as `IdentifierPattern > Path >
+/// PathSegment`, so this has to look through the intervening `Path` rather than
+/// only at direct children.
+fn first_path_segment(node: &SyntaxNode) -> Option<SyntaxNode> {
+    if node.kind() == SyntaxKind::PathSegment {
+        return Some(node.clone());
+    }
+    for child in node.children() {
+        if let Some(found) = first_path_segment(&child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 #[cfg(any())]
 #[implements("NAME-0006")]
 fn _audit_shadowing_rules() {}
@@ -461,6 +602,36 @@ mod tests {
         assert!(parsed.is_ok(), "{:?}", parsed.diagnostics);
         let mut resolver = Resolver::new(1, 2);
         assert!(resolver.resolve_source(&parsed.syntax()).is_ok());
+    }
+
+    /// A `let` binding and a bare identifier reference must both resolve.
+    ///
+    /// The parser emits `IdentifierPattern > Path > PathSegment` for a binding
+    /// and `PathExpr > Path > PathSegment` for a reference, so a resolver that
+    /// only looks for `NameRef` sees neither. This pins both halves.
+    #[test]
+    fn let_binding_and_bare_reference_resolve_through_path_segments() {
+        let mut p = Parser::from_source("fn main() { let x = 1; return x; }");
+        let parsed = p.parse_source();
+        assert!(parsed.is_ok(), "{:?}", parsed.diagnostics);
+        let mut r = Resolver::new(1, 2);
+        let resolved = r.resolve_source(&parsed.syntax()).expect("resolve");
+        // `main` and `x` are definitions; `x` is referenced once.
+        assert!(resolved.definitions.len() >= 2, "{:?}", resolved.definitions);
+        assert!(!resolved.references.is_empty(), "{:?}", resolved.references);
+    }
+
+    /// A `mut` binding uses `BindingPattern` rather than `IdentifierPattern`
+    /// and must bind under the same rule.
+    #[test]
+    fn mut_binding_resolves_through_path_segments() {
+        let mut p = Parser::from_source("fn main() { let mut y = 2; return y; }");
+        let parsed = p.parse_source();
+        assert!(parsed.is_ok(), "{:?}", parsed.diagnostics);
+        let mut r = Resolver::new(1, 2);
+        let resolved = r.resolve_source(&parsed.syntax()).expect("resolve");
+        assert!(resolved.definitions.len() >= 2, "{:?}", resolved.definitions);
+        assert!(!resolved.references.is_empty(), "{:?}", resolved.references);
     }
 
     #[test]
