@@ -1177,9 +1177,12 @@ impl TypeChecker {
                     self.infer_call(func, generic_args, args, env, local_vars)?;
                 Ok(effects.union(&callee_effects))
             }
-            Expr::Let { init, body, .. } => {
+            Expr::Let { pattern, init, body, .. } => {
                 let init_eff = self.infer_expr_effects(init, env, local_vars)?;
-                let body_eff = self.infer_expr_effects(body, env, local_vars)?;
+                let init_ty = self.infer_expr(init, env, local_vars)?;
+                let mut body_locals = local_vars.clone();
+                self.bind_pattern(pattern, init_ty, &mut body_locals)?;
+                let body_eff = self.infer_expr_effects(body, env, &body_locals)?;
                 Ok(init_eff.union(&body_eff))
             }
             Expr::Binary { lhs, rhs, .. } => {
@@ -1221,9 +1224,21 @@ impl TypeChecker {
                 let e_eff = self.infer_expr_effects(end, env, local_vars)?;
                 Ok(s_eff.union(&e_eff))
             }
-            Expr::For { iterable, body, .. } => {
+            Expr::For { pattern, iterable, body, .. } => {
                 let mut eff = self.infer_expr_effects(iterable, env, local_vars)?;
-                eff = eff.union(&self.infer_expr_effects(body, env, local_vars)?);
+                let iterable_ty = self.infer_expr(iterable, env, local_vars)?;
+                let element_ty = match self.tcx.get(iterable_ty).clone() {
+                    TyKind::Array(elem, _) | TyKind::Range(elem) => elem,
+                    other => {
+                        return Err(TypeError::UnsupportedOperator(format!(
+                            "for iteration requires Array or Range, found {:?}",
+                            other
+                        )));
+                    }
+                };
+                let mut body_locals = local_vars.clone();
+                self.bind_pattern(pattern, element_ty, &mut body_locals)?;
+                eff = eff.union(&self.infer_expr_effects(body, env, &body_locals)?);
                 Ok(eff)
             }
             Expr::Loop { body, .. } => self.infer_expr_effects(body, env, local_vars),
@@ -1249,15 +1264,25 @@ impl TypeChecker {
             Expr::Cast { expr, .. } => self.infer_expr_effects(expr, env, local_vars),
             Expr::Match { expr, arms } => {
                 let mut eff = self.infer_expr_effects(expr, env, local_vars)?;
+                let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
                 for arm in arms {
+                    let mut arm_locals = local_vars.clone();
+                    self.bind_pattern(&arm.pattern, scrutinee_ty, &mut arm_locals)?;
                     if let Some(g) = &arm.guard {
-                        eff = eff.union(&self.infer_expr_effects(g, env, local_vars)?);
+                        eff = eff.union(&self.infer_expr_effects(g, env, &arm_locals)?);
                     }
-                    eff = eff.union(&self.infer_expr_effects(&arm.body, env, local_vars)?);
+                    eff = eff.union(&self.infer_expr_effects(&arm.body, env, &arm_locals)?);
                 }
                 Ok(eff)
             }
-            Expr::Lambda { body, .. } => self.infer_expr_effects(body, env, local_vars),
+            Expr::Lambda { params, body } => {
+                let mut lambda_locals = local_vars.clone();
+                for (name, spec) in params {
+                    let ty = self.lower_type_spec(spec, env);
+                    lambda_locals.insert(name.clone(), ty);
+                }
+                self.infer_expr_effects(body, env, &lambda_locals)
+            }
             Expr::Interpolation(parts) => {
                 let mut eff = EffectRow::pure();
                 for p in parts {
