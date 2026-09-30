@@ -5,7 +5,7 @@
 //! concrete place identities into these primitives without duplicating the
 //! affine/loan rules.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 
 /// A projection component identifying a field/index/subplace within a value.
