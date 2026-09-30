@@ -2177,10 +2177,6 @@ impl<'a> Parser<'a> {
     }
     /// Return the current token without advancing. The parser cursor is
     /// intentionally bounded by the physical lexer-token vector.
-    fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.pos)
-    }
-
     /// Return the token at a relative cursor offset without advancing.
     ///
     /// This is the token-valued counterpart to [`Parser::peek_kind`], so
