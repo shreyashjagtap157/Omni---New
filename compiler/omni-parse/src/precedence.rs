@@ -124,34 +124,14 @@ pub const fn split_generic_closer(kind: Punct) -> Option<[Option<GenericCloserPa
             None,
         ]),
         Punct::Shr => Some([
-            Some(GenericCloserPart {
-                kind: Punct::Gt,
-                byte_offset: 0,
-                byte_len: 1,
-            }),
-            Some(GenericCloserPart {
-                kind: Punct::Gt,
-                byte_offset: 1,
-                byte_len: 1,
-            }),
+            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 }),
+            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 }),
             None,
         ]),
         Punct::ShrEq => Some([
-            Some(GenericCloserPart {
-                kind: Punct::Gt,
-                byte_offset: 0,
-                byte_len: 1,
-            }),
-            Some(GenericCloserPart {
-                kind: Punct::Gt,
-                byte_offset: 1,
-                byte_len: 1,
-            }),
-            Some(GenericCloserPart {
-                kind: Punct::Eq,
-                byte_offset: 2,
-                byte_len: 1,
-            }),
+            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 0, byte_len: 1 }),
+            Some(GenericCloserPart { kind: Punct::Gt, byte_offset: 1, byte_len: 1 }),
+            Some(GenericCloserPart { kind: Punct::Eq, byte_offset: 2, byte_len: 1 }),
         ]),
         _ => None,
     }
