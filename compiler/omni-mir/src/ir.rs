@@ -12,6 +12,34 @@ pub struct MirProgram {
     /// Type context that owns every Ty handle used by this MIR program.
     pub tcx: omni_types::intern::TyCtxt,
     pub functions: Vec<MirFunction>,
+    /// Struct declarations needed to resolve named field projections.
+    ///
+    /// A place may carry `Projection::Field`, and re-deriving that field's type
+    /// requires the declaration. Carrying it in the program means the verifier
+    /// sees the same definitions lowering used, rather than the two disagreeing
+    /// about what a struct contains. It is empty when no struct is declared.
+    pub struct_defs: std::collections::HashMap<String, omni_types::ast::StructDef>,
+}
+
+impl MirProgram {
+    /// Creates a program with no struct declarations.
+    ///
+    /// Struct-field projection checking needs the declarations; a program that
+    /// declares none can only contain aggregate-free places, which this
+    /// constructor expresses without each call site having to supply an empty
+    /// map.
+    pub fn new(tcx: omni_types::intern::TyCtxt, functions: Vec<MirFunction>) -> Self {
+        Self { tcx, functions, struct_defs: std::collections::HashMap::new() }
+    }
+
+    /// Attaches struct declarations, returning the program for chaining.
+    pub fn with_struct_defs(
+        mut self,
+        defs: std::collections::HashMap<String, omni_types::ast::StructDef>,
+    ) -> Self {
+        self.struct_defs = defs;
+        self
+    }
 }
 
 /// Monomorphized function represented in canonical Mid-Level IR.

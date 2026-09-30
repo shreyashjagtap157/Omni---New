@@ -758,6 +758,7 @@ mod tests {
                 return_type: ast::TypeSpec::Int,
                 body: omni_mir::ir::Body { blocks, local_decls: locals },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
         omni_verify::MirVerifier::verify_program(&mir).expect("hand-built CFG must verify");
 
@@ -828,6 +829,7 @@ mod tests {
                 return_type: ast::TypeSpec::Int,
                 body: omni_mir::ir::Body { blocks, local_decls: locals },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
         omni_verify::MirVerifier::verify_program(&mir)
             .expect("MIR fixture must be internally typed");
@@ -916,6 +918,7 @@ mod tests {
                     body: omni_mir::ir::Body { blocks: main_blocks, local_decls: main_locals },
                 },
             ],
+            struct_defs: std::collections::HashMap::new(),
         };
 
         let err = compile_mir_program(&MonomorphizedProgram { functions: vec![touch, main] }, &mir)

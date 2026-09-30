@@ -9,9 +9,14 @@ use std::collections::{HashSet, VecDeque};
 
 use omni_mir::ir::{
     AggregateKind, BasicBlock, BinOp, Constant, Local, MirFunction, MirProgram, Operand, Place,
-    Rvalue, Statement, Terminator, UnOp,
+    Projection, Rvalue, Statement, Terminator, UnOp,
 };
-use omni_mir::{Ty, TyCtxt, TyKind};
+use omni_mir::{SubstEnv, Ty, TyCtxt, TyKind};
+
+/// Renders a projection for diagnostics.
+fn projection_display(projection: &Projection) -> String {
+    projection.display()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MirVerificationError {
@@ -110,6 +115,20 @@ pub enum MirVerificationError {
         func: String,
         context: String,
     },
+    /// A projection was applied to a place whose type does not support it.
+    InvalidProjection {
+        func: String,
+        place: String,
+        projection: String,
+        context: String,
+    },
+    /// A constant subscript lies outside the aggregate it indexes.
+    ProjectionOutOfBounds {
+        func: String,
+        place: String,
+        index: usize,
+        length: usize,
+    },
     UseBeforeAssignment {
         func: String,
         block: BasicBlock,
@@ -119,6 +138,12 @@ pub enum MirVerificationError {
         func: String,
         block: BasicBlock,
         local: Local,
+    },
+    /// A projected place was read while its aggregate is still uninitialized.
+    UseOfUninitializedProjection {
+        func: String,
+        block: BasicBlock,
+        place: String,
     },
 }
 
@@ -245,6 +270,21 @@ impl std::fmt::Display for MirVerificationError {
                 f,
                 "MIR Verification Failure in '{}': return local {:?} is not definitely assigned in block {:?}",
                 func, local, block
+            ),
+            Self::InvalidProjection { func, place, projection, context } => write!(
+                f,
+                "MIR Verification Failure in '{}': {} cannot be applied to {} while {}",
+                func, projection, place, context
+            ),
+            Self::ProjectionOutOfBounds { func, place, index, length } => write!(
+                f,
+                "MIR Verification Failure in '{}': index {} on {} is out of bounds for length {}",
+                func, index, place, length
+            ),
+            Self::UseOfUninitializedProjection { func, block, place } => write!(
+                f,
+                "MIR Verification Failure in '{}': projected place {} is read before its aggregate is initialized in block {:?}",
+                func, place, block
             ),
         }
     }
@@ -441,6 +481,7 @@ impl MirVerifier {
 
         Self::check_calls(prog, func)?;
         Self::check_definite_assignment(prog, func)?;
+        Self::check_projections(prog, func)?;
         Ok(())
     }
 
@@ -546,10 +587,19 @@ impl MirVerifier {
                         Self::require_assigned(func, block, place.local, &assigned)?;
                     }
                 }
-                if let Statement::Assign(place, _) = statement {
-                    assigned.insert(place.local);
-                } else if let Statement::Drop(place) = statement {
-                    assigned.remove(&place.local);
+                // A write to a whole local initializes it. A write to a projection
+                // initializes only that subplace, so it must NOT mark the whole
+                // local initialized: `x.y = 1` says nothing about `x.z`, and
+                // treating it as if it did would let a later read of `x.z` pass
+                // verification while reading an unwritten value.
+                match statement {
+                    Statement::Assign(place, _) if place.is_local() => {
+                        assigned.insert(place.local);
+                    }
+                    Statement::Drop(place) => {
+                        assigned.remove(&place.local);
+                    }
+                    _ => {}
                 }
             }
 
@@ -586,14 +636,16 @@ impl MirVerifier {
     ) -> HashSet<Local> {
         let mut assigned = initial.clone();
         for statement in &func.body.blocks[block].statements {
+            // Only a whole-local write initializes the local; a projected write
+            // initializes just that subplace, matching the check pass above.
             match statement {
-                Statement::Assign(place, _) => {
+                Statement::Assign(place, _) if place.is_local() => {
                     assigned.insert(place.local);
                 }
                 Statement::Drop(place) => {
                     assigned.remove(&place.local);
                 }
-                Statement::Assume(_) => {}
+                _ => {}
             }
         }
         assigned
@@ -682,6 +734,50 @@ impl MirVerifier {
         }
     }
 
+    /// Verifies every projected place in a function.
+    ///
+    /// This is the pass that makes the place model a real semantic invariant
+    /// rather than a data-structure change. Every place named by a statement, a
+    /// drop, an operand, or a call destination has its projection chain
+    /// re-derived from the declared local type, so a projection the type does
+    /// not support, or a constant subscript past the end of an aggregate, fails
+    /// here rather than being handed to a backend to interpret.
+    fn check_projections(
+        prog: &MirProgram,
+        func: &MirFunction,
+    ) -> Result<(), MirVerificationError> {
+        let mut tcx = prog.tcx.clone();
+        let defs = &prog.struct_defs;
+        for block in func.body.blocks.iter() {
+            for statement in &block.statements {
+                match statement {
+                    Statement::Assign(place, _) | Statement::Drop(place) => {
+                        Self::check_projection_chain(&mut tcx, defs, func, place)?;
+                    }
+                    Statement::Assume(_) => {}
+                }
+            }
+            if let Some(terminator) = &block.terminator {
+                match terminator {
+                    Terminator::Call { args, destination, .. } => {
+                        for operand in args {
+                            Self::check_operand_projections(&mut tcx, defs, func, operand)?;
+                        }
+                        if let Some(destination) = destination {
+                            Self::check_projection_chain(&mut tcx, defs, func, destination)?;
+                        }
+                    }
+                    Terminator::SwitchInt { discr, .. } => {
+                        Self::check_operand_projections(&mut tcx, defs, func, discr)?;
+                    }
+                    Terminator::Goto(_) | Terminator::Return | Terminator::Unreachable => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks that an operand's place has been assigned before this point.
     fn check_operand_initialized(
         func: &MirFunction,
         block: BasicBlock,
@@ -691,6 +787,236 @@ impl MirVerifier {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 Self::require_assigned(func, block, place.local, assigned)
+            }
+            Operand::Constant(_) => Ok(()),
+        }
+    }
+
+    /// Walks a place's projection chain, checking each step against its type.
+    ///
+    /// This is the verifier's counterpart to lowering's `projected_ty`: the same
+    /// chain is re-derived here from the declared local type, so a place that
+    /// lowering can construct is one the verifier also understands.
+    fn check_projection_chain(
+        tcx: &mut TyCtxt,
+        defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+        func: &MirFunction,
+        place: &Place,
+    ) -> Result<(), MirVerificationError> {
+        let mut current = match Self::local_ty(func, place.local, &func.name) {
+            Ok(ty) => ty,
+            // An untyped local is already reported by the structural checks.
+            Err(_) => return Ok(()),
+        };
+        for projection in &place.projections {
+            let shown = projection_display(projection);
+            current = match projection {
+                Projection::Field(name) => {
+                    Self::field_projection_type(tcx, defs, func, place, shown, current, name)?
+                }
+                Projection::ConstantIndex(index) => match tcx.get(current).clone() {
+                    TyKind::Array(elem, length) => {
+                        if *index >= length {
+                            return Err(MirVerificationError::ProjectionOutOfBounds {
+                                func: func.name.clone(),
+                                place: place.to_string(),
+                                index: *index,
+                                length,
+                            });
+                        }
+                        elem
+                    }
+                    TyKind::Tuple(types) => types.get(*index).copied().ok_or_else(|| {
+                        MirVerificationError::ProjectionOutOfBounds {
+                            func: func.name.clone(),
+                            place: place.to_string(),
+                            index: *index,
+                            length: types.len(),
+                        }
+                    })?,
+                    other => {
+                        return Err(MirVerificationError::InvalidProjection {
+                            func: func.name.clone(),
+                            place: place.to_string(),
+                            projection: shown,
+                            context: format!("type {:?} cannot be indexed", other),
+                        })
+                    }
+                },
+                // A runtime subscript carries no constant, so only an array
+                // element type is knowable; tuples use a constant subscript.
+                Projection::Index(_) => match tcx.get(current).clone() {
+                    TyKind::Array(elem, _) => elem,
+                    other => {
+                        return Err(MirVerificationError::InvalidProjection {
+                            func: func.name.clone(),
+                            place: place.to_string(),
+                            projection: shown,
+                            context: format!("type {:?} cannot be indexed at runtime", other),
+                        })
+                    }
+                },
+                Projection::Deref => match tcx.get(current).clone() {
+                    TyKind::Reference { inner, .. } => inner,
+                    other => {
+                        return Err(MirVerificationError::InvalidProjection {
+                            func: func.name.clone(),
+                            place: place.to_string(),
+                            projection: shown,
+                            context: format!("type {:?} is not a reference", other),
+                        })
+                    }
+                },
+            };
+        }
+        Ok(())
+    }
+
+    /// Resolves the type of a whole place, projection chain included.
+    ///
+    /// This returns the type the place denotes rather than reporting only that
+    /// the chain is well formed, so assignment and call destinations can be
+    /// type-checked against the slot they actually write.
+    fn place_ty(
+        tcx: &mut TyCtxt,
+        defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+        func: &MirFunction,
+        place: &Place,
+        root_ty: Ty,
+    ) -> Result<Ty, MirVerificationError> {
+        let mut current = root_ty;
+        for projection in &place.projections {
+            let shown = projection_display(projection);
+            current = match projection {
+                Projection::Field(name) => {
+                    Self::field_projection_type(tcx, defs, func, place, shown, current, name)?
+                }
+                Projection::ConstantIndex(index) => match tcx.get(current).clone() {
+                    TyKind::Array(elem, length) => {
+                        if *index >= length {
+                            return Err(MirVerificationError::ProjectionOutOfBounds {
+                                func: func.name.clone(),
+                                place: place.to_string(),
+                                index: *index,
+                                length,
+                            });
+                        }
+                        elem
+                    }
+                    TyKind::Tuple(types) => types.get(*index).copied().ok_or_else(|| {
+                        MirVerificationError::ProjectionOutOfBounds {
+                            func: func.name.clone(),
+                            place: place.to_string(),
+                            index: *index,
+                            length: types.len(),
+                        }
+                    })?,
+                    other => {
+                        return Err(MirVerificationError::InvalidProjection {
+                            func: func.name.clone(),
+                            place: place.to_string(),
+                            projection: shown,
+                            context: format!("type {:?} cannot be indexed", other),
+                        })
+                    }
+                },
+                Projection::Index(_) => match tcx.get(current).clone() {
+                    TyKind::Array(elem, _) => elem,
+                    other => {
+                        return Err(MirVerificationError::InvalidProjection {
+                            func: func.name.clone(),
+                            place: place.to_string(),
+                            projection: shown,
+                            context: format!("type {:?} cannot be indexed at runtime", other),
+                        })
+                    }
+                },
+                Projection::Deref => match tcx.get(current).clone() {
+                    TyKind::Reference { inner, .. } => inner,
+                    other => {
+                        return Err(MirVerificationError::InvalidProjection {
+                            func: func.name.clone(),
+                            place: place.to_string(),
+                            projection: shown,
+                            context: format!("type {:?} is not a reference", other),
+                        })
+                    }
+                },
+            };
+        }
+        Ok(current)
+    }
+
+    /// Resolves a named field projection against a struct or tuple.
+    fn field_projection_type(
+        tcx: &mut TyCtxt,
+        defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+        func: &MirFunction,
+        place: &Place,
+        shown: String,
+        current: Ty,
+        name: &str,
+    ) -> Result<Ty, MirVerificationError> {
+        match tcx.get(current).clone() {
+            TyKind::Struct(struct_name, args) => {
+                let def = defs.get(&struct_name).ok_or_else(|| {
+                    MirVerificationError::InvalidProjection {
+                        func: func.name.clone(),
+                        place: place.to_string(),
+                        projection: shown.clone(),
+                        context: format!("unknown struct '{}'", struct_name),
+                    }
+                })?;
+                let field = def.fields.iter().find(|f| f.name == name).ok_or_else(|| {
+                    MirVerificationError::InvalidProjection {
+                        func: func.name.clone(),
+                        place: place.to_string(),
+                        projection: shown.clone(),
+                        context: format!("'{}' has no field '{}'", struct_name, name),
+                    }
+                })?;
+                let mut field_env = SubstEnv::new();
+                for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                    field_env.insert(param.clone(), *arg);
+                }
+                Ok(tcx.lower_type_spec(&field.ty, &field_env))
+            }
+            TyKind::Tuple(types) => {
+                let index: usize =
+                    name.parse().map_err(|_| MirVerificationError::InvalidProjection {
+                        func: func.name.clone(),
+                        place: place.to_string(),
+                        projection: shown,
+                        context: "tuple fields must be numeric".to_string(),
+                    })?;
+                types.get(index).copied().ok_or_else(|| {
+                    MirVerificationError::ProjectionOutOfBounds {
+                        func: func.name.clone(),
+                        place: place.to_string(),
+                        index,
+                        length: types.len(),
+                    }
+                })
+            }
+            other => Err(MirVerificationError::InvalidProjection {
+                func: func.name.clone(),
+                place: place.to_string(),
+                projection: shown,
+                context: format!("type {:?} has no fields", other),
+            }),
+        }
+    }
+
+    /// Verifies the projection chains of every place an operand names.
+    fn check_operand_projections(
+        tcx: &mut TyCtxt,
+        defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+        func: &MirFunction,
+        operand: &Operand,
+    ) -> Result<(), MirVerificationError> {
+        match operand {
+            Operand::Copy(place) | Operand::Move(place) => {
+                Self::check_projection_chain(tcx, defs, func, place)
             }
             Operand::Constant(_) => Ok(()),
         }
@@ -717,11 +1043,20 @@ impl MirVerifier {
     ) -> Result<(), MirVerificationError> {
         let mut tcx = prog.tcx.clone();
         let actual = Self::rvalue_type(&mut tcx, func, rvalue)?;
-        let expected = Self::local_ty(func, destination.local, &func.name)?;
+        // The expected type is the type of the *whole* place, projection chain
+        // included. Using the root local's type would reject every projected
+        // assignment, because `x.y = 1` writes an int into a slot of a tuple or
+        // struct, not into the aggregate itself.
+        let root_ty = Self::local_ty(func, destination.local, &func.name)?;
+        let expected = if destination.is_local() {
+            root_ty
+        } else {
+            Self::place_ty(&mut tcx, &prog.struct_defs, func, destination, root_ty)?
+        };
         if actual != expected {
             return Err(MirVerificationError::TypeMismatch {
                 func: func.name.clone(),
-                context: format!("assignment to local {:?}", destination.local),
+                context: format!("assignment to {}", destination),
                 expected,
                 actual,
             });
@@ -1320,6 +1655,7 @@ mod tests {
                 return_type: dummy_ty,
                 body: Body { blocks, local_decls },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
 
         assert!(MirVerifier::verify_program(&prog).is_ok());
@@ -1351,6 +1687,7 @@ mod tests {
                 return_type: omni_mir::ast::TypeSpec::Int,
                 body: Body { blocks, local_decls },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
 
         let res = MirVerifier::verify_program(&prog);
@@ -1378,6 +1715,7 @@ mod tests {
                 return_type: omni_mir::ast::TypeSpec::Unit,
                 body: Body { blocks, local_decls },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
 
         let res = MirVerifier::verify_program(&prog);
@@ -1409,6 +1747,7 @@ mod tests {
                 return_type: omni_mir::ast::TypeSpec::Int,
                 body: Body { blocks, local_decls },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
 
         let res = MirVerifier::verify_program(&prog);
@@ -1447,6 +1786,7 @@ mod tests {
                 return_type: omni_mir::ast::TypeSpec::Int,
                 body: Body { blocks, local_decls },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -1490,6 +1830,7 @@ mod tests {
                     },
                 },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -1531,6 +1872,7 @@ mod tests {
                 ]),
                 body: Body { blocks, local_decls: locals },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
         assert!(MirVerifier::verify_program(&prog).is_ok());
     }
@@ -1572,6 +1914,7 @@ mod tests {
                 ),
                 body: Body { blocks, local_decls: locals },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
         let _ = bool_ty;
         assert!(matches!(
@@ -1642,11 +1985,108 @@ mod tests {
                     body: Body { blocks: callee_blocks, local_decls: callee_locals },
                 },
             ],
+            struct_defs: std::collections::HashMap::new(),
         };
 
         assert!(matches!(
             MirVerifier::verify_program(&prog),
             Err(MirVerificationError::CallArityMismatch { .. })
+        ));
+    }
+
+    /// Builds a one-local function whose single statement assigns to `place`.
+    fn projected_assign_program(
+        mut tcx: TyCtxt,
+        local_ty: Ty,
+        place: Place,
+        value_local: Local,
+    ) -> MirProgram {
+        let value_ty = tcx.intern(TyKind::Int);
+        let mut local_decls = IndexVec::new();
+        local_decls
+            .push(omni_mir::ir::LocalDecl { name: Some("x".to_string()), ty: Some(local_ty) });
+        local_decls
+            .push(omni_mir::ir::LocalDecl { name: Some("v".to_string()), ty: Some(value_ty) });
+        let mut blocks = IndexVec::new();
+        // The return place is assigned from the parameter, so the
+        // uninitialized-return rule is satisfied and the projection check is
+        // what this program is exercising.
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(
+                    Place::local(Local::from_usize(2)),
+                    Rvalue::Use(Operand::Copy(Place::local(value_local))),
+                ),
+                Statement::Assign(place, Rvalue::Use(Operand::Copy(Place::local(value_local)))),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        // A third local is the return place, distinct from the parameter: the
+        // verifier already rejects a parameter aliasing the return place, so
+        // reusing the value local would fail an unrelated structural check
+        // before the projection check ever ran.
+        local_decls
+            .push(omni_mir::ir::LocalDecl { name: Some("ret".to_string()), ty: Some(value_ty) });
+        let ret_local = Local::from_usize(2);
+        let func = MirFunction {
+            name: "projected".to_string(),
+            params: vec![value_local],
+            return_place: ret_local,
+            return_type: omni_mir::ast::TypeSpec::Int,
+            body: Body { blocks, local_decls },
+        };
+        MirProgram::new(tcx, vec![func])
+    }
+
+    #[test]
+    fn verifier_accepts_a_legal_tuple_field_projection() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let tuple_ty = tcx.intern(TyKind::Tuple(vec![int_ty]));
+        let place = Place::local(Local::from_usize(0)).project(Projection::Field("0".to_string()));
+        let prog = projected_assign_program(tcx, tuple_ty, place, Local::from_usize(1));
+        assert!(
+            MirVerifier::verify_program(&prog).is_ok(),
+            "{:?}",
+            MirVerifier::verify_program(&prog)
+        );
+    }
+
+    #[test]
+    fn verifier_rejects_a_tuple_field_projection_past_the_end() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let tuple_ty = tcx.intern(TyKind::Tuple(vec![int_ty]));
+        let place = Place::local(Local::from_usize(0)).project(Projection::Field("7".to_string()));
+        let prog = projected_assign_program(tcx, tuple_ty, place, Local::from_usize(1));
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::ProjectionOutOfBounds { index: 7, length: 1, .. })
+        ));
+    }
+
+    #[test]
+    fn verifier_rejects_a_field_projection_on_a_scalar() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let place = Place::local(Local::from_usize(0)).project(Projection::Field("x".to_string()));
+        let prog = projected_assign_program(tcx, int_ty, place, Local::from_usize(1));
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::InvalidProjection { .. })
+        ));
+    }
+
+    #[test]
+    fn verifier_rejects_a_constant_index_past_the_array_end() {
+        let mut tcx = TyCtxt::new();
+        let elem_ty = tcx.intern(TyKind::Int);
+        let array_ty = tcx.intern(TyKind::Array(elem_ty, 2));
+        let place = Place::local(Local::from_usize(0)).project(Projection::ConstantIndex(5));
+        let prog = projected_assign_program(tcx, array_ty, place, Local::from_usize(1));
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::ProjectionOutOfBounds { index: 5, length: 2, .. })
         ));
     }
 
@@ -1667,6 +2107,7 @@ mod tests {
                 return_type: omni_mir::ast::TypeSpec::Int,
                 body: Body { blocks, local_decls },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -1698,6 +2139,7 @@ mod tests {
                 return_type: omni_mir::ast::TypeSpec::Int,
                 body: Body { blocks, local_decls },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -1725,6 +2167,7 @@ mod tests {
                 return_type: omni_mir::ast::TypeSpec::Int,
                 body: Body { blocks, local_decls },
             }],
+            struct_defs: std::collections::HashMap::new(),
         };
 
         let res = MirVerifier::verify_program(&prog);

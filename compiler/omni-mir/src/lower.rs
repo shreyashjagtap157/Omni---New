@@ -156,7 +156,11 @@ impl LoweringContext {
             });
         }
 
-        let mir_prog = crate::ir::MirProgram { tcx, functions: mir_functions };
+        let mir_prog = crate::ir::MirProgram {
+            tcx,
+            functions: mir_functions,
+            struct_defs: self.struct_defs.clone(),
+        };
         if let Some(first_fn) = mir_prog.functions.first() {
             self.body = first_fn.body.clone();
         }
