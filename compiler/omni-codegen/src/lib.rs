@@ -6,8 +6,8 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use target_lexicon::Triple;
 use std::collections::HashMap;
+use target_lexicon::Triple;
 
 /// Compiles a fully qualified, concrete monomorphized program to a native object file.
 /// This is the only source of native emission; frontend orchestration belongs to omni-driver.
@@ -22,9 +22,10 @@ fn native_abi_type_from_ty(
         | omni_mir::TyKind::Byte
         | omni_mir::TyKind::Char => Ok(Some(types::I64)),
         omni_mir::TyKind::Float => Ok(Some(types::F64)),
-        omni_mir::TyKind::Reference { .. } => Err(
-            "Codegen error: reference ABI requires pointer storage and ownership lowering".into()
-        ),
+        omni_mir::TyKind::Reference { .. } => {
+            Err("Codegen error: reference ABI requires pointer storage and ownership lowering"
+                .into())
+        }
         other => Err(format!(
             "Codegen error: native backend does not yet support MIR ABI type {:?}",
             other
@@ -293,7 +294,8 @@ fn compile_mir_program(
                                 place.local
                             )
                         })?;
-                        let val = lower_rvalue_to_cl(&mut builder, rval, &variables, &mir_prog.tcx)?;
+                        let val =
+                            lower_rvalue_to_cl(&mut builder, rval, &variables, &mir_prog.tcx)?;
                         builder.def_var(variable, val);
                     }
                     omni_mir::ir::Statement::Assume(_) | omni_mir::ir::Statement::Drop(_) => {}
@@ -470,7 +472,9 @@ fn lower_operand_to_cl(
                 }
                 omni_mir::ast::Lit::Byte(b) => Ok(builder.ins().iconst(types::I64, *b as i64)),
                 omni_mir::ast::Lit::Char(c) => Ok(builder.ins().iconst(types::I64, *c as i64)),
-                omni_mir::ast::Lit::Float(bits) => Ok(builder.ins().f64const(f64::from_bits(*bits))),
+                omni_mir::ast::Lit::Float(bits) => {
+                    Ok(builder.ins().f64const(f64::from_bits(*bits)))
+                }
                 _ => Err(format!("Unsupported literal form in MIR codegen: {:?}", lit)),
             },
             omni_mir::ir::Constant::FnRef(name) => Err(format!(
@@ -607,7 +611,9 @@ fn lower_rvalue_to_cl(
             ));
         }
         omni_mir::ir::Rvalue::Range { .. } => {
-            return Err("Codegen error: range value representation requires target layout metadata".into());
+            return Err(
+                "Codegen error: range value representation requires target layout metadata".into(),
+            );
         }
         omni_mir::ir::Rvalue::Index { .. } => {
             return Err("Codegen error: index projection requires aggregate layout metadata".into());
@@ -633,7 +639,7 @@ fn lower_rvalue_to_cl(
                     } else {
                         Ok(builder.ins().ineg(val))
                     }
-                },
+                }
                 omni_mir::ir::UnOp::Not => {
                     let one = builder.ins().iconst(types::I64, 1);
                     Ok(builder.ins().bxor(val, one))
@@ -641,7 +647,7 @@ fn lower_rvalue_to_cl(
                 omni_mir::ir::UnOp::BitNot => {
                     let all_ones = builder.ins().iconst(types::I64, -1);
                     Ok(builder.ins().bxor(val, all_ones))
-                },
+                }
             }
         }
     }
