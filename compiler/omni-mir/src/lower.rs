@@ -163,18 +163,6 @@ impl LoweringContext {
         Ok(mir_prog)
     }
 
-    /// Legacy Stage-1 snippet probe. It remains isolated from the typed production path.
-    pub fn lower_snippet(&mut self, source: &str) -> Result<Body, String> {
-        if source.contains('+')
-            || source.contains('-')
-            || source.contains('*')
-            || source.contains('/')
-        {
-            Ok(self.body.clone())
-        } else {
-            Err("Unsupported expression form for Stage-1 lowering".into())
-        }
-    }
 }
 
 fn simple_pattern_binding(pattern: &omni_types::ast::Pattern) -> Option<String> {
