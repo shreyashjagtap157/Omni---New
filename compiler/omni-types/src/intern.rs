@@ -132,9 +132,7 @@ impl TyCtxt {
             TyKind::Struct(_, args) | TyKind::Enum(_, args) => {
                 args.iter().all(|&t| self.is_concrete(t))
             }
-            TyKind::TraitObject { args, .. } => {
-                args.iter().all(|&t| self.is_concrete(t))
-            }
+            TyKind::TraitObject { args, .. } => args.iter().all(|&t| self.is_concrete(t)),
         }
     }
 
@@ -196,12 +194,8 @@ impl TyCtxt {
                 self.intern(TyKind::Enum(name.clone(), arg_tys))
             }
             crate::ast::TypeSpec::TraitObject { trait_name, args } => {
-                let arg_tys: Vec<Ty> =
-                    args.iter().map(|s| self.lower_type_spec(s, env)).collect();
-                self.intern(TyKind::TraitObject {
-                    trait_name: trait_name.clone(),
-                    args: arg_tys,
-                })
+                let arg_tys: Vec<Ty> = args.iter().map(|s| self.lower_type_spec(s, env)).collect();
+                self.intern(TyKind::TraitObject { trait_name: trait_name.clone(), args: arg_tys })
             }
             crate::ast::TypeSpec::Never => self.intern(TyKind::Never),
             crate::ast::TypeSpec::Known(ty) => *ty,
