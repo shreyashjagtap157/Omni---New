@@ -62,7 +62,11 @@ enum Child {
     /// A source-relative logical piece of a physical lexer token, used only
     /// when generic parsing splits `>>`/`>>=` into closers without mutating the
     /// lexer stream.
-    Piece { token: usize, byte_offset: u8, byte_len: u8 },
+    Piece {
+        token: usize,
+        byte_offset: u8,
+        byte_len: u8,
+    },
     /// A zero-width placeholder standing in for an absent token.
     ///
     /// This is deliberately a distinct variant rather than an index. Pointing a
@@ -122,7 +126,14 @@ impl<'a> Parser<'a> {
             trailing_trivia: Vec::new(),
             error_reason: None,
         });
-        Self { source, tokens, diagnostics: Vec::new(), pos: 0, split_token: None, no_struct_literal: false }
+        Self {
+            source,
+            tokens,
+            diagnostics: Vec::new(),
+            pos: 0,
+            split_token: None,
+            no_struct_literal: false,
+        }
     }
     pub fn new(tokens: Vec<String>) -> Parser<'static> {
         let source = Box::leak(tokens.join(" ").into_boxed_str());
@@ -187,7 +198,10 @@ impl<'a> Parser<'a> {
             return true;
         }
         if self.at_kw(Kw::Unsafe) {
-            return matches!(self.peek_kind(1), Some(TokenKind::Keyword(Kw::Fn | Kw::Trait | Kw::Impl)));
+            return matches!(
+                self.peek_kind(1),
+                Some(TokenKind::Keyword(Kw::Fn | Kw::Trait | Kw::Impl))
+            );
         }
         if self.at_kw(Kw::Async) {
             return self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn));
@@ -230,9 +244,7 @@ impl<'a> Parser<'a> {
             n.children.insert(0, modifier);
             return n;
         }
-        if self.at_kw(Kw::Async)
-            && self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn))
-        {
+        if self.at_kw(Kw::Async) && self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn)) {
             let modifier = self.bump_child();
             let mut n = self.parse_item();
             n.children.insert(0, modifier);
@@ -246,9 +258,7 @@ impl<'a> Parser<'a> {
             n.children.insert(0, modifier);
             return n;
         }
-        if self.at_kw(Kw::Const)
-            && self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn))
-        {
+        if self.at_kw(Kw::Const) && self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn)) {
             let modifier = self.bump_child();
             let mut n = self.parse_item();
             n.children.insert(0, modifier);
@@ -306,7 +316,7 @@ impl<'a> Parser<'a> {
                 }
                 if self.at_ident() {
                     p.children.push(Child::Node(
-                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index()),
                     ));
                 } else {
                     p.children.push(Child::Node(self.error_node("expected parameter name")));
@@ -343,7 +353,7 @@ impl<'a> Parser<'a> {
                 loop {
                     if self.at_ident() && self.peek_kind(1) == Some(TokenKind::Punct(Punct::Eq)) {
                         n.children.push(Child::Node(
-                            Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                            Node::new(SyntaxKind::NameRef).with_token(self.bump_index()),
                         ));
                         n.children.push(self.bump_child());
                     }
@@ -402,7 +412,7 @@ impl<'a> Parser<'a> {
                 n.children.push(self.expect_kw(Kw::Const));
                 if self.at_ident() {
                     n.children.push(Child::Node(
-                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index()),
                     ));
                 } else {
                     n.children.push(Child::Node(self.error_node("expected const parameter name")));
@@ -418,7 +428,7 @@ impl<'a> Parser<'a> {
                 n.children.push(self.bump_child());
                 if self.at_ident() {
                     n.children.push(Child::Node(
-                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index()),
                     ));
                 } else {
                     n.children.push(Child::Node(self.error_node("expected parameter name")));
@@ -436,7 +446,7 @@ impl<'a> Parser<'a> {
             _ => {
                 if self.at_ident() {
                     n.children.push(Child::Node(
-                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
+                        Node::new(SyntaxKind::NameRef).with_token(self.bump_index()),
                     ));
                 } else {
                     n.children.push(Child::Node(self.error_node("expected type parameter name")));
@@ -545,17 +555,23 @@ impl<'a> Parser<'a> {
             match token.kind {
                 TokenKind::Punct(Punct::Lt) => depth += 1,
                 TokenKind::Punct(Punct::Gt) => {
-                    if depth == 0 { return false; }
+                    if depth == 0 {
+                        return false;
+                    }
                     depth -= 1;
                 }
                 TokenKind::Punct(Punct::Shr) => {
-                    if depth == 0 { return false; }
+                    if depth == 0 {
+                        return false;
+                    }
                     depth -= 1;
                     pending = 1;
                 }
                 TokenKind::Punct(Punct::ShrEq) => {
                     // `>>=` supplies `>`, `>`, then `=`.
-                    if depth == 0 { return false; }
+                    if depth == 0 {
+                        return false;
+                    }
                     depth -= 1;
                     pending = 1;
                 }
@@ -613,16 +629,18 @@ impl<'a> Parser<'a> {
 
     fn at_logical_gt(&self) -> bool {
         matches!(self.current_kind(), Some(TokenKind::Punct(Punct::Gt)))
-            || matches!(self.current_kind_physical(), Some(TokenKind::Punct(Punct::Shr | Punct::ShrEq))) && self.split_token.is_none()
+            || matches!(
+                self.current_kind_physical(),
+                Some(TokenKind::Punct(Punct::Shr | Punct::ShrEq))
+            ) && self.split_token.is_none()
     }
 
     fn parse_lifetime(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::Lifetime);
         n.children.push(self.expect_punct(Punct::Apostrophe));
         if self.at_ident() {
-            n.children.push(Child::Node(
-                Node::new(SyntaxKind::NameRef).with_token(self.bump_index())
-            ));
+            n.children
+                .push(Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index())));
         } else {
             n.children.push(Child::Node(self.error_node("expected lifetime name")));
         }
@@ -639,10 +657,33 @@ impl<'a> Parser<'a> {
         let mut n = Node::new(SyntaxKind::Type);
         match self.current_kind() {
             Some(TokenKind::Keyword(
-                Kw::Bf16 | Kw::Bool | Kw::Byte | Kw::Char | Kw::Dec128 | Kw::Dec32 | Kw::Dec64
-                    | Kw::F128 | Kw::F16 | Kw::F32 | Kw::F64 | Kw::I128 | Kw::I16 | Kw::I32
-                    | Kw::I64 | Kw::I8 | Kw::Isize | Kw::Str | Kw::U128 | Kw::U16 | Kw::U32
-                    | Kw::U64 | Kw::U8 | Kw::Usize | Kw::SelfKw | Kw::SelfRef | Kw::Never,
+                Kw::Bf16
+                | Kw::Bool
+                | Kw::Byte
+                | Kw::Char
+                | Kw::Dec128
+                | Kw::Dec32
+                | Kw::Dec64
+                | Kw::F128
+                | Kw::F16
+                | Kw::F32
+                | Kw::F64
+                | Kw::I128
+                | Kw::I16
+                | Kw::I32
+                | Kw::I64
+                | Kw::I8
+                | Kw::Isize
+                | Kw::Str
+                | Kw::U128
+                | Kw::U16
+                | Kw::U32
+                | Kw::U64
+                | Kw::U8
+                | Kw::Usize
+                | Kw::SelfKw
+                | Kw::SelfRef
+                | Kw::Never,
             )) => {
                 let mut p = Node::new(SyntaxKind::PathType);
                 p.children.push(self.bump_child());
@@ -738,7 +779,10 @@ impl<'a> Parser<'a> {
         }
         if self.at_kw(Kw::Extern) {
             n.children.push(self.bump_child());
-            if self.current_kind().is_some_and(|k| matches!(k, TokenKind::String | TokenKind::RawString)) {
+            if self
+                .current_kind()
+                .is_some_and(|k| matches!(k, TokenKind::String | TokenKind::RawString))
+            {
                 n.children.push(self.bump_child());
             }
         }
@@ -790,7 +834,9 @@ impl<'a> Parser<'a> {
 
     fn parse_path_segment(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::PathSegment);
-        if self.at_ident() || matches!(self.current_kind(), Some(TokenKind::Keyword(Kw::SelfKw | Kw::SelfRef))) {
+        if self.at_ident()
+            || matches!(self.current_kind(), Some(TokenKind::Keyword(Kw::SelfKw | Kw::SelfRef)))
+        {
             n.children.push(self.bump_child());
         } else {
             n.children.push(Child::Node(self.error_node("expected path segment")));
@@ -908,7 +954,9 @@ impl<'a> Parser<'a> {
             let item = match self.current_kind() {
                 Some(TokenKind::Keyword(Kw::Type)) => self.parse_type_alias(),
                 Some(TokenKind::Keyword(Kw::Const)) => self.parse_const_def(),
-                _ => self.error_node("trait_item has no defined function_signature production in Edition 1 EBNF"),
+                _ => self.error_node(
+                    "trait_item has no defined function_signature production in Edition 1 EBNF",
+                ),
             };
             n.children.push(Child::Node(Node {
                 kind: SyntaxKind::TraitItem,
@@ -1163,10 +1211,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_item_stmt(&mut self) -> Node {
-        Node {
-            kind: SyntaxKind::ItemDeclStmt,
-            children: vec![Child::Node(self.parse_item())],
-        }
+        Node { kind: SyntaxKind::ItemDeclStmt, children: vec![Child::Node(self.parse_item())] }
     }
 
     fn parse_let(&mut self) -> Node {
@@ -1246,11 +1291,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-
     fn parse_expr_bp(&mut self, min_bp: u8) -> Node {
         let mut lhs = self.parse_prefix();
         loop {
-                if self.at_punct(Punct::LParen) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
+            if self.at_punct(Punct::LParen) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
                 lhs = self.parse_call(lhs);
                 continue;
             }
@@ -1314,7 +1358,8 @@ impl<'a> Parser<'a> {
                 }
                 continue;
             }
-            if self.at_punct(Punct::LBracket) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
+            if self.at_punct(Punct::LBracket) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp
+            {
                 let mut n = Node::new(SyntaxKind::IndexExpr);
                 n.children.push(Child::Node(lhs));
                 n.children.push(self.bump_child());
@@ -1400,7 +1445,8 @@ impl<'a> Parser<'a> {
                 {
                     n.children.push(self.bump_child());
                 }
-                n.children.push(Child::Node(self.parse_expr_bp(crate::precedence::UNARY_BINDING_POWER)));
+                n.children
+                    .push(Child::Node(self.parse_expr_bp(crate::precedence::UNARY_BINDING_POWER)));
                 n
             }
             Some(TokenKind::Keyword(Kw::Return)) => self.parse_return(),
@@ -1522,7 +1568,9 @@ impl<'a> Parser<'a> {
     fn parse_path_expr_or_macro(&mut self) -> Node {
         let path = self.parse_path();
         let mut path_node = path;
-        if self.at_punct(Punct::ColonColon) && self.peek_kind(1) == Some(TokenKind::Punct(Punct::Lt)) {
+        if self.at_punct(Punct::ColonColon)
+            && self.peek_kind(1) == Some(TokenKind::Punct(Punct::Lt))
+        {
             let mut p = Node::new(SyntaxKind::PathExpr);
             p.children.push(Child::Node(path_node));
             p.children.push(self.bump_child());
@@ -1539,19 +1587,22 @@ impl<'a> Parser<'a> {
         if path_node.kind == SyntaxKind::PathExpr {
             path_node
         } else {
-            Node {
-                kind: SyntaxKind::PathExpr,
-                children: vec![Child::Node(path_node)],
-            }
+            Node { kind: SyntaxKind::PathExpr, children: vec![Child::Node(path_node)] }
         }
     }
 
     fn parse_macro_args(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::TokenTree);
         match self.current_kind() {
-            Some(TokenKind::Punct(Punct::LParen)) => self.parse_token_tree_delimited(Punct::LParen, &mut n),
-            Some(TokenKind::Punct(Punct::LBracket)) => self.parse_token_tree_delimited(Punct::LBracket, &mut n),
-            Some(TokenKind::Punct(Punct::LBrace)) => self.parse_token_tree_delimited(Punct::LBrace, &mut n),
+            Some(TokenKind::Punct(Punct::LParen)) => {
+                self.parse_token_tree_delimited(Punct::LParen, &mut n)
+            }
+            Some(TokenKind::Punct(Punct::LBracket)) => {
+                self.parse_token_tree_delimited(Punct::LBracket, &mut n)
+            }
+            Some(TokenKind::Punct(Punct::LBrace)) => {
+                self.parse_token_tree_delimited(Punct::LBrace, &mut n)
+            }
             _ => {
                 n.children.push(Child::Node(self.error_node("expected macro delimiter")));
             }
@@ -1697,10 +1748,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Keyword(Kw::For)) => self.parse_for_expr(Some(label)),
             _ => {
                 self.diagnostic("label must precede loop, while, or for");
-                Node {
-                    kind: SyntaxKind::ErrorNode,
-                    children: vec![Child::Node(label)],
-                }
+                Node { kind: SyntaxKind::ErrorNode, children: vec![Child::Node(label)] }
             }
         }
     }
@@ -1952,7 +2000,9 @@ impl<'a> Parser<'a> {
             )
             | Some(TokenKind::Keyword(Kw::True | Kw::False)) => {
                 let mut n = Node::new(SyntaxKind::LiteralPattern);
-                n.children.push(Child::Node(Node::new(SyntaxKind::LiteralExpr).with_token(self.bump_index())));
+                n.children.push(Child::Node(
+                    Node::new(SyntaxKind::LiteralExpr).with_token(self.bump_index()),
+                ));
                 n
             }
             _ => self.error_node("expected pattern"),
@@ -1965,7 +2015,9 @@ impl<'a> Parser<'a> {
             match child {
                 Child::Node(c) => self.emit_node(b, c),
                 Child::Token(i) => self.emit_token(b, *i),
-                Child::Piece { token, byte_offset, byte_len } => self.emit_piece(b, *token, *byte_offset, *byte_len),
+                Child::Piece { token, byte_offset, byte_len } => {
+                    self.emit_piece(b, *token, *byte_offset, *byte_len)
+                }
                 // A missing token is zero-width and carries no trivia, so it can
                 // never affect the reconstructed text.
                 Child::Missing => {
@@ -1975,13 +2027,7 @@ impl<'a> Parser<'a> {
         }
         b.finish_node();
     }
-    fn emit_piece(
-        &self,
-        b: &mut GreenNodeBuilder,
-        index: usize,
-        byte_offset: u8,
-        byte_len: u8,
-    ) {
+    fn emit_piece(&self, b: &mut GreenNodeBuilder, index: usize, byte_offset: u8, byte_len: u8) {
         let Some(t) = self.tokens.get(index) else {
             return;
         };
@@ -2212,11 +2258,7 @@ impl<'a> Parser<'a> {
             self.split_token = None;
             self.pos = token.saturating_add(1);
         }
-        Child::Piece {
-            token,
-            byte_offset: part.byte_offset,
-            byte_len: part.byte_len,
-        }
+        Child::Piece { token, byte_offset: part.byte_offset, byte_len: part.byte_len }
     }
 
     /// Consume the closing `>` of a generic argument or parameter list. A lone
@@ -2255,11 +2297,7 @@ impl<'a> Parser<'a> {
                 } else {
                     self.pos = token.saturating_add(1);
                 }
-                Child::Piece {
-                    token,
-                    byte_offset: part.byte_offset,
-                    byte_len: part.byte_len,
-                }
+                Child::Piece { token, byte_offset: part.byte_offset, byte_len: part.byte_len }
             }
             _ if self.at_logical_gt() => self.bump_child(),
             _ => {
@@ -2319,10 +2357,11 @@ impl<'a> Parser<'a> {
         self.current_kind() == Some(TokenKind::Ident)
     }
     fn eof(&self) -> bool {
-        self.split_token.is_none() && match self.tokens.get(self.pos) {
-            Some(t) => t.kind == TokenKind::Eof,
-            None => true,
-        }
+        self.split_token.is_none()
+            && match self.tokens.get(self.pos) {
+                Some(t) => t.kind == TokenKind::Eof,
+                None => true,
+            }
     }
 }
 impl Node {
@@ -2543,7 +2582,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn edition1_items_types_and_nested_generics_parse() {
         for src in [
@@ -2574,13 +2612,7 @@ mod tests {
             let r = p.parse_source();
             assert!(r.is_ok(), "{src:?}: {:?}", r.diagnostics);
             assert_eq!(r.syntax().text().to_string(), src);
-            assert_eq!(
-                r.syntax()
-                    .descendants()
-                    .filter(|n| n.kind() == K::UnaryExpr)
-                    .count(),
-                2
-            );
+            assert_eq!(r.syntax().descendants().filter(|n| n.kind() == K::UnaryExpr).count(), 2);
         }
     }
 
@@ -2658,11 +2690,7 @@ mod tests {
             result.diagnostics
         );
         assert_eq!(result.syntax().text().to_string(), src);
-        let assigns = result
-            .syntax()
-            .descendants()
-            .filter(|n| n.kind() == K::AssignExpr)
-            .count();
+        let assigns = result.syntax().descendants().filter(|n| n.kind() == K::AssignExpr).count();
         assert_eq!(assigns, 1);
     }
 
