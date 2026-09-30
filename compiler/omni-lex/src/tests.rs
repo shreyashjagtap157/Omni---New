@@ -1008,7 +1008,6 @@ fn byte_literal_prefix_is_not_consumed_as_literal_data() {
     assert_eq!(tokens[0].kind, TokenKind::Error);
 }
 
-
 #[test]
 fn lifetime_character_literal_ambiguity_is_pinned_at_the_lexer_boundary() {
     // Edition 1 uses the same apostrophe introducer for character literals
