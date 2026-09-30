@@ -405,8 +405,7 @@ fn test_mir_semantic_gate() {
 
 #[test]
 fn test_pattern_usefulness_and_exhaustiveness_bool_and_option() {
-    use crate::ast::{MatchArm, Pattern,
-    UnOp};
+    use crate::ast::{MatchArm, Pattern, UnOp};
 
     let mut checker = TypeChecker::new();
     let bool_ty = checker.tcx.intern(TyKind::Bool);
@@ -921,25 +920,18 @@ fn test_reference_unification_respects_mutability_and_inner_type() {
 fn test_reference_patterns_require_matching_reference_mutability() {
     let mut checker = TypeChecker::new();
     let int_ty = checker.tcx.intern(TyKind::Int);
-    let shared_ty = checker.tcx.intern(TyKind::Reference {
-        lifetime: None,
-        mutable: false,
-        inner: int_ty,
-    });
+    let shared_ty =
+        checker.tcx.intern(TyKind::Reference { lifetime: None, mutable: false, inner: int_ty });
     let mut locals = HashMap::new();
-    let shared_pattern = Pattern::Reference {
-        mutable: false,
-        inner: Box::new(Pattern::Binding("x".to_string())),
-    };
+    let shared_pattern =
+        Pattern::Reference { mutable: false, inner: Box::new(Pattern::Binding("x".to_string())) };
     checker
         .bind_pattern(&shared_pattern, shared_ty, &mut locals)
         .expect("shared reference pattern");
     assert_eq!(locals.get("x").copied(), Some(checker.tcx.intern(TyKind::Int)));
 
-    let mutable_pattern = Pattern::Reference {
-        mutable: true,
-        inner: Box::new(Pattern::Binding("x".to_string())),
-    };
+    let mutable_pattern =
+        Pattern::Reference { mutable: true, inner: Box::new(Pattern::Binding("x".to_string())) };
     assert!(checker.bind_pattern(&mutable_pattern, shared_ty, &mut HashMap::new()).is_err());
 }
 
@@ -967,32 +959,19 @@ fn test_reference_and_dereference_types() {
     let mut locals = HashMap::new();
     locals.insert("x".to_string(), checker.tcx.intern(TyKind::Int));
 
-    let shared = Expr::Unary {
-        op: UnOp::BorrowShared,
-        expr: Box::new(Expr::Var("x".to_string())),
-    };
-    let shared_ty = checker
-        .infer_expr(&shared, &env, &locals)
-        .expect("shared borrow");
+    let shared = Expr::Unary { op: UnOp::BorrowShared, expr: Box::new(Expr::Var("x".to_string())) };
+    let shared_ty = checker.infer_expr(&shared, &env, &locals).expect("shared borrow");
     let int_ty_for_ref = checker.tcx.intern(TyKind::Int);
     assert!(matches!(
         checker.tcx.get(shared_ty),
         TyKind::Reference { mutable: false, inner, .. } if *inner == int_ty_for_ref
     ));
 
-    let mutable = Expr::Unary {
-        op: UnOp::BorrowMut,
-        expr: Box::new(Expr::Var("x".to_string())),
-    };
-    let mutable_ty = checker
-        .infer_expr(&mutable, &env, &locals)
-        .expect("mutable borrow");
+    let mutable = Expr::Unary { op: UnOp::BorrowMut, expr: Box::new(Expr::Var("x".to_string())) };
+    let mutable_ty = checker.infer_expr(&mutable, &env, &locals).expect("mutable borrow");
     assert!(matches!(checker.tcx.get(mutable_ty), TyKind::Reference { mutable: true, .. }));
 
-    let deref = Expr::Unary {
-        op: UnOp::Deref,
-        expr: Box::new(shared),
-    };
+    let deref = Expr::Unary { op: UnOp::Deref, expr: Box::new(shared) };
     assert_eq!(
         checker.infer_expr(&deref, &env, &locals).expect("dereference"),
         checker.tcx.intern(TyKind::Int)
@@ -1032,19 +1011,17 @@ fn test_float_arithmetic_and_comparison_types() {
 fn test_or_pattern_requires_matching_binding_sets() {
     let mut checker = TypeChecker::new();
     let ty = checker.tcx.intern(TyKind::Int);
-    let ok = Pattern::Or(vec![
-        Pattern::Binding("x".to_string()),
-        Pattern::Binding("x".to_string()),
-    ]);
+    let ok =
+        Pattern::Or(vec![Pattern::Binding("x".to_string()), Pattern::Binding("x".to_string())]);
     let mut locals = HashMap::new();
     checker.bind_pattern(&ok, ty, &mut locals).expect("matching bindings");
     assert_eq!(locals.get("x").copied(), Some(ty));
 
-    let bad = Pattern::Or(vec![
-        Pattern::Binding("x".to_string()),
-        Pattern::Binding("y".to_string()),
-    ]);
-    let err = checker.bind_pattern(&bad, ty, &mut HashMap::new()).expect_err("mismatched bindings must fail");
+    let bad =
+        Pattern::Or(vec![Pattern::Binding("x".to_string()), Pattern::Binding("y".to_string())]);
+    let err = checker
+        .bind_pattern(&bad, ty, &mut HashMap::new())
+        .expect_err("mismatched bindings must fail");
     assert!(matches!(err, TypeError::UnsupportedPattern(_)));
 }
 
@@ -1055,7 +1032,10 @@ fn test_enum_variant_constructors_validate_payloads() {
         name: "Option".to_string(),
         type_params: vec!["T".to_string()],
         variants: vec![
-            crate::ast::EnumVariantDef { name: "Some".to_string(), payload: vec![TypeSpec::GenericParam("T".to_string())] },
+            crate::ast::EnumVariantDef {
+                name: "Some".to_string(),
+                payload: vec![TypeSpec::GenericParam("T".to_string())],
+            },
             crate::ast::EnumVariantDef { name: "None".to_string(), payload: vec![] },
         ],
     });
@@ -1074,8 +1054,14 @@ fn test_enum_variant_constructors_validate_payloads() {
     };
     let option_int = checker.tcx.intern(TyKind::Int);
     let expected = checker.tcx.intern(TyKind::Enum("Option".to_string(), vec![option_int]));
-    assert_eq!(checker.infer_expr(&some, &env, &HashMap::new()).expect("Some constructor"), expected);
-    assert_eq!(checker.infer_expr(&none, &env, &HashMap::new()).expect("None constructor"), expected);
+    assert_eq!(
+        checker.infer_expr(&some, &env, &HashMap::new()).expect("Some constructor"),
+        expected
+    );
+    assert_eq!(
+        checker.infer_expr(&none, &env, &HashMap::new()).expect("None constructor"),
+        expected
+    );
 }
 
 #[test]
@@ -1086,10 +1072,8 @@ fn test_generic_type_alias_lowering_and_cycle_rejection() {
         type_params: vec![],
         target: TypeSpec::Tuple(vec![TypeSpec::Int, TypeSpec::Int]),
     });
-    let aliased = checker.lower_type_spec(
-        &TypeSpec::Struct("PairInt".into(), Vec::new()),
-        &SubstEnv::new(),
-    );
+    let aliased =
+        checker.lower_type_spec(&TypeSpec::Struct("PairInt".into(), Vec::new()), &SubstEnv::new());
     assert!(matches!(checker.tcx.get(aliased), TyKind::Tuple(items) if items.len() == 2));
 
     checker.register_type_alias(TypeAliasDef {
@@ -1097,11 +1081,11 @@ fn test_generic_type_alias_lowering_and_cycle_rejection() {
         type_params: vec!["T".into()],
         target: TypeSpec::Tuple(vec![TypeSpec::GenericParam("T".into())]),
     });
-    let boxed = checker.lower_type_spec(
-        &TypeSpec::Struct("Boxed".into(), vec![TypeSpec::Int]),
-        &SubstEnv::new(),
+    let boxed = checker
+        .lower_type_spec(&TypeSpec::Struct("Boxed".into(), vec![TypeSpec::Int]), &SubstEnv::new());
+    assert!(
+        matches!(checker.tcx.get(boxed), TyKind::Tuple(items) if items.len() == 1 && matches!(checker.tcx.get(items[0]), TyKind::Int))
     );
-    assert!(matches!(checker.tcx.get(boxed), TyKind::Tuple(items) if items.len() == 1 && matches!(checker.tcx.get(items[0]), TyKind::Int)));
 
     checker.register_type_alias(TypeAliasDef {
         name: "A".into(),
@@ -1113,7 +1097,8 @@ fn test_generic_type_alias_lowering_and_cycle_rejection() {
         type_params: vec![],
         target: TypeSpec::Struct("A".into(), Vec::new()),
     });
-    let cycle = checker.lower_type_spec(&TypeSpec::Struct("A".into(), Vec::new()), &SubstEnv::new());
+    let cycle =
+        checker.lower_type_spec(&TypeSpec::Struct("A".into(), Vec::new()), &SubstEnv::new());
     assert!(matches!(checker.tcx.get(cycle), TyKind::Error));
 }
 
@@ -1124,7 +1109,10 @@ fn test_generic_struct_literal_infers_substituted_fields() {
         name: "Pair".to_string(),
         type_params: vec!["T".to_string()],
         fields: vec![
-            crate::ast::StructFieldDef { name: "first".to_string(), ty: TypeSpec::GenericParam("T".to_string()) },
+            crate::ast::StructFieldDef {
+                name: "first".to_string(),
+                ty: TypeSpec::GenericParam("T".to_string()),
+            },
             crate::ast::StructFieldDef { name: "second".to_string(), ty: TypeSpec::Int },
         ],
     });
@@ -1160,7 +1148,9 @@ fn test_for_range_binds_pattern_variable() {
             rhs: Box::new(Expr::Literal(Lit::Int(1))),
         }),
     };
-    let ty = checker.infer_expr(&expr, &SubstEnv::new(), &HashMap::new()).expect("for range should type-check");
+    let ty = checker
+        .infer_expr(&expr, &SubstEnv::new(), &HashMap::new())
+        .expect("for range should type-check");
     assert_eq!(ty, checker.tcx.intern(TyKind::Unit));
 }
 
@@ -1285,9 +1275,9 @@ fn test_effect_inference_preserves_lexical_bindings() {
         body: Expr::For {
             label: None,
             pattern: Pattern::Binding("path".to_string()),
-            iterable: Box::new(Expr::Array(vec![
-                Expr::Literal(Lit::String("for.txt".to_string())),
-            ])),
+            iterable: Box::new(Expr::Array(vec![Expr::Literal(Lit::String(
+                "for.txt".to_string(),
+            ))])),
             body: Box::new(Expr::Call {
                 func: "read_file".to_string(),
                 generic_args: vec![],
