@@ -847,10 +847,6 @@ impl<'a> Parser<'a> {
         n
     }
 
-    fn at_logical_lt(&self) -> bool {
-        self.at_punct(Punct::Lt)
-    }
-
     fn parse_struct_def(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::StructDef);
         n.children.push(self.expect_kw(Kw::Struct));
