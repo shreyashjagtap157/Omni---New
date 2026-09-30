@@ -11,8 +11,9 @@ pub mod solver;
 mod tests;
 
 pub use ast::{
-    AssignOp, BinOp, EnumDef, EnumVariantDef, Expr, GenericFnDef, ImplDef, Lit, MatchArm, MethodSig, Pattern, StructDef, StructFieldDef,
-    PatternRangeBoundary, TraitBound, TraitDef, TypeAliasDef, TypeSpec, UnOp,
+    AssignOp, BinOp, EnumDef, EnumVariantDef, Expr, GenericFnDef, ImplDef, Lit, MatchArm,
+    MethodSig, Pattern, PatternRangeBoundary, StructDef, StructFieldDef, TraitBound, TraitDef,
+    TypeAliasDef, TypeSpec, UnOp,
 };
 pub use checker::{SpecializationKey, SubstEnv, TraitObligationChecker, TypeChecker, TypeError};
 pub use intern::{Ty, TyCtxt, TyKind};
