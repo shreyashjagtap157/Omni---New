@@ -134,25 +134,19 @@ tag it previously lacked. `compiler/omni-parse/src/grammar_contract.rs` now
 pins the invariant across sixteen malformed inputs, and separately asserts that
 round-tripping is not achieved by accepting everything.
 
-## Productions the current parser does not yet implement
+## Superseded 0.0.2.3 parser-gap snapshot
 
-The Edition 1 baseline is in force, but the parser is not yet a complete
-Edition 1 parser. Recorded here so the 0.0.2.3 scope is explicit rather than
-discovered later:
+The gap list that previously occupied this section was written before the later
+0.0.2.3 implementation wave. It is retained only as historical context and is
+not a current implementation status statement. The current mainline parser now
+covers the corresponding Edition 1 declaration, type, statement, expression,
+control-flow, pattern, postfix, range, assignment, closure, and macro-token-tree
+families, subject to the specification holes recorded elsewhere in this
+document.
 
-- `block_expr` is not implemented: a braced expression cannot appear in
-  expression position, so `GRAM-0002`'s block-final-expression rule cannot be
-  exercised yet. The semicolon rules that *are* implemented are tested.
-- `binary_op` covers `|`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `/`,
-  `=`, but omits `||`, `&&`, `>>`, `<<`, `^`, `&`, `%`, `..`, `..=`, and the
-  shift-assignment and compound-assignment forms the lexer already emits.
-- `struct_def` and `enum_def` are parsed as a bare stub that consumes the
-  keyword and one identifier; their bodies are not built.
-- `if`, `match`, `loop`, `while`, `for`, closures, arrays, tuples, and indexing
-  have no production in the parser.
+No Candidate 2 syntax is implied by that implementation progress, and the
+normative Edition 1 EBNF remains unchanged.
 
-These are ordinary 0.0.2.3 work against the in-force baseline. None of them is
-Candidate 2 surface syntax, and none of them changes the reconciliation.
 ## 0.0.2.3-A parser infrastructure boundary
 
 The first 0.0.2.3 wave establishes reusable parser infrastructure only. It does not claim Edition 1 parser completion and does not enable Candidate 2 syntax.
@@ -194,3 +188,16 @@ The parser now implements substantial Edition 1 coverage: module items (function
 The implementation does not silently resolve specification holes. Trait function signatures remain blocked because `trait_item` references `function_signature` without defining that production; `let_expr` and `deref_expr` are referenced without productions; and `effect_bound`/`capability_bound` are referenced without definitions. The trait/impl comma-vs-function terminator ambiguity also remains recorded. These are specification blockers, not implementation-defined semantics.
 
 Candidate 2 syntax remains disabled and the normative Edition 1 EBNF remains unchanged.
+
+### 0.0.2.3 effect-inference lexical-scope contract
+
+Effect checking must resolve the same lexical bindings that ordinary expression
+type inference resolves. A `let` pattern scopes its nested body; a `for` pattern
+scopes its loop body; a match pattern scopes its guard and arm body independently;
+and closure parameters scope the closure body. Effect inference therefore clones
+the incoming local environment at each such boundary and binds the corresponding
+pattern or parameters before recursively collecting effects.
+
+This contract changes only the implementation of effect analysis. It does not add
+implicit effects, change capability authorization, alter the Edition 1 grammar, or
+enable Candidate 2 syntax.
