@@ -175,7 +175,7 @@ impl MonomorphizedProgram {
             Expr::CompoundAssign { target, value, .. } => {
                 Self::verify_expr_concrete(target, enclosing_fn)?;
                 Self::verify_expr_concrete(value, enclosing_fn)
-            },
+            }
             Expr::Block(stmts) => {
                 for s in stmts {
                     Self::verify_expr_concrete(s, enclosing_fn)?;
@@ -399,17 +399,10 @@ impl<'a> Monomorphizer<'a> {
                 let fields = fields
                     .iter()
                     .map(|(field, value)| {
-                        Ok((
-                            field.clone(),
-                            self.monomorphize_expr(value, env, local_vars)?,
-                        ))
+                        Ok((field.clone(), self.monomorphize_expr(value, env, local_vars)?))
                     })
                     .collect::<Result<Vec<_>, TypeError>>()?;
-                Ok(Expr::Struct {
-                    name: name.clone(),
-                    generic_args: args,
-                    fields,
-                })
+                Ok(Expr::Struct { name: name.clone(), generic_args: args, fields })
             }
 
             Expr::Tuple(elems) => {
@@ -429,7 +422,11 @@ impl<'a> Monomorphizer<'a> {
             Expr::Range { start, end, inclusive } => {
                 let mono_start = self.monomorphize_expr(start, env, local_vars)?;
                 let mono_end = self.monomorphize_expr(end, env, local_vars)?;
-                Ok(Expr::Range { start: Box::new(mono_start), end: Box::new(mono_end), inclusive: *inclusive })
+                Ok(Expr::Range {
+                    start: Box::new(mono_start),
+                    end: Box::new(mono_end),
+                    inclusive: *inclusive,
+                })
             }
             Expr::If { condition, then_branch, else_branch } => {
                 let mono_condition = self.monomorphize_expr(condition, env, local_vars)?;
@@ -450,27 +447,21 @@ impl<'a> Monomorphizer<'a> {
                 let mono_ty = self.substitute_type_spec(ty, env);
                 Ok(Expr::Cast { expr: Box::new(mono_expr), ty: mono_ty })
             }
-            Expr::Loop { label, body } => {
-                Ok(Expr::Loop {
-                    label: label.clone(),
-                    body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
-                })
-            }
-            Expr::While { label, condition, body } => {
-                Ok(Expr::While {
-                    label: label.clone(),
-                    condition: Box::new(self.monomorphize_expr(condition, env, local_vars)?),
-                    body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
-                })
-            }
-            Expr::For { label, pattern, iterable, body } => {
-                Ok(Expr::For {
-                    label: label.clone(),
-                    pattern: pattern.clone(),
-                    iterable: Box::new(self.monomorphize_expr(iterable, env, local_vars)?),
-                    body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
-                })
-            }
+            Expr::Loop { label, body } => Ok(Expr::Loop {
+                label: label.clone(),
+                body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
+            }),
+            Expr::While { label, condition, body } => Ok(Expr::While {
+                label: label.clone(),
+                condition: Box::new(self.monomorphize_expr(condition, env, local_vars)?),
+                body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
+            }),
+            Expr::For { label, pattern, iterable, body } => Ok(Expr::For {
+                label: label.clone(),
+                pattern: pattern.clone(),
+                iterable: Box::new(self.monomorphize_expr(iterable, env, local_vars)?),
+                body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
+            }),
             Expr::Break { label, value } => Ok(Expr::Break {
                 label: label.clone(),
                 value: value
