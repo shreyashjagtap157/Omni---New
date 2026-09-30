@@ -186,7 +186,12 @@ impl TypeChecker {
         self.lower_type_spec_inner(spec, env, &mut HashSet::new())
     }
 
-    fn lower_type_spec_inner(&mut self, spec: &TypeSpec, env: &SubstEnv, visiting: &mut HashSet<String>) -> Ty {
+    fn lower_type_spec_inner(
+        &mut self,
+        spec: &TypeSpec,
+        env: &SubstEnv,
+        visiting: &mut HashSet<String>,
+    ) -> Ty {
         if let TypeSpec::Struct(name, args) = spec {
             if let Some(alias) = self.type_aliases.get(name).cloned() {
                 if !visiting.insert(name.clone()) {
@@ -204,7 +209,8 @@ impl TypeChecker {
         }
         match spec {
             TypeSpec::Tuple(items) => {
-                let tys = items.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                let tys =
+                    items.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
                 self.tcx.intern(TyKind::Tuple(tys))
             }
             TypeSpec::Array(elem, len) => {
@@ -217,26 +223,38 @@ impl TypeChecker {
             }
             TypeSpec::Reference { lifetime, mutable, inner } => {
                 let inner = self.lower_type_spec_inner(inner, env, visiting);
-                self.tcx.intern(TyKind::Reference { lifetime: lifetime.clone(), mutable: *mutable, inner })
+                self.tcx.intern(TyKind::Reference {
+                    lifetime: lifetime.clone(),
+                    mutable: *mutable,
+                    inner,
+                })
             }
             TypeSpec::Fn(params, ret) => {
-                let params = params.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                let params =
+                    params.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
                 let ret = self.lower_type_spec_inner(ret, env, visiting);
                 self.tcx.intern(TyKind::Fn(params, ret))
             }
             TypeSpec::Struct(name, args) => {
-                let args = args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                let args =
+                    args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
                 self.tcx.intern(TyKind::Struct(name.clone(), args))
             }
             TypeSpec::Enum(name, args) => {
-                let args = args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                let args =
+                    args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
                 self.tcx.intern(TyKind::Enum(name.clone(), args))
             }
             TypeSpec::TraitObject { trait_name, args } => {
-                let args = args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
+                let args =
+                    args.iter().map(|s| self.lower_type_spec_inner(s, env, visiting)).collect();
                 self.tcx.intern(TyKind::TraitObject { trait_name: trait_name.clone(), args })
             }
-            TypeSpec::GenericParam(name) => env.bindings.get(name).copied().unwrap_or_else(|| self.tcx.intern(TyKind::GenericParam(name.clone()))),
+            TypeSpec::GenericParam(name) => env
+                .bindings
+                .get(name)
+                .copied()
+                .unwrap_or_else(|| self.tcx.intern(TyKind::GenericParam(name.clone()))),
             _ => self.tcx.lower_type_spec(spec, env),
         }
     }
@@ -487,7 +505,14 @@ impl TypeChecker {
                         Ok(bool_ty)
                     }
                     crate::ast::BinOp::Eq | crate::ast::BinOp::Ne => {
-                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Bool | TyKind::Float) {
+                        if !matches!(
+                            self.tcx.get(l_ty),
+                            TyKind::Int
+                                | TyKind::Byte
+                                | TyKind::Char
+                                | TyKind::Bool
+                                | TyKind::Float
+                        ) {
                             return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
                         }
                         Ok(self.tcx.intern(TyKind::Bool))
@@ -496,7 +521,10 @@ impl TypeChecker {
                     | crate::ast::BinOp::Le
                     | crate::ast::BinOp::Gt
                     | crate::ast::BinOp::Ge => {
-                        if !matches!(self.tcx.get(l_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float) {
+                        if !matches!(
+                            self.tcx.get(l_ty),
+                            TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float
+                        ) {
                             return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
                         }
                         Ok(self.tcx.intern(TyKind::Bool))
@@ -573,22 +601,12 @@ impl TypeChecker {
                         field: field.clone(),
                     });
                 };
-                let def = self
-                    .struct_defs
-                    .get(&name)
-                    .cloned()
-                    .ok_or_else(|| TypeError::FieldNotFound {
-                        ty: name.clone(),
-                        field: field.clone(),
-                    })?;
-                let field_def = def
-                    .fields
-                    .iter()
-                    .find(|f| f.name == *field)
-                    .cloned()
-                    .ok_or_else(|| TypeError::FieldNotFound {
-                        ty: name.clone(),
-                        field: field.clone(),
+                let def = self.struct_defs.get(&name).cloned().ok_or_else(|| {
+                    TypeError::FieldNotFound { ty: name.clone(), field: field.clone() }
+                })?;
+                let field_def =
+                    def.fields.iter().find(|f| f.name == *field).cloned().ok_or_else(|| {
+                        TypeError::FieldNotFound { ty: name.clone(), field: field.clone() }
                     })?;
                 let mut field_env = SubstEnv::new();
                 for (param, arg) in def.type_params.iter().zip(args.iter()) {
@@ -634,9 +652,10 @@ impl TypeChecker {
                     lowered_args.push(ty);
                 }
                 for (field_name, value) in fields {
-                    let field_def = def.fields.iter().find(|f| f.name == *field_name).ok_or_else(
-                        || TypeError::FieldNotFound { ty: name.clone(), field: field_name.clone() },
-                    )?;
+                    let field_def =
+                        def.fields.iter().find(|f| f.name == *field_name).ok_or_else(|| {
+                            TypeError::FieldNotFound { ty: name.clone(), field: field_name.clone() }
+                        })?;
                     let expected = self.lower_type_spec(&field_def.ty, &subst);
                     let actual = self.infer_expr(value, env, local_vars)?;
                     if expected != actual {
@@ -662,10 +681,12 @@ impl TypeChecker {
                     .variants
                     .iter()
                     .find(|v| v.name == *variant)
-                    .ok_or_else(|| TypeError::UnsupportedPattern(format!(
-                        "unknown enum variant '{}::{}'",
-                        enum_name, variant
-                    )))?
+                    .ok_or_else(|| {
+                        TypeError::UnsupportedPattern(format!(
+                            "unknown enum variant '{}::{}'",
+                            enum_name, variant
+                        ))
+                    })?
                     .clone();
                 let mut subst = SubstEnv::new();
                 let mut lowered_args = Vec::new();
@@ -764,9 +785,13 @@ impl TypeChecker {
             Expr::Cast { expr, ty } => {
                 let source_ty = self.infer_expr(expr, env, local_vars)?;
                 let target_ty = self.lower_type_spec(ty, env);
-                if !matches!(self.tcx.get(source_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float)
-                    || !matches!(self.tcx.get(target_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float)
-                {
+                if !matches!(
+                    self.tcx.get(source_ty),
+                    TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float
+                ) || !matches!(
+                    self.tcx.get(target_ty),
+                    TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float
+                ) {
                     return Err(TypeError::UnsupportedCast {
                         from: self.tcx.mangle(source_ty),
                         to: self.tcx.mangle(target_ty),
@@ -810,7 +835,11 @@ impl TypeChecker {
                         .iter()
                         .rposition(|(loop_label, _)| loop_label.as_deref() == Some(label.as_str()))
                         .ok_or(TypeError::BreakOutsideLoop)?,
-                    None => self.loop_break_types.len().checked_sub(1).ok_or(TypeError::BreakOutsideLoop)?,
+                    None => self
+                        .loop_break_types
+                        .len()
+                        .checked_sub(1)
+                        .ok_or(TypeError::BreakOutsideLoop)?,
                 };
                 let value_ty = if let Some(expr) = value {
                     self.infer_expr(expr, env, local_vars)?
@@ -832,9 +861,11 @@ impl TypeChecker {
             }
             Expr::Continue { label } => {
                 let found = match label {
-                    Some(label) => self.loop_break_types.iter().rev().any(|(loop_label, _)| {
-                        loop_label.as_deref() == Some(label.as_str())
-                    }),
+                    Some(label) => self
+                        .loop_break_types
+                        .iter()
+                        .rev()
+                        .any(|(loop_label, _)| loop_label.as_deref() == Some(label.as_str())),
                     None => !self.loop_break_types.is_empty(),
                 };
                 if found {
@@ -1016,7 +1047,9 @@ impl TypeChecker {
             }
             crate::ast::Pattern::Lit(lit) => {
                 let found = self.infer_literal(lit);
-                if found == ty { Ok(()) } else {
+                if found == ty {
+                    Ok(())
+                } else {
                     Err(TypeError::MismatchedTypes {
                         expected: self.tcx.mangle(ty),
                         found: self.tcx.mangle(found),
@@ -1025,10 +1058,14 @@ impl TypeChecker {
             }
             crate::ast::Pattern::Tuple(patterns) => {
                 let TyKind::Tuple(types) = self.tcx.get(ty).clone() else {
-                    return Err(TypeError::UnsupportedPattern("tuple pattern requires tuple type".into()));
+                    return Err(TypeError::UnsupportedPattern(
+                        "tuple pattern requires tuple type".into(),
+                    ));
                 };
                 if patterns.len() != types.len() {
-                    return Err(TypeError::UnsupportedPattern("tuple pattern arity mismatch".into()));
+                    return Err(TypeError::UnsupportedPattern(
+                        "tuple pattern arity mismatch".into(),
+                    ));
                 }
                 for (p, t) in patterns.iter().zip(types) {
                     self.bind_pattern(p, t, locals)?;
@@ -1037,7 +1074,9 @@ impl TypeChecker {
             }
             crate::ast::Pattern::Struct { name, fields } => {
                 let TyKind::Struct(actual, args) = self.tcx.get(ty).clone() else {
-                    return Err(TypeError::UnsupportedPattern("struct pattern requires struct type".into()));
+                    return Err(TypeError::UnsupportedPattern(
+                        "struct pattern requires struct type".into(),
+                    ));
                 };
                 if actual != *name {
                     return Err(TypeError::UnsupportedPattern(format!(
@@ -1053,32 +1092,33 @@ impl TypeChecker {
                     subst.insert(param.clone(), arg);
                 }
                 for (field_name, sub) in fields {
-                    let field = def.fields.iter().find(|f| f.name == *field_name).ok_or_else(|| {
-                        TypeError::FieldNotFound { ty: name.clone(), field: field_name.clone() }
-                    })?;
+                    let field =
+                        def.fields.iter().find(|f| f.name == *field_name).ok_or_else(|| {
+                            TypeError::FieldNotFound { ty: name.clone(), field: field_name.clone() }
+                        })?;
                     let field_ty = self.lower_type_spec(&field.ty, &subst);
                     self.bind_pattern(sub, field_ty, locals)?;
                 }
                 Ok(())
             }
-            crate::ast::Pattern::Reference { mutable, inner } => {
-                match self.tcx.get(ty).clone() {
-                    TyKind::Reference { mutable: actual_mut, inner: pointee, .. } => {
-                        if actual_mut != *mutable {
-                            return Err(TypeError::UnsupportedPattern(
-                                "reference pattern mutability does not match scrutinee".into(),
-                            ));
-                        }
-                        self.bind_pattern(inner, pointee, locals)
+            crate::ast::Pattern::Reference { mutable, inner } => match self.tcx.get(ty).clone() {
+                TyKind::Reference { mutable: actual_mut, inner: pointee, .. } => {
+                    if actual_mut != *mutable {
+                        return Err(TypeError::UnsupportedPattern(
+                            "reference pattern mutability does not match scrutinee".into(),
+                        ));
                     }
-                    _ => Err(TypeError::UnsupportedPattern(
-                        "reference pattern requires a reference scrutinee".into(),
-                    )),
+                    self.bind_pattern(inner, pointee, locals)
                 }
-            }
+                _ => Err(TypeError::UnsupportedPattern(
+                    "reference pattern requires a reference scrutinee".into(),
+                )),
+            },
             crate::ast::Pattern::Variant { enum_name, variant, subpatterns } => {
                 let TyKind::Enum(actual, args) = self.tcx.get(ty).clone() else {
-                    return Err(TypeError::UnsupportedPattern("variant pattern requires enum type".into()));
+                    return Err(TypeError::UnsupportedPattern(
+                        "variant pattern requires enum type".into(),
+                    ));
                 };
                 if actual != *enum_name {
                     return Err(TypeError::UnsupportedPattern(format!(
@@ -1087,9 +1127,13 @@ impl TypeChecker {
                     )));
                 }
                 let payload = if let Some(def) = self.enum_defs.get(enum_name).cloned() {
-                    let var = def.variants.iter().find(|v| v.name == *variant).ok_or_else(|| {
-                        TypeError::UnsupportedPattern(format!("unknown variant {}::{}", enum_name, variant))
-                    })?;
+                    let var =
+                        def.variants.iter().find(|v| v.name == *variant).ok_or_else(|| {
+                            TypeError::UnsupportedPattern(format!(
+                                "unknown variant {}::{}",
+                                enum_name, variant
+                            ))
+                        })?;
                     let mut subst = SubstEnv::new();
                     for (param, arg) in def.type_params.iter().zip(args) {
                         subst.insert(param.clone(), arg);
@@ -1107,7 +1151,9 @@ impl TypeChecker {
                     Vec::new()
                 };
                 if payload.len() != subpatterns.len() {
-                    return Err(TypeError::UnsupportedPattern("variant pattern arity mismatch".into()));
+                    return Err(TypeError::UnsupportedPattern(
+                        "variant pattern arity mismatch".into(),
+                    ));
                 }
                 for (p, t) in subpatterns.iter().zip(payload) {
                     self.bind_pattern(p, t, locals)?;
@@ -1116,12 +1162,16 @@ impl TypeChecker {
             }
             crate::ast::Pattern::Range { start, end } => {
                 if !matches!(self.tcx.get(ty), TyKind::Int | TyKind::Byte | TyKind::Char) {
-                    return Err(TypeError::UnsupportedPattern("range pattern requires Int, Byte, or Char".into()));
+                    return Err(TypeError::UnsupportedPattern(
+                        "range pattern requires Int, Byte, or Char".into(),
+                    ));
                 }
                 for boundary in [start, end] {
                     let found = match boundary {
                         crate::ast::PatternRangeBoundary::Inclusive(l)
-                        | crate::ast::PatternRangeBoundary::Exclusive(l) => Some(self.infer_literal(l)),
+                        | crate::ast::PatternRangeBoundary::Exclusive(l) => {
+                            Some(self.infer_literal(l))
+                        }
                         crate::ast::PatternRangeBoundary::Unbounded => None,
                     };
                     if let Some(found) = found {
@@ -1140,7 +1190,8 @@ impl TypeChecker {
                 for p in patterns {
                     let mut branch_locals = HashMap::new();
                     self.bind_pattern(p, ty, &mut branch_locals)?;
-                    let bindings = branch_locals.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+                    let bindings =
+                        branch_locals.keys().cloned().collect::<std::collections::BTreeSet<_>>();
                     if let Some(expected) = &expected_bindings {
                         if expected != &bindings {
                             return Err(TypeError::UnsupportedPattern(
