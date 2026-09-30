@@ -119,7 +119,9 @@ pub enum OwnershipError {
 impl fmt::Display for OwnershipError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UseBeforeInitialization(place) => write!(f, "use of uninitialized place '{place}'"),
+            Self::UseBeforeInitialization(place) => {
+                write!(f, "use of uninitialized place '{place}'")
+            }
             Self::UseAfterMove(place) => write!(f, "use of moved place '{place}'"),
             Self::BorrowConflict { place, existing } => {
                 write!(f, "borrow conflict at '{place}': active {existing} loan")
@@ -224,7 +226,11 @@ impl OwnershipState {
     }
 
     /// Creates a shared loan for a place.
-    pub fn borrow_shared(&mut self, place: Place, region: impl Into<String>) -> Result<(), OwnershipError> {
+    pub fn borrow_shared(
+        &mut self,
+        place: Place,
+        region: impl Into<String>,
+    ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
         if let Some(existing) = self.conflicting_loan(&place, false) {
             return Err(OwnershipError::BorrowConflict {
@@ -238,13 +244,14 @@ impl OwnershipState {
     }
 
     /// Creates a mutable loan for a place.
-    pub fn borrow_mut(&mut self, place: Place, region: impl Into<String>) -> Result<(), OwnershipError> {
+    pub fn borrow_mut(
+        &mut self,
+        place: Place,
+        region: impl Into<String>,
+    ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
         if self.conflicting_loan(&place, true).is_some() {
-            return Err(OwnershipError::MutableBorrowConflict {
-                place,
-                existing: "active".into(),
-            });
+            return Err(OwnershipError::MutableBorrowConflict { place, existing: "active".into() });
         }
         let region = region.into();
         self.loans.insert(region.clone(), Loan { place, mutable: true, region });
@@ -266,11 +273,17 @@ impl OwnershipState {
             PlaceState::Initialized => Ok(()),
             PlaceState::PartiallyMoved => Err(OwnershipError::UseAfterMove(place.clone())),
             PlaceState::Moved => Err(OwnershipError::UseAfterMove(place.clone())),
-            PlaceState::Uninitialized => Err(OwnershipError::UseBeforeInitialization(place.clone())),
+            PlaceState::Uninitialized => {
+                Err(OwnershipError::UseBeforeInitialization(place.clone()))
+            }
         }
     }
 
-    fn ensure_access_allowed(&self, place: &Place, access: AccessKind) -> Result<(), OwnershipError> {
+    fn ensure_access_allowed(
+        &self,
+        place: &Place,
+        access: AccessKind,
+    ) -> Result<(), OwnershipError> {
         let related = self
             .loans
             .values()
@@ -305,9 +318,9 @@ impl OwnershipState {
     }
 
     fn conflicting_loan(&self, place: &Place, mutable: bool) -> Option<&Loan> {
-        self.loans.values().find(|loan| {
-            places_overlap(&loan.place, place) && (mutable || loan.mutable)
-        })
+        self.loans
+            .values()
+            .find(|loan| places_overlap(&loan.place, place) && (mutable || loan.mutable))
     }
 }
 
@@ -362,12 +375,20 @@ impl OwnershipChecker {
     }
 
     /// Issues a named shared loan.
-    pub fn issue_shared(&mut self, place: Place, region: impl Into<String>) -> Result<(), OwnershipError> {
+    pub fn issue_shared(
+        &mut self,
+        place: Place,
+        region: impl Into<String>,
+    ) -> Result<(), OwnershipError> {
         self.state.borrow_shared(place, region)
     }
 
     /// Issues a named mutable loan.
-    pub fn issue_mut(&mut self, place: Place, region: impl Into<String>) -> Result<(), OwnershipError> {
+    pub fn issue_mut(
+        &mut self,
+        place: Place,
+        region: impl Into<String>,
+    ) -> Result<(), OwnershipError> {
         self.state.borrow_mut(place, region)
     }
 
