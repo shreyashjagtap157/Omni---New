@@ -7,6 +7,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use target_lexicon::Triple;
+use std::collections::HashMap;
 
 /// Compiles a fully qualified, concrete monomorphized program to a native object file.
 /// This is the only source of native emission; frontend orchestration belongs to omni-driver.
@@ -81,7 +82,17 @@ fn ensure_source_mir_type_match(
 pub fn compile_monomorphized_program(
     prog: &omni_mir::MonomorphizedProgram,
 ) -> Result<Vec<u8>, String> {
+    compile_monomorphized_program_with_structs(prog, HashMap::new())
+}
+
+/// Enforces MIR lowering semantic gate and MirVerifier before native emission, with
+/// struct declarations available for field-projection typing.
+pub fn compile_monomorphized_program_with_structs(
+    prog: &omni_mir::MonomorphizedProgram,
+    struct_defs: HashMap<String, omni_mir::ast::StructDef>,
+) -> Result<Vec<u8>, String> {
     let mut lowering = omni_mir::lower::LoweringContext::new();
+    lowering.set_struct_defs(struct_defs);
     let mir_prog = lowering.lower_monomorphized_program(prog)?;
 
     omni_verify::MirVerifier::verify_program(&mir_prog)
@@ -282,7 +293,7 @@ fn compile_mir_program(
                                 place.local
                             )
                         })?;
-                        let val = lower_rvalue_to_cl(&mut builder, rval, &variables, &mir.tcx)?;
+                        let val = lower_rvalue_to_cl(&mut builder, rval, &variables, &mir_prog.tcx)?;
                         builder.def_var(variable, val);
                     }
                     omni_mir::ir::Statement::Assume(_) | omni_mir::ir::Statement::Drop(_) => {}

@@ -135,7 +135,8 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
         .monomorphize_entry("main", &[], &[])
         .map_err(|e| format!("Monomorphization error: {:?}", e))?;
 
-    omni_codegen::compile_monomorphized_program(&program)
+    let struct_defs = checker.struct_defs.clone();
+    omni_codegen::compile_monomorphized_program_with_structs(&program, struct_defs)
 }
 
 fn semantic_type_aliases_from_cst(
@@ -309,9 +310,7 @@ fn semantic_functions_from_cst(
         .map(|a| (a.name.clone(), a))
         .collect::<HashMap<_, _>>();
 
-    for (node, qualified_name) in function_nodes {
-        let name = qualified_name
-            .ok_or_else(|| "Semantic frontend error: function is missing a name".to_string())?;
+    for (node, name) in function_nodes {
         if !names.insert(name.clone()) {
             return Err(format!("Semantic frontend error: duplicate function '{}'", name));
         }
@@ -657,11 +656,7 @@ fn type_spec_from_cst_with_context(
                 .last()
                 .ok_or_else(|| "Semantic frontend error: trait object path is empty".to_string())?;
             let trait_name = direct_name(last)
-                .ok_or_else(|| "Semantic frontend error: trait object path has no trait name".to_string())?
-                .text()
-                .to_string()
-                .trim()
-                .to_string();
+                .ok_or_else(|| "Semantic frontend error: trait object path has no trait name".to_string())?;
             let args = last
                 .children()
                 .find(|n| n.kind() == omni_syntax::SyntaxKind::TypeArgs)
@@ -822,8 +817,7 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
                 let binding_type = direct_type(statement).map(type_spec_from_cst).transpose()?;
                 let initializer = statement
                     .children()
-                    .rev()
-                    .find(|n| !matches!(
+                    .filter(|n| !matches!(
                         n.kind(),
                         omni_syntax::SyntaxKind::NameRef
                             | omni_syntax::SyntaxKind::Type
@@ -836,6 +830,7 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
                             | omni_syntax::SyntaxKind::EnumPattern
                             | omni_syntax::SyntaxKind::ReferencePattern
                     ))
+                    .last()
                     .ok_or_else(|| "Semantic frontend error: let has no initializer".to_string())?;
                 let init = expr_from_node(&initializer)?;
                 let remaining = block_statements_to_expr(&statements[index + 1..])?;
@@ -982,7 +977,8 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .filter(|t| t.kind() == omni_syntax::SyntaxKind::Punct)
                 .map(|t| t.text().to_string())
                 .collect::<Vec<_>>();
-            let op = match puncts.as_slice() {
+            let punct_view = puncts.iter().map(String::as_str).collect::<Vec<_>>();
+            let op = match punct_view.as_slice() {
                 ["&"] => UnOp::BorrowShared,
                 ["&", "mut"] => UnOp::BorrowMut,
                 ["*"] => UnOp::Deref,
@@ -1023,8 +1019,8 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             let base = children.next().ok_or_else(|| "Semantic frontend error: field has no base".to_string())?;
             let field = node.children_with_tokens()
                 .filter_map(|e| e.into_token())
-                .rev()
-                .find(|t| t.kind() == omni_syntax::SyntaxKind::Ident)
+                .filter(|t| t.kind() == omni_syntax::SyntaxKind::Ident)
+                .last()
                 .map(|t| t.text().to_string())
                 .ok_or_else(|| "Semantic frontend error: field has no name".to_string())?;
             Ok(Expr::Field { expr: Box::new(expr_from_node(&base)?), field })
@@ -1060,17 +1056,12 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
                 .last()
                 .and_then(|n| direct_name(&n))
-                .map(|n| n.text().to_string().trim().to_string())
                 .ok_or_else(|| "Semantic frontend error: struct literal path has no type name".to_string())?;
             let fields = children
                 .filter(|n| n.kind() == omni_syntax::SyntaxKind::StructExprField)
                 .map(|field| {
                     let field_name = direct_name(&field)
-                        .ok_or_else(|| "Semantic frontend error: struct literal field has no name".to_string())?
-                        .text()
-                        .to_string()
-                        .trim()
-                        .to_string();
+                        .ok_or_else(|| "Semantic frontend error: struct literal field has no name".to_string())?;
                     let value = match field.children().nth(1) {
                         Some(n) => expr_from_node(&n)?,
                         None => Expr::Var(field_name.clone()),
@@ -1199,7 +1190,7 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                     Ok((name, ty))
                 })
                 .collect::<Result<Vec<_>, String>>()?;
-            let body = node.children().rev().find(|n| n.kind() != omni_syntax::SyntaxKind::ClosureParam)
+            let body = node.children().filter(|n| n.kind() != omni_syntax::SyntaxKind::ClosureParam).last()
                 .ok_or_else(|| "Semantic frontend error: closure has no body".to_string())?;
             Ok(Expr::Lambda { params, body: Box::new(expr_from_node(&body)?) })
         }
@@ -1228,11 +1219,11 @@ fn enum_variant_target_from_cst(
     let enum_seg = &segments[segments.len() - 2];
     let variant_seg = &segments[segments.len() - 1];
     let enum_name = match direct_name(enum_seg) {
-        Some(n) => n.text().to_string().trim().to_string(),
+        Some(n) => n,
         None => return Ok(None),
     };
     let variant = match direct_name(variant_seg) {
-        Some(n) => n.text().to_string().trim().to_string(),
+        Some(n) => n,
         None => return Ok(None),
     };
     let generic_args = enum_seg
@@ -1299,17 +1290,9 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
                         .collect::<Vec<_>>();
                     if segments.len() >= 2 {
                         let enum_name = direct_name(&segments[segments.len() - 2])
-                            .ok_or_else(|| "Semantic frontend error: enum pattern has no enum name".to_string())?
-                            .text()
-                            .to_string()
-                            .trim()
-                            .to_string();
+                            .ok_or_else(|| "Semantic frontend error: enum pattern has no enum name".to_string())?;
                         let variant = direct_name(&segments[segments.len() - 1])
-                            .ok_or_else(|| "Semantic frontend error: enum pattern has no variant name".to_string())?
-                            .text()
-                            .to_string()
-                            .trim()
-                            .to_string();
+                            .ok_or_else(|| "Semantic frontend error: enum pattern has no variant name".to_string())?;
                         return Ok(omni_types::ast::Pattern::Variant {
                             enum_name,
                             variant,
@@ -1340,7 +1323,7 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
 
             let start_boundary = parts
                 .first()
-                .map(|start| {
+                .map(|start| -> Result<omni_types::ast::PatternRangeBoundary, String> {
                     let token = start
                         .first_token()
                         .ok_or_else(|| "Semantic frontend error: range pattern start has no token".to_string())?;

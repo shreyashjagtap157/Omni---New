@@ -447,6 +447,7 @@ dependencies = [
  "omni-parse",
  "omni-registry",
  "omni-syntax",
+ "omni-traits",
  "omni-types",
  "serde_json",
 ]

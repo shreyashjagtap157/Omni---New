@@ -102,6 +102,10 @@ pub struct Parser<'a> {
     diagnostics: Vec<Diagnostic>,
     pos: usize,
     split_token: Option<(usize, u8)>,
+    /// Suppresses reading a `{` after a path as a struct literal. A `for`
+    /// iterable is followed by the loop body block, so `for x in xs { .. }`
+    /// must not parse `xs { .. }` as a struct expression.
+    no_struct_literal: bool,
 }
 impl<'a> Parser<'a> {
     pub fn from_source(source: &'a str) -> Self {
@@ -118,7 +122,7 @@ impl<'a> Parser<'a> {
             trailing_trivia: Vec::new(),
             error_reason: None,
         });
-        Self { source, tokens, diagnostics: Vec::new(), pos: 0, split_token: None }
+        Self { source, tokens, diagnostics: Vec::new(), pos: 0, split_token: None, no_struct_literal: false }
     }
     pub fn new(tokens: Vec<String>) -> Parser<'static> {
         let source = Box::leak(tokens.join(" ").into_boxed_str());
@@ -279,7 +283,7 @@ impl<'a> Parser<'a> {
         if self.at_punct(Punct::Lt) {
             n.children.push(Child::Node(self.parse_generic_params()));
         }
-        n.children.push(self.parse_params());
+        n.children.push(Child::Node(self.parse_params()));
         if self.at_punct(Punct::Arrow) {
             n.children.push(self.bump_child());
             n.children.push(Child::Node(self.parse_type()));
@@ -1106,6 +1110,23 @@ impl<'a> Parser<'a> {
                         | SyntaxKind::YieldExpr
                 ) {
                     n.children.push(Child::Node(expr));
+                } else if matches!(
+                    expr.kind,
+                    SyntaxKind::LoopExpr | SyntaxKind::WhileExpr | SyntaxKind::ForExpr
+                ) && !(self.at_punct(Punct::RBrace) || self.eof())
+                {
+                    // `loop`, `while` and `for` are statements in Edition 1 and
+                    // take no trailing `;`. When one is not the block's final
+                    // expression, keep the body block from being read as a
+                    // struct literal or block expression on the loop keyword.
+                    if self.at_punct(Punct::Semicolon) {
+                        let mut s = Node::new(SyntaxKind::ExprStmt);
+                        s.children.push(Child::Node(expr));
+                        s.children.push(self.bump_child());
+                        n.children.push(Child::Node(s));
+                    } else {
+                        n.children.push(Child::Node(expr));
+                    }
                 } else if self.at_punct(Punct::RBrace) || self.eof() {
                     n.children.push(Child::Node(Node {
                         kind: SyntaxKind::FinalExpr,
@@ -1233,7 +1254,7 @@ impl<'a> Parser<'a> {
                 let Some(name) = id else {
                     let mut n = Node::new(SyntaxKind::FieldExpr);
                     n.children.push(Child::Node(lhs));
-                    n.children.push(self.error_node("expected field or method name"));
+                    n.children.push(Child::Node(self.error_node("expected field or method name")));
                     lhs = n;
                     continue;
                 };
@@ -1242,6 +1263,7 @@ impl<'a> Parser<'a> {
                     if self.at_punct(Punct::LParen) {
                         let mut n = Node::new(SyntaxKind::MethodCallExpr);
                         n.children.push(Child::Node(lhs));
+                        n.children.push(dot);
                         n.children.push(Child::Token(name));
                         n.children.push(Child::Node(args));
                         self.append_call_arguments(&mut n);
@@ -1250,6 +1272,7 @@ impl<'a> Parser<'a> {
                     }
                     let mut n = Node::new(SyntaxKind::FieldExpr);
                     n.children.push(Child::Node(lhs));
+                    n.children.push(dot);
                     n.children.push(Child::Token(name));
                     n.children.push(Child::Node(args));
                     lhs = n;
@@ -1258,12 +1281,14 @@ impl<'a> Parser<'a> {
                 if self.at_punct(Punct::LParen) {
                     let mut n = Node::new(SyntaxKind::MethodCallExpr);
                     n.children.push(Child::Node(lhs));
+                    n.children.push(dot);
                     n.children.push(Child::Token(name));
                     self.append_call_arguments(&mut n);
                     lhs = n;
                 } else {
                     let mut n = Node::new(SyntaxKind::FieldExpr);
                     n.children.push(Child::Node(lhs));
+                    n.children.push(dot);
                     n.children.push(Child::Token(name));
                     lhs = n;
                 }
@@ -1370,7 +1395,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Keyword(Kw::Try)) => self.parse_try_expr(),
             Some(TokenKind::Keyword(Kw::Async)) => self.parse_async_block(),
             Some(TokenKind::Keyword(Kw::Unsafe)) => self.parse_unsafe_block(),
-            Some(TokenKind::Keyword(Kw::Move)) => self.parse_move_closure(),
+            Some(TokenKind::Keyword(Kw::Move)) => self.parse_closure_expr(),
             Some(TokenKind::Punct(Punct::Apostrophe)) => self.parse_labeled_expr(),
             Some(TokenKind::Punct(Punct::LBrace)) => self.parse_block_expr(),
             Some(TokenKind::Punct(Punct::LParen)) => self.parse_paren_expr(),
@@ -1378,7 +1403,7 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Punct(Punct::Pipe)) => self.parse_closure_expr(),
             Some(TokenKind::Ident) => {
                 let path = self.parse_path_expr_or_macro();
-                if self.at_punct(Punct::LBrace) {
+                if self.at_punct(Punct::LBrace) && !self.no_struct_literal {
                     self.parse_struct_expr_from_path(path)
                 } else {
                     path
@@ -1540,7 +1565,7 @@ impl<'a> Parser<'a> {
         n.children.push(self.expect_punct(close));
     }
 
-0    fn parse_closure_expr(&mut self) -> Node {
+    fn parse_closure_expr(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::ClosureExpr);
         if self.at_kw(Kw::Move) {
             n.children.push(self.bump_child());
@@ -1598,7 +1623,13 @@ impl<'a> Parser<'a> {
     fn parse_match_expr(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::MatchExpr);
         n.children.push(self.expect_kw(Kw::Match));
-        n.children.push(Child::Node(self.parse_expression()));
+        // The scrutinee is followed by the arm block, so a `{` there opens the
+        // arms rather than a struct literal on the scrutinee.
+        let saved = self.no_struct_literal;
+        self.no_struct_literal = true;
+        let scrutinee = self.parse_expression();
+        self.no_struct_literal = saved;
+        n.children.push(Child::Node(scrutinee));
         n.children.push(self.expect_punct(Punct::LBrace));
         while !self.eof() && !self.at_punct(Punct::RBrace) {
             let mut arm = Node::new(SyntaxKind::MatchArm);
@@ -1664,7 +1695,13 @@ impl<'a> Parser<'a> {
             n.children.push(Child::Node(label));
         }
         n.children.push(self.expect_kw(Kw::While));
-        n.children.push(Child::Node(self.parse_expression()));
+        // The condition is followed by the loop body block, so a `{` there
+        // opens the body rather than a struct literal on the condition.
+        let saved = self.no_struct_literal;
+        self.no_struct_literal = true;
+        let condition = self.parse_expression();
+        self.no_struct_literal = saved;
+        n.children.push(Child::Node(condition));
         n.children.push(Child::Node(self.parse_block()));
         n
     }
@@ -1677,7 +1714,13 @@ impl<'a> Parser<'a> {
         n.children.push(self.expect_kw(Kw::For));
         n.children.push(Child::Node(self.parse_pattern()));
         n.children.push(self.expect_kw(Kw::In));
-        n.children.push(Child::Node(self.parse_expression()));
+        // The iterable is terminated by the loop body block, so a `{` here
+        // opens the loop body rather than a struct literal on the iterable.
+        let saved = self.no_struct_literal;
+        self.no_struct_literal = true;
+        let iterable = self.parse_expression();
+        self.no_struct_literal = saved;
+        n.children.push(Child::Node(iterable));
         n.children.push(Child::Node(self.parse_block()));
         n
     }
@@ -2094,6 +2137,66 @@ impl<'a> Parser<'a> {
     /// Consume one token or return the deterministic zero-width missing-token
     /// representation. This prevents EOF from ever being aliased as a missing
     /// source-bearing token.
+    fn bump_child(&mut self) -> Child {
+        if self.eof() {
+            Child::Missing
+        } else {
+            Child::Token(self.bump_index())
+        }
+    }
+
+    /// Consume the closing `>` of a generic argument or parameter list. A lone
+    /// `>` is consumed directly; a `>>`/`>>=` token is split across successive
+    /// `consume_gt` calls so each nested list receives exactly one logical `>`.
+    fn consume_gt(&mut self) -> Child {
+        // Already mid-split: serve the current logical `>` piece and advance or clear it.
+        if let Some((token, offset)) = self.split_token {
+            let Some(kind) = self.tokens.get(token).map(|t| t.kind) else {
+                self.split_token = None;
+                return Child::Missing;
+            };
+            let TokenKind::Punct(p) = kind else {
+                self.split_token = None;
+                return Child::Missing;
+            };
+            let Some(pieces) = crate::precedence::split_generic_closer(p) else {
+                self.split_token = None;
+                return Child::Missing;
+            };
+            let next = offset as usize + 1;
+            let has_next = pieces.get(next).map_or(false, |part| part.is_some());
+            if has_next {
+                self.split_token = Some((token, next as u8));
+            } else {
+                self.split_token = None;
+                self.pos = token + 1;
+            }
+            return Child::Token(token);
+        }
+
+        match self.current_kind_physical() {
+            Some(TokenKind::Punct(Punct::Gt)) => Child::Token(self.bump_index()),
+            Some(TokenKind::Punct(p @ (Punct::Shr | Punct::ShrEq))) => {
+                // Split the multi-`>` token: this call consumes the first logical `>`;
+                // subsequent calls serve the remaining pieces via `split_token` above.
+                let token = self.pos;
+                let Some(pieces) = crate::precedence::split_generic_closer(p) else {
+                    return self.bump_child();
+                };
+                if pieces.get(1).map_or(false, |part| part.is_some()) {
+                    self.split_token = Some((token, 1));
+                } else {
+                    self.pos += 1;
+                }
+                Child::Token(token)
+            }
+            _ if self.at_logical_gt() => self.bump_child(),
+            _ => {
+                self.diagnostic("expected `>`");
+                Child::Missing
+            }
+        }
+    }
 
     /// Consume an expected opening delimiter. Pair identity is delegated to
     /// the single delimiter-pair authority in precedence.rs.
@@ -2171,10 +2274,29 @@ mod tests {
     use omni_syntax::{SyntaxElement, SyntaxKind as K};
 
     #[test]
+    fn consume_gt_closes_generic_parameter_and_argument_lists() {
+        // `consume_gt` must terminate a generic parameter list and a generic
+        // argument list on a plain `>` without emitting a diagnostic.
+        for source in [
+            "fn id<T>(x: T) -> T { return x; }\n",
+            "fn pair<A, B>(a: A, b: B) -> A { return a; }\nfn main() -> i64 { let v = pair<i64, bool>(1, true); return v; }\n",
+            "fn take<T>(x: T) -> T { return x; }\nfn main() -> i64 { return take<i64>(1); }\n",
+        ] {
+            let mut p = Parser::from_source(source);
+            let result = p.parse_source();
+            assert!(
+                result.diagnostics.is_empty(),
+                "generic source must parse without diagnostics: {source:?} -> {:?}",
+                result.diagnostics
+            );
+        }
+    }
+
+    #[test]
     fn generic_closer_infrastructure_preserves_token_trivia_boundaries() {
         let mut p = Parser::from_source("T /*before*/ >>= /*after*/ U");
         assert_eq!(p.peek_kind(0), Some(TokenKind::Ident));
-        assert_eq!(p.peek_kind(1), Some(TokenKind::ShrEq));
+        assert_eq!(p.peek_kind(1), Some(TokenKind::Punct(Punct::ShrEq)));
         let token = p.peek().expect("shift-assignment token");
         assert_eq!(&p.source[token.span.start as usize..token.span.end as usize], ">>=");
         let parts = crate::precedence::split_generic_closer(Punct::ShrEq).expect("split");

@@ -116,7 +116,6 @@ pub struct Place {
 }
 
 /// A value produced by an operation.
-#[derive(Debug, Clone)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggregateKind {
     Tuple,

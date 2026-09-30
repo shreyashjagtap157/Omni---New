@@ -8,8 +8,8 @@
 use std::collections::{HashSet, VecDeque};
 
 use omni_mir::ir::{
-    BasicBlock, BinOp, Constant, Local, MirFunction, MirProgram, Operand, Place, Rvalue, Statement,
-    Terminator, UnOp,
+    AggregateKind, BasicBlock, BinOp, Constant, Local, MirFunction, MirProgram, Operand, Place,
+    Rvalue, Statement, Terminator, UnOp,
 };
 use omni_mir::{Ty, TyCtxt, TyKind};
 
@@ -229,6 +229,11 @@ impl std::fmt::Display for MirVerificationError {
             Self::InvalidTypeSpec { func, context } => write!(
                 f,
                 "MIR Verification Failure in '{}': invalid or non-concrete type specification: {}",
+                func, context
+            ),
+            Self::AggregateTypeMismatch { func, context } => write!(
+                f,
+                "MIR Verification Failure in '{}': aggregate type mismatch: {}",
                 func, context
             ),
             Self::UseBeforeAssignment { func, block, local } => write!(
@@ -640,6 +645,35 @@ impl MirVerifier {
             }
             Rvalue::Cast { operand, .. } => {
                 Self::check_operand_initialized(func, block, operand, assigned)
+            }
+            Rvalue::Aggregate { operands, .. } => {
+                for operand in operands {
+                    Self::check_operand_initialized(func, block, operand, assigned)?;
+                }
+                Ok(())
+            }
+            Rvalue::Struct { fields, .. } => {
+                for (_, operand) in fields {
+                    Self::check_operand_initialized(func, block, operand, assigned)?;
+                }
+                Ok(())
+            }
+            Rvalue::EnumVariant { operands, .. } => {
+                for operand in operands {
+                    Self::check_operand_initialized(func, block, operand, assigned)?;
+                }
+                Ok(())
+            }
+            Rvalue::Range { start, end, .. } => {
+                Self::check_operand_initialized(func, block, start, assigned)?;
+                Self::check_operand_initialized(func, block, end, assigned)
+            }
+            Rvalue::Field { base, .. } => {
+                Self::check_operand_initialized(func, block, base, assigned)
+            }
+            Rvalue::Index { base, index, .. } => {
+                Self::check_operand_initialized(func, block, base, assigned)?;
+                Self::check_operand_initialized(func, block, index, assigned)
             }
         }
     }

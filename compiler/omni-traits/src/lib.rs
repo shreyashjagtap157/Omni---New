@@ -433,6 +433,11 @@ impl TraitSystem {
                     args.iter().map(|t| self.type_spec_to_mangled(t, tcx)).collect();
                 format!("enum_{}_{}_end", name, a.join("_"))
             }
+            TypeSpec::TraitObject { trait_name, args } => {
+                let a: Vec<String> =
+                    args.iter().map(|t| self.type_spec_to_mangled(t, tcx)).collect();
+                format!("dyn_{}_{}__end", trait_name, a.join("_"))
+            }
             TypeSpec::Never => "never".to_string(),
         }
     }

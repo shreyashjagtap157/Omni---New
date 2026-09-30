@@ -974,9 +974,10 @@ fn test_reference_and_dereference_types() {
     let shared_ty = checker
         .infer_expr(&shared, &env, &locals)
         .expect("shared borrow");
+    let int_ty_for_ref = checker.tcx.intern(TyKind::Int);
     assert!(matches!(
         checker.tcx.get(shared_ty),
-        TyKind::Reference { mutable: false, inner, .. } if *inner == checker.tcx.intern(TyKind::Int)
+        TyKind::Reference { mutable: false, inner, .. } if *inner == int_ty_for_ref
     ));
 
     let mutable = Expr::Unary {
@@ -1071,7 +1072,8 @@ fn test_enum_variant_constructors_validate_payloads() {
         generic_args: vec![TypeSpec::Int],
         args: vec![],
     };
-    let expected = checker.tcx.intern(TyKind::Enum("Option".to_string(), vec![checker.tcx.intern(TyKind::Int)]));
+    let option_int = checker.tcx.intern(TyKind::Int);
+    let expected = checker.tcx.intern(TyKind::Enum("Option".to_string(), vec![option_int]));
     assert_eq!(checker.infer_expr(&some, &env, &HashMap::new()).expect("Some constructor"), expected);
     assert_eq!(checker.infer_expr(&none, &env, &HashMap::new()).expect("None constructor"), expected);
 }
@@ -1137,7 +1139,8 @@ fn test_generic_struct_literal_infers_substituted_fields() {
     let ty = checker
         .infer_expr(&expr, &SubstEnv::new(), &HashMap::new())
         .expect("generic struct literal should type-check");
-    assert_eq!(ty, checker.tcx.intern(TyKind::Struct("Pair".to_string(), vec![checker.tcx.intern(TyKind::Int)])));
+    let pair_int = checker.tcx.intern(TyKind::Int);
+    assert_eq!(ty, checker.tcx.intern(TyKind::Struct("Pair".to_string(), vec![pair_int])));
 }
 
 #[test]

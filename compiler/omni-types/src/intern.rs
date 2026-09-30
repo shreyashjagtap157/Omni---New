@@ -84,6 +84,12 @@ impl TyCtxt {
             }
             TyKind::Array(elem, len) => format!("arr_{len}_{}_end", self.mangle(*elem)),
             TyKind::Range(elem) => format!("range_{}_end", self.mangle(*elem)),
+            TyKind::Reference { lifetime, mutable, inner } => format!(
+                "ref_{}_{}_{}",
+                if *mutable { "mut" } else { "shared" },
+                lifetime.as_deref().unwrap_or("anon"),
+                self.mangle(*inner)
+            ),
             TyKind::Fn(params, ret) => {
                 let p: Vec<String> = params.iter().map(|&t| self.mangle(t)).collect();
                 format!("fn_{}_{}_ret_{}_end", params.len(), p.join("_"), self.mangle(*ret))
@@ -119,6 +125,7 @@ impl TyCtxt {
             | TyKind::Never => true,
             TyKind::Tuple(tys) => tys.iter().all(|&t| self.is_concrete(t)),
             TyKind::Array(elem, _) | TyKind::Range(elem) => self.is_concrete(*elem),
+            TyKind::Reference { inner, .. } => self.is_concrete(*inner),
             TyKind::Fn(params, ret) => {
                 params.iter().all(|&t| self.is_concrete(t)) && self.is_concrete(*ret)
             }

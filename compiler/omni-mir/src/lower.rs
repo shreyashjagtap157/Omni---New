@@ -9,11 +9,20 @@ use std::collections::HashMap;
 
 pub struct LoweringContext {
     body: Body,
+    struct_defs: HashMap<String, omni_types::ast::StructDef>,
 }
 
 impl LoweringContext {
     pub fn new() -> Self {
-        Self { body: Body { blocks: IndexVec::new(), local_decls: IndexVec::new() } }
+        Self {
+            body: Body { blocks: IndexVec::new(), local_decls: IndexVec::new() },
+            struct_defs: HashMap::new(),
+        }
+    }
+
+    /// Supplies struct declarations so field projections can be typed during lowering.
+    pub fn set_struct_defs(&mut self, struct_defs: HashMap<String, omni_types::ast::StructDef>) {
+        self.struct_defs = struct_defs;
     }
 
     /// Lowers a concrete MonomorphizedProgram into typed MIR.
@@ -72,6 +81,7 @@ impl LoweringContext {
                 blocks: &mut blocks,
                 scope,
                 fn_sigs: &fn_sigs,
+                struct_defs: &self.struct_defs,
                 return_ty: ret_ty,
                 current_block: None,
                 loops: Vec::new(),
@@ -166,6 +176,7 @@ struct FnMirBuilder<'a> {
     blocks: &'a mut IndexVec<crate::ir::BasicBlock, crate::ir::BlockData>,
     scope: HashMap<String, crate::ir::Local>,
     fn_sigs: &'a HashMap<String, (Vec<Ty>, Ty)>,
+    struct_defs: &'a HashMap<String, omni_types::ast::StructDef>,
     return_ty: Ty,
     current_block: Option<crate::ir::BasicBlock>,
     loops: Vec<LoopContext>,
@@ -420,7 +431,7 @@ impl<'a> FnMirBuilder<'a> {
         let loop_index = if let Some(label) = label {
             self.loops
                 .iter()
-                .rposition(|ctx| ctx.label.as_deref() == Some(label.as_str()))
+                .rposition(|ctx| ctx.label.as_deref() == Some(label))
                 .ok_or_else(|| format!("MIR lowering error: unknown continue label '{}'", label))?
         } else {
             self.loops
@@ -481,7 +492,8 @@ impl<'a> FnMirBuilder<'a> {
         self.blocks[entry].terminator = Some(crate::ir::Terminator::Goto(header));
 
         self.current_block = Some(header);
-        let cmp_temp = self.new_temp(Some("_for_cond".to_string()), self.tcx.intern(TyKind::Bool));
+        let bool_ty = self.tcx.intern(TyKind::Bool);
+        let cmp_temp = self.new_temp(Some("_for_cond".to_string()), bool_ty);
         let cmp_place = crate::ir::Place { local: cmp_temp };
         let cmp_op = if *inclusive {
             crate::ir::BinOp::Le
@@ -884,7 +896,7 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Expr::Binary { op, lhs, rhs }
                 if matches!(op, omni_types::ast::BinOp::LogicalAnd | omni_types::ast::BinOp::LogicalOr) =>
             {
-                self.lower_short_circuit(*op, lhs, rhs)
+                self.lower_short_circuit(op.clone(), lhs, rhs)
             }
             omni_types::ast::Expr::Binary { op, lhs, rhs } => {
                 let (lhs_op, lhs_ty) = self
@@ -933,6 +945,12 @@ impl<'a> FnMirBuilder<'a> {
                     omni_types::ast::BinOp::Le => crate::ir::BinOp::Le,
                     omni_types::ast::BinOp::Gt => crate::ir::BinOp::Gt,
                     omni_types::ast::BinOp::Ge => crate::ir::BinOp::Ge,
+                    omni_types::ast::BinOp::LogicalAnd | omni_types::ast::BinOp::LogicalOr => {
+                        return Err(
+                            "MIR lowering error: logical operators require short-circuit lowering"
+                                .into(),
+                        );
+                    }
                 };
                 let result_ty = match op {
                     omni_types::ast::BinOp::Eq
@@ -1118,10 +1136,14 @@ impl<'a> FnMirBuilder<'a> {
                             "MIR lowering error: unknown struct '{}'",
                             name
                         ))?;
+                        let mut field_env = omni_types::checker::SubstEnv::new();
+                        for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                            field_env.insert(param.clone(), *arg);
+                        }
                         let mut found = None;
                         for f in &def.fields {
                             if f.name == *field {
-                                found = Some(self.tcx.lower_type_spec(&f.ty, self.subst));
+                                found = Some(self.tcx.lower_type_spec(&f.ty, &field_env));
                                 break;
                             }
                         }
@@ -1308,7 +1330,7 @@ impl<'a> FnMirBuilder<'a> {
                 }
             }
             omni_types::ast::Expr::Assign { target, value } => {
-                let Expr::Var(name) = target.as_ref() else {
+                let omni_types::ast::Expr::Var(name) = target.as_ref() else {
                     return Err("MIR lowering error: assignment target must be a local variable in the native backend".into());
                 };
                 let target_local = *self.scope.get(name).ok_or_else(|| {
@@ -1381,7 +1403,7 @@ impl<'a> FnMirBuilder<'a> {
                 Ok(Some((crate::ir::Operand::Copy(place), to_ty)))
             }
             omni_types::ast::Expr::CompoundAssign { op, target, value } => {
-                let Expr::Var(name) = target.as_ref() else {
+                let omni_types::ast::Expr::Var(name) = target.as_ref() else {
                     return Err("MIR lowering error: compound assignment target must be a local variable in the native backend".into());
                 };
                 let target_local = *self.scope.get(name).ok_or_else(|| {
@@ -1629,6 +1651,7 @@ mod tests {
                 effects: omni_effects::EffectRow::pure(),
                 capabilities: vec![],
                 body: Expr::While {
+                    label: None,
                     condition: Box::new(Expr::Literal(omni_types::ast::Lit::Bool(true))),
                     body: Box::new(Expr::Continue { label: None }),
                 },
@@ -2240,5 +2263,3 @@ mod tests {
         }));
     }
 }
-
-        &self,

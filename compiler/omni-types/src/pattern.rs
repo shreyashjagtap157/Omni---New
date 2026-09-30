@@ -195,7 +195,9 @@ impl<'a> PatternChecker<'a> {
                 let is_inc = matches!(end, PatternRangeBoundary::Inclusive(_));
                 Some(Constructor::Range { start: s_val, end: e_val, inclusive: is_inc })
             }
-            Pattern::Tuple(_) | Pattern::Struct { .. } => Some(Constructor::Single),
+            Pattern::Tuple(_) | Pattern::Struct { .. } | Pattern::Reference { .. } => {
+                Some(Constructor::Single)
+            }
             Pattern::Never => Some(Constructor::Never),
             Pattern::Wildcard | Pattern::Binding(_) => None,
             Pattern::Or(_) => None,

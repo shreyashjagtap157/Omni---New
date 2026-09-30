@@ -189,7 +189,7 @@ impl OwnershipState {
     pub fn drop_place(&mut self, place: &Place) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
         self.ensure_access_allowed(&place, AccessKind::Drop)?;
-        self.places.insert(place, PlaceState::Moved);
+        self.places.insert(place.clone(), PlaceState::Moved);
         Ok(())
     }
 
@@ -357,7 +357,7 @@ impl OwnershipChecker {
             }
             AccessKind::BorrowShared => self.state.borrow_shared(place, "anonymous"),
             AccessKind::BorrowMut => self.state.borrow_mut(place, "anonymous"),
-            AccessKind::Drop => self.state.drop_place(place),
+            AccessKind::Drop => self.state.drop_place(&place),
         }
     }
 

@@ -72,7 +72,7 @@ impl MonomorphizedProgram {
                 }
                 Self::verify_type_spec_concrete(ret, enclosing_fn)
             }
-            TypeSpec::Struct(_, args) | TypeSpec::Enum(_, args) => {
+            TypeSpec::Struct(_, args) | TypeSpec::Enum(_, args) | TypeSpec::TraitObject { args, .. } => {
                 for arg in args {
                     Self::verify_type_spec_concrete(arg, enclosing_fn)?;
                 }
@@ -185,6 +185,24 @@ impl MonomorphizedProgram {
             Expr::Return(opt_e) => {
                 if let Some(e) = opt_e {
                     Self::verify_expr_concrete(e, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::Struct { generic_args, fields, .. } => {
+                for g in generic_args {
+                    Self::verify_type_spec_concrete(g, enclosing_fn)?;
+                }
+                for (_, value) in fields {
+                    Self::verify_expr_concrete(value, enclosing_fn)?;
+                }
+                Ok(())
+            }
+            Expr::EnumVariant { generic_args, args, .. } => {
+                for g in generic_args {
+                    Self::verify_type_spec_concrete(g, enclosing_fn)?;
+                }
+                for a in args {
+                    Self::verify_expr_concrete(a, enclosing_fn)?;
                 }
                 Ok(())
             }
