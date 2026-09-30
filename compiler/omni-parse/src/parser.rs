@@ -2521,6 +2521,38 @@ mod tests {
     }
 
     #[test]
+    fn nested_generic_closer_does_not_leave_stuck_virtual_token() {
+        let src = "fn f() { let x = a::<b<c>>=d; }";
+        let mut p = Parser::from_source(src);
+        let result = p.parse_source();
+        assert!(
+            result.diagnostics.is_empty(),
+            "nested generic assignment must parse: {:?}",
+            result.diagnostics
+        );
+        assert_eq!(result.syntax().text().to_string(), src);
+        let assigns = result
+            .syntax()
+            .descendants()
+            .filter(|n| n.kind() == K::AssignExpr)
+            .count();
+        assert_eq!(assigns, 1);
+    }
+
+    #[test]
+    fn split_generic_closer_emits_source_relative_piece_leaves() {
+        let mut p = Parser::from_source(">>=");
+        let first = p.consume_gt();
+        assert!(matches!(first, Child::Piece { byte_offset: 0, byte_len: 1, .. }));
+        let second = p.consume_gt();
+        assert!(matches!(second, Child::Piece { byte_offset: 1, byte_len: 1, .. }));
+        assert_eq!(p.current_kind(), Some(TokenKind::Punct(Punct::Eq)));
+        let equals = p.bump_child();
+        assert!(matches!(equals, Child::Piece { byte_offset: 2, byte_len: 1, .. }));
+        assert_eq!(p.current_kind(), Some(TokenKind::Eof));
+    }
+
+    #[test]
     fn edition1_turbofish_path_shape_is_lossless() {
         let src = "fn f() { return id::<i32>(1); }";
         let mut p = Parser::from_source(src);
