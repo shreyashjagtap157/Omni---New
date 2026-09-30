@@ -1,0 +1,3 @@
+   Compiling omni-codegen v0.0.0 (C:\Users\siddh\Downloads\ABC\Omni\compiler\omni-codegen)
+compiler\omni-codegen\src\layout.rs:335:53: error[E0277]: the trait bound `Arc<dyn TargetIsa>: TargetIsa` is not satisfied: the trait `TargetIsa` is not implemented for `Arc<dyn TargetIsa>`
+error: could not compile `omni-codegen` (lib test) due to 1 previous error

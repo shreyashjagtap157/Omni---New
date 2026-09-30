@@ -683,6 +683,49 @@ pub mod model;
 
 pub mod backend;
 
+pub mod layout;
+
+pub use layout::{LayoutError, PartLayout, TargetFacts, TargetLayout, TypeLayout};
+
+/// The rules deciding how Omni aggregates use target facts.
+///
+/// This is the *policy* half, and every rule here is an Omni decision that the
+/// target does **not** make for us. They are written out so the resulting ABI is
+/// reviewable rather than emergent:
+///
+/// 1. **Scalar size comes from the selected Cranelift type**, and scalar
+///    alignment is that same size. Not from the Omni type's name and not from a
+///    hard-coded table. This matters because codegen currently maps `Int`,
+///    `Bool`, `Byte` and `Char` all to `I64`; a `Bool` occupying eight bytes is a
+///    consequence of that mapping, not a target fact, and the layout layer must
+///    not pretend otherwise.
+/// 2. **Aggregate alignment is the strictest part alignment.** An aggregate is
+///    at least as aligned as its most aligned part.
+/// 3. **Each part starts at the next offset satisfying its own alignment**,
+///    producing interior padding. This is the ordinary cost of honouring field
+///    alignment and keeps every field addressable at its natural alignment.
+/// 4. **Parts appear in declaration order.** Declaration order is the only
+///    ordering the repository currently specifies; no reordering for padding
+///    density is performed, because that would be an ABI choice the
+///    specification has not made.
+/// 5. **Aggregate size is rounded up to its own alignment**, so an array of the
+///    aggregate repeats on a correct stride.
+/// 6. **An empty aggregate is zero-sized and aligned to 1.** The grammar admits
+///    zero-field structs, and stating that they occupy nothing is better than
+///    fabricating a size for them.
+///
+/// These rules are policy, and changing any of them changes Omni's ABI. They
+/// are recorded here as a single reviewable list precisely so that such a change
+/// is a deliberate decision rather than a side effect.
+pub const LAYOUT_POLICY_RULES: [&str; 6] = [
+    "scalar size from the selected Cranelift type; scalar alignment equals its size",
+    "aggregate alignment is the strictest part alignment",
+    "each part starts at the next offset satisfying its own alignment",
+    "parts appear in declaration order; no padding-density reordering",
+    "aggregate size is rounded up to its own alignment",
+    "an empty aggregate is zero-sized and aligned to 1",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

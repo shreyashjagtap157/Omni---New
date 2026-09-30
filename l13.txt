@@ -1,0 +1,10 @@
+   Compiling omni-codegen v0.0.0 (C:\Users\siddh\Downloads\ABC\Omni\compiler\omni-codegen)
+compiler\omni-codegen\src\layout.rs:557:40: error[E0433]: cannot find type `TypeSpec` in this scope: use of undeclared type `TypeSpec`
+compiler\omni-codegen\src\layout.rs:557:62: error[E0433]: cannot find type `TypeSpec` in this scope: use of undeclared type `TypeSpec`
+compiler\omni-codegen\src\layout.rs:618:40: error[E0433]: cannot find type `TypeSpec` in this scope: use of undeclared type `TypeSpec`
+compiler\omni-codegen\src\layout.rs:618:62: error[E0433]: cannot find type `TypeSpec` in this scope: use of undeclared type `TypeSpec`
+compiler\omni-codegen\src\layout.rs:635:63: error[E0433]: cannot find type `TypeSpec` in this scope: use of undeclared type `TypeSpec`
+compiler\omni-codegen\src\layout.rs:638:48: error[E0433]: cannot find type `TypeSpec` in this scope: use of undeclared type `TypeSpec`
+compiler\omni-codegen\src\layout.rs:638:74: error[E0433]: cannot find type `TypeSpec` in this scope: use of undeclared type `TypeSpec`
+compiler\omni-codegen\src\layout.rs:605:35: error[E0716]: temporary value dropped while borrowed: creates a temporary value which is freed while still in use
+error: could not compile `omni-codegen` (lib test) due to 8 previous errors

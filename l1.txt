@@ -1,0 +1,4 @@
+   Compiling omni-codegen v0.0.0 (C:\Users\siddh\Downloads\ABC\Omni\compiler\omni-codegen)
+compiler\omni-codegen\src\layout.rs:225:36: error[E0596]: cannot borrow `self.tcx` as mutable, as it is behind a `&` reference: `self` is a `&` reference, so it cannot be borrowed as mutable
+compiler\omni-codegen\src\layout.rs:286:44: error[E0382]: use of moved value: `part`: value used here after move
+error: could not compile `omni-codegen` (lib) due to 2 previous errors

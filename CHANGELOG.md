@@ -56,7 +56,54 @@ This milestone began from the observation that projected assignment was not repr
 
 Deliberately unchanged: no native aggregate layout, enum representation, closure environment, or target ABI has been invented. Codegen still reads `place.local` and ignores the chain, so a projected store is represented and verified in MIR but is not yet executed natively. The unresolved specification questions — the trait/function-signature grammar ambiguity, the `let_expr` and `deref_expr` production holes, and the undefined `effect_bound`/`capability_bound` — remain open rather than being answered by implementation.
 
-The current native MIR boundary remains intentionally fail-closed for aggregate storage/projection that the IR does not yet model: struct/enum construction, aggregate destructuring, and guarded or aggregate-pattern match execution are rejected rather than silently reinterpreted. Qualification is therefore not a release claim; the live repository is the source of truth and the current GitHub mainline has no associated pull-request workflow run for these commits.
+### 0.0.2.3 target-aware aggregate layout — architecture lock-in
+
+The native aggregate boundary is resolved as an *architecture decision* before any layout code is written, because the decision constrains every later stage and is expensive to reverse.
+
+**Naming.** This is **target-aware layout**, not "target-derived layout". Cranelift and the target supply *facts*; the aggregate layout algorithm is compiler policy. Calling the whole thing target-derived would imply the target ABI supplies semantics it does not supply.
+
+**Version reality.** The workspace resolves Cranelift **0.110.3**, not a current release. The design is stated against that version, verified by inspecting the vendored `cranelift-codegen-0.110.3` source rather than against current online documentation. The following were confirmed present in 0.110.3: `TargetIsa::pointer_bits`, `TargetIsa::pointer_type`, `TargetIsa::endianness`, and `StackSlotData { size, align_shift }`. The following was confirmed **absent**: any `StructLayout` / `field_offsets` API. So field offsets remain Omni's responsibility in this version, and a design that assumed a ready-made layout engine would not compile.
+
+**Two separate concepts, never conflated.**
+
+```text
+Target facts
+    = what the selected backend and target actually report
+
+Omni native aggregate policy
+    = the rules that decide how Omni aggregates use those facts
+```
+
+`TargetLayout` reads only the first. Field ordering, padding, and alignment rules are the second and are stated explicitly rather than implied. Until the policy is normative, native aggregate emission stays fail-closed: a construct whose layout cannot be derived is rejected, never guessed.
+
+**Stage decomposition.** The aggregate path is built in this order, each stage independently testable, so a failure localises to one layer:
+
+```text
+64a1050  projection-aware verification
+    ↓
+target/layout abstraction          (no native emission yet)
+    ↓
+deterministic layout unit tests    (policy pinned before use)
+    ↓
+aggregate memory representation    (Cranelift stack slots)
+    ↓
+scalar field load/store
+    ↓
+struct construction
+    ↓
+tuple/array construction
+    ↓
+native aggregate tests
+    ↓
+enum representation               (discriminant + payload, a separate problem)
+```
+
+**Storage model.** The first executable slice uses **memory-backed** aggregates, not an invented SSA aggregate type: an aggregate local becomes a Cranelift stack slot carrying explicit size and alignment, and a field access becomes a load or store at `slot_address + field_offset`. This matches Cranelift's native model, which already expresses sized and aligned stack slots, and avoids fabricating a first-class aggregate SSA value that no target actually has.
+
+**Enum representation is deliberately excluded from this sequence.** It requires a discriminant and a per-variant payload layout, which are stronger invariants than field offsets and must not be folded into the same commit as struct and tuple storage.
+
+**A recorded observation, deliberately not acted on.** The current codegen maps `Int`, `Bool`, `Byte`, and `Char` all to `I64` and `Float` to `F64`. That is a convenient uniformity choice, not a target-derived fact: a `Bool` occupying eight bytes is a consequence of reusing the integer type, not of the target. The layout layer therefore takes scalar size and alignment from the *selected Cranelift type* for each Omni scalar, and does not assume these are natural sizes. Narrowing them is a separate, later decision that would change generated code for already-passing tests, so it is explicitly out of scope here.
+
 
 #### Workspace repair and labelled-loop/control-flow closure
 

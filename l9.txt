@@ -1,0 +1,2 @@
+   Compiling omni-codegen v0.0.0 (C:\Users\siddh\Downloads\ABC\Omni\compiler\omni-codegen)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.74s
