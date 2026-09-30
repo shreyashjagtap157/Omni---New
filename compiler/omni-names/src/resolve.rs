@@ -355,10 +355,8 @@ impl Resolver {
                 // single-segment case is resolved here. Previously `Path` was
                 // skipped entirely, which left every ordinary identifier
                 // reference unresolved.
-                let segments: Vec<SyntaxNode> = node
-                    .children()
-                    .filter(|n| n.kind() == SyntaxKind::PathSegment)
-                    .collect();
+                let segments: Vec<SyntaxNode> =
+                    node.children().filter(|n| n.kind() == SyntaxKind::PathSegment).collect();
                 if segments.len() != 1 {
                     return;
                 }
@@ -433,7 +431,8 @@ impl Resolver {
                     self.declare_and_record(&name, out, true, errors);
                 }
             }
-            SyntaxKind::RangePattern | SyntaxKind::LiteralPattern | SyntaxKind::WildcardPattern => {}
+            SyntaxKind::RangePattern | SyntaxKind::LiteralPattern | SyntaxKind::WildcardPattern => {
+            }
             _ => {
                 for child in pattern.children() {
                     self.declare_pattern_bindings(&child, out, errors);
