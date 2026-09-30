@@ -213,6 +213,185 @@ impl<'a> FnMirBuilder<'a> {
             .ok_or_else(|| format!("MIR lowering error: local {:?} has no type", local))
     }
 
+    /// Resolves the type of a projected place by walking the projection chain
+    /// against the type of the local it starts from.
+    ///
+    /// This is the single authority for what a projection *means*, shared by
+    /// assignment targets and by read lowering, so `p.x` cannot be typed one
+    /// way when read and a different way when written.
+    fn projected_ty(
+        &mut self,
+        base_ty: Ty,
+        projections: &[crate::ir::Projection],
+    ) -> Result<Ty, String> {
+        let mut current = base_ty;
+        for projection in projections {
+            current = match projection {
+                crate::ir::Projection::Field(name) => self.field_ty(current, name)?,
+                crate::ir::Projection::ConstantIndex(index) => {
+                    self.constant_index_ty(current, *index)?
+                }
+                // A runtime index carries no constant, so the element type of an
+                // array is known but a tuple position is not. Tuples are
+                // required to use constant subscripts, which is what
+                // `ConstantIndex` exists for.
+                crate::ir::Projection::Index(_) => match self.tcx.get(current).clone() {
+                    TyKind::Array(elem, _) => elem,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: index projection requires an array, found {:?}",
+                            other
+                        ))
+                    }
+                },
+                crate::ir::Projection::Deref => match self.tcx.get(current).clone() {
+                    TyKind::Reference { inner, .. } => inner,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: deref projection requires a reference, found {:?}",
+                            other
+                        ))
+                    }
+                },
+            };
+        }
+        Ok(current)
+    }
+
+    /// Resolves the type of a named field projection on a struct or tuple.
+    fn field_ty(&mut self, base_ty: Ty, field: &str) -> Result<Ty, String> {
+        match self.tcx.get(base_ty).clone() {
+            TyKind::Struct(name, args) => {
+                let def = self.struct_defs.get(&name).cloned().ok_or_else(|| {
+                    format!("MIR lowering error: unknown struct '{}' in field '{}'", name, field)
+                })?;
+                let mut field_env = omni_types::checker::SubstEnv::new();
+                for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                    field_env.insert(param.clone(), *arg);
+                }
+                def.fields
+                    .iter()
+                    .find(|f| f.name == field)
+                    .map(|f| self.tcx.lower_type_spec(&f.ty, &field_env))
+                    .ok_or_else(|| {
+                        format!("MIR lowering error: field '{}' not found on '{}'", field, name)
+                    })
+            }
+            TyKind::Tuple(types) => {
+                let index: usize = field.parse().map_err(|_| {
+                    "MIR lowering error: tuple field must be a numeric index".to_string()
+                })?;
+                types.get(index).copied().ok_or_else(|| {
+                    format!("MIR lowering error: tuple field index {} out of bounds", index)
+                })
+            }
+            other => Err(format!(
+                "MIR lowering error: field projection requires struct or tuple, found {:?}",
+                other
+            )),
+        }
+    }
+
+    /// Resolves the type of a constant index projection on an array or tuple.
+    fn constant_index_ty(&self, base_ty: Ty, index: usize) -> Result<Ty, String> {
+        match self.tcx.get(base_ty).clone() {
+            TyKind::Array(elem, length) => {
+                if index >= length {
+                    return Err(format!(
+                        "MIR lowering error: array index {} is out of bounds for length {}",
+                        index, length
+                    ));
+                }
+                Ok(elem)
+            }
+            TyKind::Tuple(types) => types
+                .get(index)
+                .copied()
+                .ok_or_else(|| format!("MIR lowering error: tuple index {} out of bounds", index)),
+            other => Err(format!(
+                "MIR lowering error: index projection requires array or tuple, found {:?}",
+                other
+            )),
+        }
+    }
+
+    /// Lowers an assignment target to a projected place and its type.
+    ///
+    /// A bare name yields a whole-local place. A field or index target yields
+    /// that place with a projection appended, so the destination of `p.x = v`
+    /// names `p.x` rather than the whole of `p`. The result type is computed by
+    /// `projected_ty`, the same authority the read path uses, so a projection
+    /// cannot be typed one way when read and another way when written.
+    fn lower_assign_place(
+        &mut self,
+        target: &omni_types::ast::Expr,
+    ) -> Result<(crate::ir::Place, Ty), String> {
+        match target {
+            omni_types::ast::Expr::Var(name) => {
+                let local = *self.scope.get(name).ok_or_else(|| {
+                    format!("MIR lowering error: assignment target '{}' is not bound", name)
+                })?;
+                let ty = self.local_ty(local)?;
+                Ok((crate::ir::Place::local(local), ty))
+            }
+            omni_types::ast::Expr::Field { expr, field } => {
+                let (base_place, base_ty) = self.lower_assign_place(expr)?;
+                let place = base_place.project(crate::ir::Projection::Field(field.clone()));
+                let ty = self.projected_ty(base_ty, &place.projections)?;
+                Ok((place, ty))
+            }
+            omni_types::ast::Expr::Index { expr, index } => {
+                let (base_place, base_ty) = self.lower_assign_place(expr)?;
+                // A literal subscript folds to a constant projection, which keeps
+                // the destination statically checkable against the array length.
+                if let omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n)) = index.as_ref()
+                {
+                    if *n < 0 {
+                        return Err("MIR lowering error: index must not be negative".to_string());
+                    }
+                    let place =
+                        base_place.project(crate::ir::Projection::ConstantIndex(*n as usize));
+                    let ty = self.projected_ty(base_ty, &place.projections)?;
+                    return Ok((place, ty));
+                }
+                // A computed subscript is bound to a temporary local, and the
+                // projection refers to that local. The index expression is
+                // evaluated exactly once, before the store.
+                let int_ty = self.tcx.intern(TyKind::Int);
+                let (index_op, index_ty) = self
+                    .lower_expr(index)?
+                    .ok_or_else(|| "MIR lowering error: index expression is Unit".to_string())?;
+                if index_ty != int_ty {
+                    return Err(format!(
+                        "MIR lowering error: index expression must be Int, found {:?}",
+                        index_ty
+                    ));
+                }
+                let element_ty = match self.tcx.get(base_ty).clone() {
+                    TyKind::Array(elem, _) => elem,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: index assignment requires an array, found {:?}",
+                            other
+                        ))
+                    }
+                };
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: index assignment has no live block".to_string()
+                })?;
+                let index_local = self.new_temp(Some("_index_tmp".to_string()), int_ty);
+                let index_place = crate::ir::Place::local(index_local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    index_place.clone(),
+                    crate::ir::Rvalue::Use(index_op),
+                ));
+                let place = base_place.project(crate::ir::Projection::Index(index_local));
+                Ok((place, element_ty))
+            }
+            other => Err(format!("MIR lowering error: unsupported assignment target {:?}", other)),
+        }
+    }
+
     fn literal_ty(&mut self, lit: &omni_types::ast::Lit) -> Ty {
         match lit {
             omni_types::ast::Lit::Int(_) => self.tcx.intern(TyKind::Int),
@@ -1447,23 +1626,16 @@ impl<'a> FnMirBuilder<'a> {
                 }
             }
             omni_types::ast::Expr::Assign { target, value } => {
-                let omni_types::ast::Expr::Var(name) = target.as_ref() else {
-                    return Err("MIR lowering error: assignment target must be a local variable in the native backend".into());
-                };
-                let target_local = *self.scope.get(name).ok_or_else(|| {
-                    format!("MIR lowering error: assignment target '{}' is not bound", name)
-                })?;
+                let (target_place, target_ty) = self.lower_assign_place(target)?;
                 let (value_op, value_ty) = self
                     .lower_expr(value)?
                     .ok_or_else(|| "MIR lowering error: assignment value is Unit".to_string())?;
-                let target_ty = self.local_ty(target_local)?;
                 if target_ty != value_ty {
                     return Err(format!(
-                        "MIR lowering error: assignment '{}' expects {:?}, found {:?}",
-                        name, target_ty, value_ty
+                        "MIR lowering error: assignment to {} expects {:?}, found {:?}",
+                        target_place, target_ty, value_ty
                     ));
                 }
-                let target_place = crate::ir::Place::local(target_local);
                 let block = self.current_block.ok_or_else(|| {
                     "MIR lowering error: assignment has no live block".to_string()
                 })?;
@@ -1658,6 +1830,147 @@ impl Default for LoweringContext {
 mod tests {
     use super::*;
     use omni_types::ast::{Expr, GenericFnDef, Lit, TypeSpec};
+
+    /// Collects every assignment destination place in a lowered function.
+    fn assigned_places(func: &crate::ir::MirFunction) -> Vec<crate::ir::Place> {
+        func.body
+            .blocks
+            .iter()
+            .flat_map(|b| b.statements.iter())
+            .filter_map(|s| match s {
+                crate::ir::Statement::Assign(place, _) => Some(place.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Lowers a function whose body is `body`, with `params` as the bound names.
+    fn lower_with(
+        params: Vec<(String, TypeSpec)>,
+        body: Expr,
+    ) -> Result<crate::ir::MirFunction, String> {
+        let mut ctx = LoweringContext::new();
+        let prog = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "f".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params,
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body,
+            }],
+        };
+        ctx.lower_monomorphized_program(&prog).map(|mut mir| mir.functions.remove(0))
+    }
+
+    fn lower(body: Expr) -> crate::ir::MirFunction {
+        lower_with(vec![("x".to_string(), TypeSpec::Int)], body).expect("lowering should succeed")
+    }
+
+    #[test]
+    fn tuple_field_assignment_targets_a_projected_place() {
+        // `p.0 = 30` must name p.0, not the whole of p. Before the place model
+        // carried a projection chain this destination was not expressible.
+        let func = lower_with(
+            vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
+            Expr::Assign {
+                target: Box::new(Expr::Field {
+                    expr: Box::new(Expr::Var("p".to_string())),
+                    field: "0".to_string(),
+                }),
+                value: Box::new(Expr::Literal(Lit::Int(30))),
+            },
+        )
+        .expect("lowering should succeed");
+        let projected = assigned_places(&func)
+            .into_iter()
+            .find(|p| p.projections.iter().any(|pr| matches!(pr, crate::ir::Projection::Field(_))))
+            .expect("assignment destination must carry a field projection");
+        assert_eq!(projected.projections, vec![crate::ir::Projection::Field("0".to_string())]);
+    }
+
+    #[test]
+    fn array_constant_index_assignment_uses_a_constant_projection() {
+        let func = lower_with(
+            vec![("a".to_string(), TypeSpec::Array(Box::new(TypeSpec::Int), 3))],
+            Expr::Assign {
+                target: Box::new(Expr::Index {
+                    expr: Box::new(Expr::Var("a".to_string())),
+                    index: Box::new(Expr::Literal(Lit::Int(1))),
+                }),
+                value: Box::new(Expr::Literal(Lit::Int(9))),
+            },
+        )
+        .expect("lowering should succeed");
+        assert!(assigned_places(&func)
+            .iter()
+            .any(|p| p.projections.contains(&crate::ir::Projection::ConstantIndex(1))));
+    }
+
+    #[test]
+    fn a_whole_local_assignment_produces_no_projection() {
+        // The ordinary `x = v` case must not regress into a projected place.
+        let func = lower(Expr::Assign {
+            target: Box::new(Expr::Var("x".to_string())),
+            value: Box::new(Expr::Literal(Lit::Int(1))),
+        });
+        assert!(assigned_places(&func).iter().all(|p| p.is_local()));
+    }
+
+    #[test]
+    fn tuple_field_assignment_beyond_the_tuple_is_rejected() {
+        // The destination type comes from the same projection authority the read
+        // path uses, so an out-of-range position is a lowering error rather than
+        // a silently accepted store.
+        let err = lower_with(
+            vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
+            Expr::Assign {
+                target: Box::new(Expr::Field {
+                    expr: Box::new(Expr::Var("p".to_string())),
+                    field: "5".to_string(),
+                }),
+                value: Box::new(Expr::Literal(Lit::Int(1))),
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("out of bounds"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn assignment_type_mismatch_names_the_projected_destination() {
+        let err = lower_with(
+            vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
+            Expr::Assign {
+                target: Box::new(Expr::Field {
+                    expr: Box::new(Expr::Var("p".to_string())),
+                    field: "0".to_string(),
+                }),
+                value: Box::new(Expr::Literal(Lit::Bool(true))),
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("expects"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn constant_array_index_outside_the_array_is_rejected() {
+        // A literal subscript is bounds-checked against the array length, so a
+        // provably out-of-range store is refused at lowering time.
+        let err = lower_with(
+            vec![("a".to_string(), TypeSpec::Array(Box::new(TypeSpec::Int), 2))],
+            Expr::Assign {
+                target: Box::new(Expr::Index {
+                    expr: Box::new(Expr::Var("a".to_string())),
+                    index: Box::new(Expr::Literal(Lit::Int(7))),
+                }),
+                value: Box::new(Expr::Literal(Lit::Int(1))),
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("out of bounds"), "unexpected error: {err}");
+    }
 
     #[test]
     fn short_circuit_boolean_lowering_creates_branch_and_join() {
