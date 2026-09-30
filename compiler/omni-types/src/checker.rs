@@ -558,7 +558,18 @@ impl TypeChecker {
                         let int_ty = self.tcx.intern(TyKind::Int);
                         let float_ty = self.tcx.intern(TyKind::Float);
                         if inner_ty != int_ty && inner_ty != float_ty {
-                            return Err(TypeError::UnsupportedOperator("numeric-negation".into()));
+                            // `-` is a valid operator applied to a wrong operand
+                            // type, so this is a type mismatch, not an
+                            // unsupported operator. `!` below already reports it
+                            // this way; `Neg` and `BitNot` must agree.
+                            return Err(TypeError::MismatchedTypes {
+                                expected: format!(
+                                    "{}|{}",
+                                    self.tcx.mangle(int_ty),
+                                    self.tcx.mangle(float_ty)
+                                ),
+                                found: self.tcx.mangle(inner_ty),
+                            });
                         }
                         Ok(inner_ty)
                     }
@@ -573,8 +584,12 @@ impl TypeChecker {
                         Ok(expected)
                     }
                     crate::ast::UnOp::BitNot => {
-                        if !matches!(self.tcx.get(inner_ty), TyKind::Int) {
-                            return Err(TypeError::UnsupportedOperator("bitwise-not".into()));
+                        let int_ty = self.tcx.intern(TyKind::Int);
+                        if inner_ty != int_ty {
+                            return Err(TypeError::MismatchedTypes {
+                                expected: self.tcx.mangle(int_ty),
+                                found: self.tcx.mangle(inner_ty),
+                            });
                         }
                         Ok(inner_ty)
                     }
@@ -594,10 +609,24 @@ impl TypeChecker {
                 }
             }
             Expr::Field { expr, field } => {
-                let struct_ty = self.infer_expr(expr, env, local_vars)?;
-                let TyKind::Struct(name, args) = self.tcx.get(struct_ty).clone() else {
+                let base_ty = self.infer_expr(expr, env, local_vars)?;
+                // A numeric field on a tuple is the `t.0` projection form. MIR
+                // lowering already resolves it against the tuple element types
+                // with a bounds check, so the checker must agree rather than
+                // reject a construct the backend can represent.
+                if let TyKind::Tuple(elements) = self.tcx.get(base_ty).clone() {
+                    let index: usize = field.parse().map_err(|_| TypeError::FieldNotFound {
+                        ty: self.tcx.mangle(base_ty),
+                        field: field.clone(),
+                    })?;
+                    return elements.get(index).copied().ok_or_else(|| TypeError::FieldNotFound {
+                        ty: self.tcx.mangle(base_ty),
+                        field: field.clone(),
+                    });
+                }
+                let TyKind::Struct(name, args) = self.tcx.get(base_ty).clone() else {
                     return Err(TypeError::FieldNotFound {
-                        ty: self.tcx.mangle(struct_ty),
+                        ty: self.tcx.mangle(base_ty),
                         field: field.clone(),
                     });
                 };

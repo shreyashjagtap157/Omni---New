@@ -170,6 +170,18 @@ impl OwnershipState {
             return PlaceState::Moved;
         }
 
+        // A projection of an initialized aggregate is itself initialized, unless
+        // a descendant move has already been recorded above. Without this the
+        // sub-place has no entry of its own and would fall through to
+        // `Uninitialized`, so `x.a` could never be read or moved after
+        // `declare_initialized("x")`.
+        let ancestor_initialized = self.places.iter().any(|(candidate, state)| {
+            *state == PlaceState::Initialized && is_prefix(candidate, place) && candidate != place
+        });
+        if ancestor_initialized {
+            return PlaceState::Initialized;
+        }
+
         let descendant_moved = self.places.iter().any(|(candidate, state)| {
             matches!(state, PlaceState::Moved | PlaceState::PartiallyMoved)
                 && is_prefix(place, candidate)
