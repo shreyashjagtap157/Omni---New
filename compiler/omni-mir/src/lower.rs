@@ -117,7 +117,7 @@ impl LoweringContext {
                                 func.name, value_ty, ret_ty
                             ));
                         }
-                        let ret_p = crate::ir::Place { local: return_place };
+                        let ret_p = crate::ir::Place::local(return_place);
                         builder.blocks[curr].statements.push(crate::ir::Statement::Assign(
                             ret_p,
                             crate::ir::Rvalue::Use(operand),
@@ -234,9 +234,9 @@ impl<'a> FnMirBuilder<'a> {
             omni_types::ast::Pattern::Binding(name) => {
                 let block = self.current_block.ok_or_else(|| "MIR lowering error: let pattern has no live block".to_string())?;
                 let local = self.new_temp(Some(name.clone()), ty);
-                let place = crate::ir::Place { local };
+                let place = crate::ir::Place::local(local);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Use(operand),
                 ));
                 Ok(vec![(name.clone(), local)])
@@ -257,14 +257,14 @@ impl<'a> FnMirBuilder<'a> {
                 for (index, (subpattern, sub_ty)) in patterns.iter().zip(types.iter()).enumerate() {
                     let block = self.current_block.ok_or_else(|| "MIR lowering error: tuple destructuring has no live block".to_string())?;
                     let local = self.new_temp(Some(format!("_tuple_field_{index}")), *sub_ty);
-                    let place = crate::ir::Place { local };
+                    let place = crate::ir::Place::local(local);
                     let projection = crate::ir::Rvalue::Field {
                         base: operand.clone(),
                         field: index.to_string(),
                         ty: *sub_ty,
                     };
                     self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                        place,
+                        place.clone(),
                         projection,
                     ));
                     bindings.extend(self.bind_let_pattern(
@@ -321,7 +321,7 @@ impl<'a> FnMirBuilder<'a> {
 
         if let Some(local) = context.result_local {
             let ty = context.result_ty.expect("result type accompanies result local");
-            Ok(Some((crate::ir::Operand::Copy(crate::ir::Place { local }), ty)))
+            Ok(Some((crate::ir::Operand::Copy(crate::ir::Place::local(local)), ty)))
         } else if let Some(ty) = context.result_ty {
             if matches!(self.tcx.get(ty), TyKind::Unit) {
                 Ok(None)
@@ -440,7 +440,7 @@ impl<'a> FnMirBuilder<'a> {
                 self.loops[loop_index].result_local = Some(local);
                 local
             };
-            let place = crate::ir::Place { local: result_local };
+            let place = crate::ir::Place::local(result_local);
             self.blocks[block]
                 .statements
                 .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(operand)));
@@ -509,27 +509,28 @@ impl<'a> FnMirBuilder<'a> {
         let index_local = self.new_temp(Some("_for_index".to_string()), int_ty);
         let end_local = self.new_temp(Some("_for_end".to_string()), int_ty);
 
-        let index_place = crate::ir::Place { local: index_local };
-        let end_place = crate::ir::Place { local: end_local };
+        let index_place = crate::ir::Place::local(index_local);
+        let end_place = crate::ir::Place::local(end_local);
+        self.blocks[entry].statements.push(crate::ir::Statement::Assign(
+            index_place.clone(),
+            crate::ir::Rvalue::Use(start_op),
+        ));
         self.blocks[entry]
             .statements
-            .push(crate::ir::Statement::Assign(index_place, crate::ir::Rvalue::Use(start_op)));
-        self.blocks[entry]
-            .statements
-            .push(crate::ir::Statement::Assign(end_place, crate::ir::Rvalue::Use(end_op)));
+            .push(crate::ir::Statement::Assign(end_place.clone(), crate::ir::Rvalue::Use(end_op)));
         self.blocks[entry].terminator = Some(crate::ir::Terminator::Goto(header));
 
         self.current_block = Some(header);
         let bool_ty = self.tcx.intern(TyKind::Bool);
         let cmp_temp = self.new_temp(Some("_for_cond".to_string()), bool_ty);
-        let cmp_place = crate::ir::Place { local: cmp_temp };
+        let cmp_place = crate::ir::Place::local(cmp_temp);
         let cmp_op = if *inclusive { crate::ir::BinOp::Le } else { crate::ir::BinOp::Lt };
         self.blocks[header].statements.push(crate::ir::Statement::Assign(
-            cmp_place,
+            cmp_place.clone(),
             crate::ir::Rvalue::BinaryOp(
                 cmp_op,
-                crate::ir::Operand::Copy(index_place),
-                crate::ir::Operand::Copy(end_place),
+                crate::ir::Operand::Copy(index_place.clone()),
+                crate::ir::Operand::Copy(end_place.clone()),
             ),
         ));
         self.blocks[header].terminator = Some(crate::ir::Terminator::SwitchInt {
@@ -572,10 +573,10 @@ impl<'a> FnMirBuilder<'a> {
 
         self.current_block = Some(step_block);
         self.blocks[step_block].statements.push(crate::ir::Statement::Assign(
-            index_place,
+            index_place.clone(),
             crate::ir::Rvalue::BinaryOp(
                 crate::ir::BinOp::Add,
-                crate::ir::Operand::Copy(index_place),
+                crate::ir::Operand::Copy(index_place.clone()),
                 crate::ir::Operand::Constant(crate::ir::Constant::Lit(omni_types::ast::Lit::Int(
                     1,
                 ))),
@@ -664,10 +665,10 @@ impl<'a> FnMirBuilder<'a> {
         };
 
         if let (Some((operand, _)), Some(end)) = (&then_result, then_end) {
-            let place = result_local.map(|l| crate::ir::Place { local: l });
+            let place = result_local.map(|l| crate::ir::Place::local(l));
             if let Some(place) = place {
                 self.blocks[end].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Use(operand.clone()),
                 ));
             }
@@ -681,10 +682,10 @@ impl<'a> FnMirBuilder<'a> {
         }
 
         if let (Some((operand, _)), Some(end)) = (&else_result.0, else_result.1) {
-            let place = result_local.map(|l| crate::ir::Place { local: l });
+            let place = result_local.map(|l| crate::ir::Place::local(l));
             if let Some(place) = place {
                 self.blocks[end].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Use(operand.clone()),
                 ));
             }
@@ -699,7 +700,7 @@ impl<'a> FnMirBuilder<'a> {
 
         self.current_block = Some(join_block);
         if let Some(local) = result_local {
-            let place = crate::ir::Place { local };
+            let place = crate::ir::Place::local(local);
             Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
         } else {
             Ok(None)
@@ -732,10 +733,11 @@ impl<'a> FnMirBuilder<'a> {
             crate::ir::Operand::Copy(place) | crate::ir::Operand::Move(place) => place,
             operand => {
                 let local = self.new_temp(Some("_match_scrutinee".to_string()), scrutinee_ty);
-                let place = crate::ir::Place { local };
-                self.blocks[entry]
-                    .statements
-                    .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(operand)));
+                let place = crate::ir::Place::local(local);
+                self.blocks[entry].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Use(operand),
+                ));
                 place
             }
         };
@@ -756,7 +758,7 @@ impl<'a> FnMirBuilder<'a> {
         }
         let otherwise_block = wildcard_target.unwrap_or(otherwise);
         self.blocks[entry].terminator = Some(crate::ir::Terminator::SwitchInt {
-            discr: crate::ir::Operand::Copy(scrutinee_place),
+            discr: crate::ir::Operand::Copy(scrutinee_place.clone()),
             targets,
             otherwise: otherwise_block,
         });
@@ -799,7 +801,7 @@ impl<'a> FnMirBuilder<'a> {
 
             if let (Some((operand, _)), Some(local)) = (body, result_local) {
                 if let Some(block) = self.current_block {
-                    let place = crate::ir::Place { local };
+                    let place = crate::ir::Place::local(local);
                     self.blocks[block]
                         .statements
                         .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(operand)));
@@ -831,7 +833,7 @@ impl<'a> FnMirBuilder<'a> {
         self.current_block = Some(join);
         match result_local {
             Some(local) => Ok(Some((
-                crate::ir::Operand::Copy(crate::ir::Place { local }),
+                crate::ir::Operand::Copy(crate::ir::Place::local(local)),
                 result_ty.expect("result type exists"),
             ))),
             None => Ok(None),
@@ -900,7 +902,7 @@ impl<'a> FnMirBuilder<'a> {
         let short_block = self.new_block();
         let join_block = self.new_block();
         let result_local = self.new_temp(Some("_logic_tmp".to_string()), bool_ty);
-        let result_place = crate::ir::Place { local: result_local };
+        let result_place = crate::ir::Place::local(result_local);
 
         let short_value = match op {
             omni_types::ast::BinOp::LogicalAnd => 0,
@@ -925,16 +927,17 @@ impl<'a> FnMirBuilder<'a> {
         let rhs_end = self
             .current_block
             .ok_or_else(|| "MIR lowering error: logical rhs terminated control flow".to_string())?;
-        self.blocks[rhs_end]
-            .statements
-            .push(crate::ir::Statement::Assign(result_place, crate::ir::Rvalue::Use(rhs_op)));
+        self.blocks[rhs_end].statements.push(crate::ir::Statement::Assign(
+            result_place.clone(),
+            crate::ir::Rvalue::Use(rhs_op),
+        ));
         if self.blocks[rhs_end].terminator.is_none() {
             self.blocks[rhs_end].terminator = Some(crate::ir::Terminator::Goto(join_block));
         }
 
         self.current_block = Some(short_block);
         self.blocks[short_block].statements.push(crate::ir::Statement::Assign(
-            result_place,
+            result_place.clone(),
             crate::ir::Rvalue::Use(crate::ir::Operand::Constant(crate::ir::Constant::Lit(
                 omni_types::ast::Lit::Bool(short_value == 1),
             ))),
@@ -965,7 +968,7 @@ impl<'a> FnMirBuilder<'a> {
                         format!("MIR lowering error: undefined variable '{}'", name)
                     })?;
                 let ty = self.local_ty(local)?;
-                Ok(Some((crate::ir::Operand::Copy(crate::ir::Place { local }), ty)))
+                Ok(Some((crate::ir::Operand::Copy(crate::ir::Place::local(local)), ty)))
             }
             omni_types::ast::Expr::Binary { op, lhs, rhs }
                 if matches!(
@@ -1054,12 +1057,12 @@ impl<'a> FnMirBuilder<'a> {
                         .to_string()
                 })?;
                 let temp_local = self.new_temp(Some("_bin_tmp".to_string()), result_ty);
-                let place = crate::ir::Place { local: temp_local };
+                let place = crate::ir::Place::local(temp_local);
                 self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::BinaryOp(mir_op, lhs_op, rhs_op),
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
             }
             omni_types::ast::Expr::Unary { op, expr } => {
                 let (inner_op, inner_ty) = self
@@ -1110,12 +1113,12 @@ impl<'a> FnMirBuilder<'a> {
                         .to_string()
                 })?;
                 let temp_local = self.new_temp(Some("_un_tmp".to_string()), inner_ty);
-                let place = crate::ir::Place { local: temp_local };
+                let place = crate::ir::Place::local(temp_local);
                 self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::UnaryOp(mir_op, inner_op),
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), inner_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), inner_ty)))
             }
             omni_types::ast::Expr::Let { pattern, ty, init, body } => {
                 let (init_op, init_ty) = self.lower_expr(init)?.ok_or_else(|| {
@@ -1178,16 +1181,16 @@ impl<'a> FnMirBuilder<'a> {
                     .current_block
                     .ok_or_else(|| "MIR lowering error: tuple has no live block".to_string())?;
                 let local = self.new_temp(Some("_tuple_tmp".to_string()), tuple_ty);
-                let place = crate::ir::Place { local };
+                let place = crate::ir::Place::local(local);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Aggregate {
                         kind: crate::ir::AggregateKind::Tuple,
                         operands,
                         ty: tuple_ty,
                     },
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), tuple_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), tuple_ty)))
             }
             omni_types::ast::Expr::Array(elements) => {
                 if elements.is_empty() {
@@ -1219,16 +1222,16 @@ impl<'a> FnMirBuilder<'a> {
                     .current_block
                     .ok_or_else(|| "MIR lowering error: array has no live block".to_string())?;
                 let local = self.new_temp(Some("_array_tmp".to_string()), array_ty);
-                let place = crate::ir::Place { local };
+                let place = crate::ir::Place::local(local);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Aggregate {
                         kind: crate::ir::AggregateKind::Array,
                         operands,
                         ty: array_ty,
                     },
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), array_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), array_ty)))
             }
             omni_types::ast::Expr::Field { expr, field } => {
                 let (base, base_ty) = self
@@ -1273,12 +1276,12 @@ impl<'a> FnMirBuilder<'a> {
                     .current_block
                     .ok_or_else(|| "MIR lowering error: field has no live block".to_string())?;
                 let local = self.new_temp(Some("_field_tmp".to_string()), result_ty);
-                let place = crate::ir::Place { local };
+                let place = crate::ir::Place::local(local);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Field { base, field: field.clone(), ty: result_ty },
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
             }
             omni_types::ast::Expr::Index { expr, index } => {
                 let (base, base_ty) = self
@@ -1325,12 +1328,12 @@ impl<'a> FnMirBuilder<'a> {
                     .current_block
                     .ok_or_else(|| "MIR lowering error: index has no live block".to_string())?;
                 let local = self.new_temp(Some("_index_tmp".to_string()), result_ty);
-                let place = crate::ir::Place { local };
+                let place = crate::ir::Place::local(local);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Index { base, index: index_op, ty: result_ty },
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), result_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
             }
             omni_types::ast::Expr::Struct { name, generic_args, fields } => {
                 let args = generic_args
@@ -1349,12 +1352,12 @@ impl<'a> FnMirBuilder<'a> {
                     "MIR lowering error: struct literal has no live block".to_string()
                 })?;
                 let local = self.new_temp(Some("_struct_tmp".to_string()), ty);
-                let place = crate::ir::Place { local };
+                let place = crate::ir::Place::local(local);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Struct { name: name.clone(), fields: lowered_fields, ty },
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), ty)))
             }
             omni_types::ast::Expr::EnumVariant { enum_name, variant, generic_args, args } => {
                 let generic_tys = generic_args
@@ -1376,9 +1379,9 @@ impl<'a> FnMirBuilder<'a> {
                     "MIR lowering error: enum constructor has no live block".to_string()
                 })?;
                 let local = self.new_temp(Some("_enum_tmp".to_string()), ty);
-                let place = crate::ir::Place { local };
+                let place = crate::ir::Place::local(local);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::EnumVariant {
                         enum_name: enum_name.clone(),
                         variant: variant.clone(),
@@ -1386,7 +1389,7 @@ impl<'a> FnMirBuilder<'a> {
                         ty,
                     },
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), ty)))
             }
             omni_types::ast::Expr::Call { func, generic_args: _, args } => {
                 let (param_tys, ret_ty) = self.fn_sigs.get(func).cloned().ok_or_else(|| {
@@ -1426,20 +1429,20 @@ impl<'a> FnMirBuilder<'a> {
                     None
                 } else {
                     let dest_local = self.new_temp(Some("_call_dest".to_string()), ret_ty);
-                    Some(crate::ir::Place { local: dest_local })
+                    Some(crate::ir::Place::local(dest_local))
                 };
 
                 self.blocks[curr_block].terminator = Some(crate::ir::Terminator::Call {
                     func: crate::ir::Operand::Constant(crate::ir::Constant::FnRef(func.clone())),
                     args: arg_ops,
-                    destination,
+                    destination: destination.clone(),
                     target: next_block,
                     cleanup: None,
                 });
                 self.current_block = Some(next_block);
 
                 match destination {
-                    Some(place) => Ok(Some((crate::ir::Operand::Copy(place), ret_ty))),
+                    Some(place) => Ok(Some((crate::ir::Operand::Copy(place.clone()), ret_ty))),
                     None => Ok(None),
                 }
             }
@@ -1460,15 +1463,15 @@ impl<'a> FnMirBuilder<'a> {
                         name, target_ty, value_ty
                     ));
                 }
-                let target_place = crate::ir::Place { local: target_local };
+                let target_place = crate::ir::Place::local(target_local);
                 let block = self.current_block.ok_or_else(|| {
                     "MIR lowering error: assignment has no live block".to_string()
                 })?;
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    target_place,
+                    target_place.clone(),
                     crate::ir::Rvalue::Use(value_op),
                 ));
-                Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
+                Ok(Some((crate::ir::Operand::Copy(target_place.clone()), target_ty)))
             }
             omni_types::ast::Expr::Range { start, end, inclusive } => {
                 let (start_op, start_ty) = self
@@ -1494,9 +1497,9 @@ impl<'a> FnMirBuilder<'a> {
                     .current_block
                     .ok_or_else(|| "MIR lowering error: range has no live block".to_string())?;
                 let local = self.new_temp(Some("_range_tmp".to_string()), range_ty);
-                let place = crate::ir::Place { local };
+                let place = crate::ir::Place::local(local);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Range {
                         start: start_op,
                         end: end_op,
@@ -1504,7 +1507,7 @@ impl<'a> FnMirBuilder<'a> {
                         ty: range_ty,
                     },
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), range_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), range_ty)))
             }
             omni_types::ast::Expr::Cast { expr, ty } => {
                 let (operand, from_ty) = self
@@ -1524,12 +1527,12 @@ impl<'a> FnMirBuilder<'a> {
                     .current_block
                     .ok_or_else(|| "MIR lowering error: cast has no live block".to_string())?;
                 let temp = self.new_temp(Some("_cast_tmp".to_string()), to_ty);
-                let place = crate::ir::Place { local: temp };
+                let place = crate::ir::Place::local(temp);
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    place,
+                    place.clone(),
                     crate::ir::Rvalue::Cast { operand, from: from_ty, to: to_ty },
                 ));
-                Ok(Some((crate::ir::Operand::Copy(place), to_ty)))
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), to_ty)))
             }
             omni_types::ast::Expr::CompoundAssign { op, target, value } => {
                 let omni_types::ast::Expr::Var(name) = target.as_ref() else {
@@ -1541,9 +1544,9 @@ impl<'a> FnMirBuilder<'a> {
                         name
                     )
                 })?;
-                let target_place = crate::ir::Place { local: target_local };
+                let target_place = crate::ir::Place::local(target_local);
                 let target_ty = self.local_ty(target_local)?;
-                let target_op = crate::ir::Operand::Copy(target_place);
+                let target_op = crate::ir::Operand::Copy(target_place.clone());
                 let (value_op, value_ty) = self.lower_expr(value)?.ok_or_else(|| {
                     "MIR lowering error: compound assignment value is Unit".to_string()
                 })?;
@@ -1575,7 +1578,7 @@ impl<'a> FnMirBuilder<'a> {
                     "MIR lowering error: compound assignment has no live block".to_string()
                 })?;
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
-                    target_place,
+                    target_place.clone(),
                     crate::ir::Rvalue::BinaryOp(mir_op, target_op, value_op),
                 ));
                 Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
@@ -1621,7 +1624,7 @@ impl<'a> FnMirBuilder<'a> {
                     "MIR lowering error: return has no live continuation block".to_string()
                 })?;
                 if let Some((operand, _)) = &ret_result {
-                    let ret_p = crate::ir::Place { local: crate::ir::Local::from_usize(0) };
+                    let ret_p = crate::ir::Place::local(crate::ir::Local::from_usize(0));
                     self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
                         ret_p,
                         crate::ir::Rvalue::Use(operand.clone()),

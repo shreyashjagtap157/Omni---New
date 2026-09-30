@@ -470,7 +470,8 @@ impl MirVerifier {
                     predecessors[otherwise.index()].push((from, None));
                 }
                 Terminator::Call { target, cleanup, destination, .. } => {
-                    predecessors[target.index()].push((from, destination.map(|place| place.local)));
+                    predecessors[target.index()]
+                        .push((from, destination.as_ref().map(|place| place.local)));
                     if let Some(cleanup) = cleanup {
                         predecessors[cleanup.index()].push((from, None));
                     }
@@ -1304,8 +1305,8 @@ mod tests {
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: ret_l },
-                Rvalue::Use(Operand::Copy(Place { local: param_l })),
+                Place::local(ret_l),
+                Rvalue::Use(Operand::Copy(Place::local(param_l))),
             )],
             terminator: Some(Terminator::Return),
         });
@@ -1335,8 +1336,8 @@ mod tests {
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: ret_l },
-                Rvalue::Use(Operand::Copy(Place { local: param_l })),
+                Place::local(ret_l),
+                Rvalue::Use(Operand::Copy(Place::local(param_l))),
             )],
             terminator: Some(Terminator::Return),
         });
@@ -1393,8 +1394,8 @@ mod tests {
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: ret_l },
-                Rvalue::Use(Operand::Copy(Place { local: invalid_l })),
+                Place::local(ret_l),
+                Rvalue::Use(Operand::Copy(Place::local(invalid_l))),
             )],
             terminator: Some(Terminator::Return),
         });
@@ -1428,7 +1429,7 @@ mod tests {
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: ret },
+                Place::local(ret),
                 Rvalue::BinaryOp(
                     omni_mir::ir::BinOp::Eq,
                     Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(1))),
@@ -1465,7 +1466,7 @@ mod tests {
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: ret },
+                Place::local(ret),
                 Rvalue::UnaryOp(
                     omni_mir::ir::UnOp::Not,
                     Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(1))),
@@ -1506,7 +1507,7 @@ mod tests {
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: ret },
+                Place::local(ret),
                 Rvalue::Aggregate {
                     kind: omni_mir::ir::AggregateKind::Tuple,
                     operands: vec![
@@ -1545,7 +1546,7 @@ mod tests {
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: ret },
+                Place::local(ret),
                 Rvalue::Aggregate {
                     kind: omni_mir::ir::AggregateKind::Array,
                     operands: vec![
@@ -1606,7 +1607,7 @@ mod tests {
         });
         caller_blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: caller_ret },
+                Place::local(caller_ret),
                 Rvalue::Use(Operand::Constant(omni_mir::ir::Constant::Lit(
                     omni_mir::ast::Lit::Int(0),
                 ))),
@@ -1617,8 +1618,8 @@ mod tests {
         let mut callee_blocks = IndexVec::new();
         callee_blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: callee_ret },
-                Rvalue::Use(Operand::Copy(Place { local: callee_param })),
+                Place::local(callee_ret),
+                Rvalue::Use(Operand::Copy(Place::local(callee_param))),
             )],
             terminator: Some(Terminator::Return),
         });
@@ -1683,8 +1684,8 @@ mod tests {
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
-                Place { local: ret },
-                Rvalue::Use(Operand::Copy(Place { local: tmp })),
+                Place::local(ret),
+                Rvalue::Use(Operand::Copy(Place::local(tmp))),
             )],
             terminator: Some(Terminator::Return),
         });

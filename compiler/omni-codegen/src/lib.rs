@@ -724,7 +724,7 @@ mod tests {
         });
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![omni_mir::ir::Statement::Assign(
-                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Place::local(ret),
                 omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
                     omni_mir::ir::Constant::Lit(ast::Lit::Int(41)),
                 )),
@@ -735,7 +735,7 @@ mod tests {
         });
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![omni_mir::ir::Statement::Assign(
-                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Place::local(ret),
                 omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
                     omni_mir::ir::Constant::Lit(ast::Lit::Int(7)),
                 )),
@@ -811,7 +811,7 @@ mod tests {
         let mut blocks = index_vec::IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![omni_mir::ir::Statement::Assign(
-                omni_mir::ir::Place { local: ret },
+                omni_mir::ir::Place::local(ret),
                 omni_mir::ir::Rvalue::Use(omni_mir::ir::Operand::Constant(
                     omni_mir::ir::Constant::Lit(ast::Lit::Int(1)),
                 )),

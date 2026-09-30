@@ -24,7 +24,7 @@ impl DropElaborator {
             
             // Iterate backwards through the local declarations
             for local in body.local_decls.indices().rev() {
-                block.statements.push(Statement::Drop(Place { local }));
+                block.statements.push(Statement::Drop(Place::local(local)));
             }
         }
     }
