@@ -2138,6 +2138,9 @@ impl<'a> Parser<'a> {
     /// representation. This prevents EOF from ever being aliased as a missing
     /// source-bearing token.
     fn bump_child(&mut self) -> Child {
+        if self.split_token.is_some() {
+            return self.bump_split_piece();
+        }
         if self.eof() {
             Child::Missing
         } else {
@@ -2145,60 +2148,42 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Consume the closing `>` of a generic argument or parameter list. A lone
-    /// `>` is consumed directly; a `>>`/`>>=` token is split across successive
-    /// `consume_gt` calls so each nested list receives exactly one logical `>`.
-    fn consume_gt(&mut self) -> Child {
-        // Already mid-split: serve the current logical `>` piece and advance or clear it.
-        if let Some((token, offset)) = self.split_token {
-            let Some(kind) = self.tokens.get(token).map(|t| t.kind) else {
-                self.split_token = None;
-                return Child::Missing;
-            };
-            let TokenKind::Punct(p) = kind else {
-                self.split_token = None;
-                return Child::Missing;
-            };
-            let Some(pieces) = crate::precedence::split_generic_closer(p) else {
-                self.split_token = None;
-                return Child::Missing;
-            };
-            let next = offset as usize + 1;
-            let has_next = pieces.get(next).map_or(false, |part| part.is_some());
-            if has_next {
-                self.split_token = Some((token, next as u8));
-            } else {
-                self.split_token = None;
-                self.pos = token + 1;
-            }
-            return Child::Token(token);
+    /// Consume one logical piece of a split `>>`/\`>>=\` token.
+    fn bump_split_piece(&mut self) -> Child {
+        let Some((token, offset)) = self.split_token else {
+            return Child::Missing;
+        };
+        let Some(TokenKind::Punct(kind)) = self.tokens.get(token).map(|t| t.kind) else {
+            self.split_token = None;
+            return Child::Missing;
+        };
+        let Some(pieces) = crate::precedence::split_generic_closer(kind) else {
+            self.split_token = None;
+            return Child::Missing;
+        };
+        let Some(part) = pieces.get(offset as usize).and_then(|part| *part) else {
+            self.split_token = None;
+            self.pos = token.saturating_add(1);
+            return Child::Missing;
+        };
+        let next = offset as usize + 1;
+        if pieces.get(next).and_then(|part| *part).is_some() {
+            self.split_token = Some((token, next as u8));
+        } else {
+            self.split_token = None;
+            self.pos = token.saturating_add(1);
         }
-
-        match self.current_kind_physical() {
-            Some(TokenKind::Punct(Punct::Gt)) => Child::Token(self.bump_index()),
-            Some(TokenKind::Punct(p @ (Punct::Shr | Punct::ShrEq))) => {
-                // Split the multi-`>` token: this call consumes the first logical `>`;
-                // subsequent calls serve the remaining pieces via `split_token` above.
-                let token = self.pos;
-                let Some(pieces) = crate::precedence::split_generic_closer(p) else {
-                    return self.bump_child();
-                };
-                if pieces.get(1).map_or(false, |part| part.is_some()) {
-                    self.split_token = Some((token, 1));
-                } else {
-                    self.pos += 1;
-                }
-                Child::Token(token)
-            }
-            _ if self.at_logical_gt() => self.bump_child(),
-            _ => {
-                self.diagnostic("expected `>`");
-                Child::Missing
-            }
+        Child::Piece {
+            token,
+            byte_offset: part.byte_offset,
+            byte_len: part.byte_len,
         }
     }
 
-    /// Consume an expected opening delimiter. Pair identity is delegated to
+    /// Consume the closing `>` of a generic argument or parameter list. A lone
+    /// `>` is consumed directly; a `>>`/`>>=` token is split across successive
+    /// `consume_gt` calls so each nested list receives exactly one logical `>`.
+false    /// Consume an expected opening delimiter. Pair identity is delegated to
     /// the single delimiter-pair authority in precedence.rs.
     fn expect_open(&mut self, open: Punct) -> Child {
         self.expect_punct(open)
