@@ -162,7 +162,6 @@ impl LoweringContext {
         }
         Ok(mir_prog)
     }
-
 }
 
 fn simple_pattern_binding(pattern: &omni_types::ast::Pattern) -> Option<String> {

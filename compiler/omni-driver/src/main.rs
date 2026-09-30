@@ -1006,23 +1006,24 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                             value: Box::new(expr_from_node(&parts[1])?),
                         })
                     } else {
-                        let op =
-                            match assign.as_str() {
-                                "+=" => omni_types::ast::AssignOp::Add,
-                                "-=" => omni_types::ast::AssignOp::Sub,
-                                "*=" => omni_types::ast::AssignOp::Mul,
-                                "/=" => omni_types::ast::AssignOp::Div,
-                                "%=" => omni_types::ast::AssignOp::Rem,
-                                "&=" => omni_types::ast::AssignOp::BitAnd,
-                                "|=" => omni_types::ast::AssignOp::BitOr,
-                                "^=" => omni_types::ast::AssignOp::BitXor,
-                                "<<=" => omni_types::ast::AssignOp::Shl,
-                                ">>=" => omni_types::ast::AssignOp::Shr,
-                                other => return Err(format!(
+                        let op = match assign.as_str() {
+                            "+=" => omni_types::ast::AssignOp::Add,
+                            "-=" => omni_types::ast::AssignOp::Sub,
+                            "*=" => omni_types::ast::AssignOp::Mul,
+                            "/=" => omni_types::ast::AssignOp::Div,
+                            "%=" => omni_types::ast::AssignOp::Rem,
+                            "&=" => omni_types::ast::AssignOp::BitAnd,
+                            "|=" => omni_types::ast::AssignOp::BitOr,
+                            "^=" => omni_types::ast::AssignOp::BitXor,
+                            "<<=" => omni_types::ast::AssignOp::Shl,
+                            ">>=" => omni_types::ast::AssignOp::Shr,
+                            other => {
+                                return Err(format!(
                                     "Semantic frontend error: unsupported assignment operator '{}'",
                                     other
-                                )),
-                            };
+                                ))
+                            }
+                        };
                         Ok(Expr::CompoundAssign {
                             op,
                             target: Box::new(expr_from_node(&parts[0])?),

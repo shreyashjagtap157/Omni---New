@@ -1011,13 +1011,32 @@ fn byte_literal_prefix_is_not_consumed_as_literal_data() {
 #[test]
 fn lifetime_character_literal_ambiguity_is_pinned_at_the_lexer_boundary() {
     // Edition 1 uses the same apostrophe introducer for character literals
-    // and lifetime syntax. The current lexer has no Lifetime token, so `'a`
-    // follows the character-literal path and is one lexical-error token.
+    // (`char_literal = "'" (escape_sequence | non_quote_char) "'"`) and for
+    // lifetimes (`lifetime = "'" identifier`), so a bare `'a` is genuinely
+    // ambiguous at the lexical layer.
+    //
+    // The recorded 0.0.2.3-A correction (docs/grammar-reconciliation.md,
+    // "Lifetime lexer/parser boundary correction") settles it in favour of the
+    // lifetime reading: a quote followed immediately by an identifier start lexes
+    // as `Punct::Apostrophe` plus the ordinary identifier, because that is the
+    // only reading that stays lossless *and* lets the parser build a `Lifetime`
+    // node. A quote followed by trivia, or by a quote (a real character
+    // literal), stays on the character-literal path.
+    //
+    // Note this replaced an earlier contract that pinned bare `'a` as a single
+    // lexical-error token. That earlier expectation is what this test used to
+    // assert, twice, for the same input, which made it unsatisfiable.
     let tokens = assert_lossless(b"'a");
-    assert_eq!(tokens.len(), 1);
-    assert_eq!(tokens[0].kind, TokenKind::Error);
-    assert_eq!(tokens[0].error_reason, Some(ErrorReason::Lexical));
-    assert_eq!((tokens[0].span.start, tokens[0].span.end), (0, 2));
+    assert_eq!(tokens.len(), 2, "'a must lex as an apostrophe plus an identifier");
+    assert_eq!(tokens[0].kind, TokenKind::Punct(Punct::Apostrophe));
+    assert_eq!(tokens[1].kind, TokenKind::Ident);
+    assert_eq!(
+        (tokens[0].span.start, tokens[0].span.end),
+        (0, 1),
+        "the apostrophe covers only its own byte"
+    );
+    assert_eq!((tokens[1].span.start, tokens[1].span.end), (1, 2));
+    assert!(tokens.iter().all(|t| t.error_reason.is_none()), "neither token is an error");
 
     // Valid character and byte literals retain their existing tokenization.
     for source in [b"'a'".as_slice(), b"b'a'".as_slice()] {
@@ -1027,9 +1046,17 @@ fn lifetime_character_literal_ambiguity_is_pinned_at_the_lexer_boundary() {
         assert_eq!(tokens[0].error_reason, None);
     }
 
-    // A malformed character literal remains a lexical error rather than being
-    // silently reclassified as a lifetime.
-    let tokens = assert_lossless(b"'a");
+    // A quote followed by trivia is not an identifier start, so it must not be
+    // reinterpreted as a lifetime; it stays on the character-literal path and
+    // fails closed as a lexical error.
+    let tokens = assert_lossless(b"' a");
+    assert_eq!(tokens[0].kind, TokenKind::Error);
+    assert_eq!(tokens[0].error_reason, Some(ErrorReason::Lexical));
+
+    // A multi-character run is not a single-character literal, so it remains one
+    // lexical error rather than being silently reclassified as a lifetime.
+    let tokens = assert_lossless(b"'ab'");
+    assert_eq!(tokens.len(), 1);
     assert_eq!(tokens[0].kind, TokenKind::Error);
     assert_eq!(tokens[0].error_reason, Some(ErrorReason::Lexical));
 }
