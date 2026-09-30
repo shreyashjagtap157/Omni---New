@@ -1235,6 +1235,115 @@ fn test_unary_operations_enforce_operand_types() {
 }
 
 #[test]
+fn test_effect_inference_preserves_lexical_bindings() {
+    use omni_effects::{Capability, Effect, EffectRow};
+
+    let mut checker = TypeChecker::new();
+    checker.cap_context.grant(Capability::FileSystem);
+
+    checker.register_fn(GenericFnDef {
+        name: "read_file".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![("path".to_string(), TypeSpec::String)],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Literal(Lit::String("ok".to_string())),
+    });
+
+    let let_caller = GenericFnDef {
+        name: "scoped_let_effect".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Let {
+            pattern: Pattern::Binding("path".to_string()),
+            ty: None,
+            init: Box::new(Expr::Literal(Lit::String("let.txt".to_string()))),
+            body: Box::new(Expr::Call {
+                func: "read_file".to_string(),
+                generic_args: vec![],
+                args: vec![Expr::Var("path".to_string())],
+            }),
+        },
+    };
+    checker.register_fn(let_caller.clone());
+    assert!(checker.check_fn_effects(&let_caller).is_ok());
+
+    let for_caller = GenericFnDef {
+        name: "scoped_for_effect".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::Unit,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::For {
+            label: None,
+            pattern: Pattern::Binding("path".to_string()),
+            iterable: Box::new(Expr::Array(vec![
+                Expr::Literal(Lit::String("for.txt".to_string())),
+            ])),
+            body: Box::new(Expr::Call {
+                func: "read_file".to_string(),
+                generic_args: vec![],
+                args: vec![Expr::Var("path".to_string())],
+            }),
+        },
+    };
+    checker.register_fn(for_caller.clone());
+    assert!(checker.check_fn_effects(&for_caller).is_ok());
+
+    let match_caller = GenericFnDef {
+        name: "scoped_match_effect".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::String,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Match {
+            expr: Box::new(Expr::Literal(Lit::String("match.txt".to_string()))),
+            arms: vec![MatchArm {
+                pattern: Pattern::Binding("path".to_string()),
+                guard: None,
+                body: Expr::Call {
+                    func: "read_file".to_string(),
+                    generic_args: vec![],
+                    args: vec![Expr::Var("path".to_string())],
+                },
+            }],
+        },
+    };
+    checker.register_fn(match_caller.clone());
+    assert!(checker.check_fn_effects(&match_caller).is_ok());
+
+    let lambda_caller = GenericFnDef {
+        name: "scoped_lambda_effect".to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: TypeSpec::Unit,
+        effects: EffectRow::closed(vec![Effect::IO]),
+        capabilities: vec![Capability::FileSystem],
+        body: Expr::Lambda {
+            params: vec![("path".to_string(), TypeSpec::String)],
+            body: Box::new(Expr::Call {
+                func: "read_file".to_string(),
+                generic_args: vec![],
+                args: vec![Expr::Var("path".to_string())],
+            }),
+        },
+    };
+    checker.register_fn(lambda_caller.clone());
+    assert!(checker.check_fn_effects(&lambda_caller).is_ok());
+}
+
+#[test]
 fn test_let_binding_preserves_structured_pattern() {
     let mut checker = TypeChecker::new();
     let env = SubstEnv::new();
