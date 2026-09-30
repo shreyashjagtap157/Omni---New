@@ -370,7 +370,9 @@ impl MirVerifier {
                                 Self::check_operand(fn_name, op2, num_locals)?;
                             }
                             Rvalue::UnaryOp(_, op) => Self::check_operand(fn_name, op, num_locals)?,
-                            Rvalue::Cast { operand, .. } => Self::check_operand(fn_name, operand, num_locals)?,
+                            Rvalue::Cast { operand, .. } => {
+                                Self::check_operand(fn_name, operand, num_locals)?
+                            }
                             Rvalue::Aggregate { operands, .. } => {
                                 for operand in operands {
                                     Self::check_operand(fn_name, operand, num_locals)?;
@@ -390,12 +392,13 @@ impl MirVerifier {
                                 Self::check_operand(fn_name, start, num_locals)?;
                                 Self::check_operand(fn_name, end, num_locals)?;
                             }
-                            Rvalue::Field { base, .. } => Self::check_operand(fn_name, base, num_locals)?,
+                            Rvalue::Field { base, .. } => {
+                                Self::check_operand(fn_name, base, num_locals)?
+                            }
                             Rvalue::Index { base, index, .. } => {
                                 Self::check_operand(fn_name, base, num_locals)?;
                                 Self::check_operand(fn_name, index, num_locals)?;
                             }
-
                         }
                         Self::check_rvalue_type(prog, func, place, rval)?;
                     }
@@ -745,16 +748,23 @@ impl MirVerifier {
                 }
                 let is_int = matches!(tcx.get(lhs_ty), TyKind::Int);
                 let is_float = matches!(tcx.get(lhs_ty), TyKind::Float);
-                let is_ordered_scalar =
-                    matches!(tcx.get(lhs_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float);
-                let is_equality_scalar =
-                    matches!(tcx.get(lhs_ty), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Bool | TyKind::Float);
+                let is_ordered_scalar = matches!(
+                    tcx.get(lhs_ty),
+                    TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float
+                );
+                let is_equality_scalar = matches!(
+                    tcx.get(lhs_ty),
+                    TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Bool | TyKind::Float
+                );
                 match op {
                     BinOp::Eq | BinOp::Ne => {
                         if !is_equality_scalar {
                             return Err(MirVerificationError::TypeMismatch {
                                 func: func.name.clone(),
-                                context: format!("operator {:?} requires comparable scalar operands", op),
+                                context: format!(
+                                    "operator {:?} requires comparable scalar operands",
+                                    op
+                                ),
                                 expected: tcx.intern(TyKind::Int),
                                 actual: lhs_ty,
                             });
@@ -765,7 +775,10 @@ impl MirVerifier {
                         if !is_ordered_scalar {
                             return Err(MirVerificationError::TypeMismatch {
                                 func: func.name.clone(),
-                                context: format!("operator {:?} requires ordered scalar operands", op),
+                                context: format!(
+                                    "operator {:?} requires ordered scalar operands",
+                                    op
+                                ),
                                 expected: tcx.intern(TyKind::Int),
                                 actual: lhs_ty,
                             });
@@ -776,14 +789,22 @@ impl MirVerifier {
                         if !is_int && !is_float {
                             return Err(MirVerificationError::TypeMismatch {
                                 func: func.name.clone(),
-                                context: format!("operator {:?} requires Int or Float operands", op),
+                                context: format!(
+                                    "operator {:?} requires Int or Float operands",
+                                    op
+                                ),
                                 expected: tcx.intern(TyKind::Int),
                                 actual: lhs_ty,
                             });
                         }
                         Ok(lhs_ty)
                     }
-                    BinOp::Rem | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
+                    BinOp::Rem
+                    | BinOp::BitAnd
+                    | BinOp::BitOr
+                    | BinOp::BitXor
+                    | BinOp::Shl
+                    | BinOp::Shr => {
                         if !is_int {
                             return Err(MirVerificationError::TypeMismatch {
                                 func: func.name.clone(),
@@ -806,12 +827,15 @@ impl MirVerifier {
                         if actual_types != *expected {
                             return Err(MirVerificationError::AggregateTypeMismatch {
                                 func: func.name.clone(),
-                                context: "tuple aggregate element types do not match declared type".to_string(),
+                                context: "tuple aggregate element types do not match declared type"
+                                    .to_string(),
                             });
                         }
                     }
                     (AggregateKind::Array, TyKind::Array(expected, len)) => {
-                        if actual_types.len() != *len || actual_types.iter().any(|actual| *actual != *expected) {
+                        if actual_types.len() != *len
+                            || actual_types.iter().any(|actual| *actual != *expected)
+                        {
                             return Err(MirVerificationError::AggregateTypeMismatch {
                                 func: func.name.clone(),
                                 context: "array aggregate length or element type does not match declared type".to_string(),
@@ -826,7 +850,8 @@ impl MirVerifier {
                     }
                 }
                 Ok(*ty)
-            }            Rvalue::Range { start, end, inclusive: _, ty } => {
+            }
+            Rvalue::Range { start, end, inclusive: _, ty } => {
                 let start_ty = Self::operand_type(tcx, func, start)?;
                 let end_ty = Self::operand_type(tcx, func, end)?;
                 let TyKind::Range(elem_ty) = tcx.get(*ty) else {
@@ -846,17 +871,25 @@ impl MirVerifier {
             Rvalue::Struct { name, fields, ty } => {
                 match tcx.get(*ty) {
                     TyKind::Struct(actual_name, _) if actual_name == name => {}
-                    _ => return Err(MirVerificationError::AggregateTypeMismatch {
-                        func: func.name.clone(),
-                        context: format!("struct constructor '{}' does not match its declared MIR type", name),
-                    }),
+                    _ => {
+                        return Err(MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: format!(
+                                "struct constructor '{}' does not match its declared MIR type",
+                                name
+                            ),
+                        })
+                    }
                 }
                 let mut seen = std::collections::BTreeSet::new();
                 for (field, operand) in fields {
                     if !seen.insert(field) {
                         return Err(MirVerificationError::AggregateTypeMismatch {
                             func: func.name.clone(),
-                            context: format!("struct constructor '{}' repeats field '{}'", name, field),
+                            context: format!(
+                                "struct constructor '{}' repeats field '{}'",
+                                name, field
+                            ),
                         });
                     }
                     let _ = Self::operand_type(tcx, func, operand)?;
@@ -867,15 +900,23 @@ impl MirVerifier {
                 if variant.is_empty() {
                     return Err(MirVerificationError::AggregateTypeMismatch {
                         func: func.name.clone(),
-                        context: format!("enum constructor '{}' has an empty variant identifier", enum_name),
+                        context: format!(
+                            "enum constructor '{}' has an empty variant identifier",
+                            enum_name
+                        ),
                     });
                 }
                 match tcx.get(*ty) {
                     TyKind::Enum(actual_name, _) if actual_name == enum_name => {}
-                    _ => return Err(MirVerificationError::AggregateTypeMismatch {
-                        func: func.name.clone(),
-                        context: format!("enum constructor '{}' does not match its declared MIR type", enum_name),
-                    }),
+                    _ => {
+                        return Err(MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: format!(
+                                "enum constructor '{}' does not match its declared MIR type",
+                                enum_name
+                            ),
+                        })
+                    }
                 }
                 for operand in operands {
                     let _ = Self::operand_type(tcx, func, operand)?;
@@ -891,23 +932,33 @@ impl MirVerifier {
                         let _ = name;
                         return Err(MirVerificationError::InvalidTypeSpec {
                             func: func.name.clone(),
-                            context: format!("field projection '{}' requires registered aggregate layout", field),
+                            context: format!(
+                                "field projection '{}' requires registered aggregate layout",
+                                field
+                            ),
                         });
                     }
                     TyKind::Tuple(types) => {
-                        let index = field.parse::<usize>().map_err(|_| MirVerificationError::AggregateTypeMismatch {
-                            func: func.name.clone(),
-                            context: "tuple field projection index is not numeric".to_string(),
+                        let index = field.parse::<usize>().map_err(|_| {
+                            MirVerificationError::AggregateTypeMismatch {
+                                func: func.name.clone(),
+                                context: "tuple field projection index is not numeric".to_string(),
+                            }
                         })?;
-                        *types.get(index).ok_or_else(|| MirVerificationError::AggregateTypeMismatch {
-                            func: func.name.clone(),
-                            context: "tuple field projection index is out of bounds".to_string(),
+                        *types.get(index).ok_or_else(|| {
+                            MirVerificationError::AggregateTypeMismatch {
+                                func: func.name.clone(),
+                                context: "tuple field projection index is out of bounds"
+                                    .to_string(),
+                            }
                         })?
                     }
-                    _ => return Err(MirVerificationError::AggregateTypeMismatch {
-                        func: func.name.clone(),
-                        context: "field projection base is not an aggregate".to_string(),
-                    }),
+                    _ => {
+                        return Err(MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: "field projection base is not an aggregate".to_string(),
+                        })
+                    }
                 };
                 if *ty != expected {
                     return Err(MirVerificationError::AggregateTypeMismatch {
@@ -930,19 +981,25 @@ impl MirVerifier {
                 }
                 let expected = match tcx.get(base_ty) {
                     TyKind::Array(elem, _) => *elem,
-                    TyKind::Tuple(_) => return Err(MirVerificationError::InvalidTypeSpec {
-                        func: func.name.clone(),
-                        context: "dynamic tuple indexing requires a constant projection".to_string(),
-                    }),
-                    _ => return Err(MirVerificationError::AggregateTypeMismatch {
-                        func: func.name.clone(),
-                        context: "index projection base is not an array or tuple".to_string(),
-                    }),
+                    TyKind::Tuple(_) => {
+                        return Err(MirVerificationError::InvalidTypeSpec {
+                            func: func.name.clone(),
+                            context: "dynamic tuple indexing requires a constant projection"
+                                .to_string(),
+                        })
+                    }
+                    _ => {
+                        return Err(MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: "index projection base is not an array or tuple".to_string(),
+                        })
+                    }
                 };
                 if *ty != expected {
                     return Err(MirVerificationError::AggregateTypeMismatch {
                         func: func.name.clone(),
-                        context: "index projection result type does not match its base aggregate".to_string(),
+                        context: "index projection result type does not match its base aggregate"
+                            .to_string(),
                     });
                 }
                 Ok(*ty)
@@ -969,7 +1026,9 @@ impl MirVerifier {
             Rvalue::UnaryOp(op, operand) => {
                 let actual = Self::operand_type(tcx, func, operand)?;
                 let valid = match op {
-                    UnOp::Neg => actual == tcx.intern(TyKind::Int) || actual == tcx.intern(TyKind::Float),
+                    UnOp::Neg => {
+                        actual == tcx.intern(TyKind::Int) || actual == tcx.intern(TyKind::Float)
+                    }
                     UnOp::BitNot => actual == tcx.intern(TyKind::Int),
                     UnOp::Not => actual == tcx.intern(TyKind::Bool),
                 };
@@ -1091,10 +1150,7 @@ impl MirVerifier {
                 TypeSpec::TraitObject { trait_name, args } => {
                     let args =
                         args.iter().map(|arg| lower(tcx, arg)).collect::<Option<Vec<_>>>()?;
-                    Some(tcx.intern(TyKind::TraitObject {
-                        trait_name: trait_name.clone(),
-                        args,
-                    }))
+                    Some(tcx.intern(TyKind::TraitObject { trait_name: trait_name.clone(), args }))
                 }
             }
         }
@@ -1494,7 +1550,9 @@ mod tests {
                     kind: omni_mir::ir::AggregateKind::Array,
                     operands: vec![
                         Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(1))),
-                        Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Bool(true))),
+                        Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Bool(
+                            true,
+                        ))),
                     ],
                     ty: array,
                 },
@@ -1507,7 +1565,10 @@ mod tests {
                 name: "array_bad".into(),
                 params: vec![],
                 return_place: ret,
-                return_type: omni_mir::ast::TypeSpec::Array(Box::new(omni_mir::ast::TypeSpec::Int), 2),
+                return_type: omni_mir::ast::TypeSpec::Array(
+                    Box::new(omni_mir::ast::TypeSpec::Int),
+                    2,
+                ),
                 body: Body { blocks, local_decls: locals },
             }],
         };
