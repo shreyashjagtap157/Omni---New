@@ -86,20 +86,165 @@ fn classify_local_storage(
     }
 }
 
-fn native_abi_type(
-    spec: &omni_mir::ast::TypeSpec,
-) -> Result<Option<cranelift_codegen::ir::Type>, String> {
-    match spec {
-        omni_mir::ast::TypeSpec::Unit => Ok(None),
-        omni_mir::ast::TypeSpec::Int
-        | omni_mir::ast::TypeSpec::Bool
-        | omni_mir::ast::TypeSpec::Byte
-        | omni_mir::ast::TypeSpec::Char => Ok(Some(types::I64)),
-        omni_mir::ast::TypeSpec::Float => Ok(Some(types::F64)),
-        other => {
-            Err(format!("Codegen error: native backend does not yet support ABI type {:?}", other))
-        }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeParamAbi {
+    Direct(cranelift_codegen::ir::Type),
+    AggregateAddress,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeReturnAbi {
+    Unit,
+    Direct(cranelift_codegen::ir::Type),
+    AggregateAddress,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeFunctionAbi {
+    return_abi: NativeReturnAbi,
+    params: Vec<NativeParamAbi>,
+}
+
+/// Derives the backend-internal aggregate-capable calling convention from
+/// concrete verified MIR.
+///
+/// This is deliberately not the stable external omni_v1 ABI. Aggregate
+/// parameters are passed as pointers to storage and aggregate returns use a
+/// hidden result pointer with no direct Cranelift return value.
+fn native_function_abi(
+    mir_func: &omni_mir::ir::MirFunction,
+    source_def: &omni_mir::ast::GenericFnDef,
+    tcx: &omni_mir::TyCtxt,
+    layout: &TargetLayout<'_>,
+    layout_workspace: &mut omni_mir::TyCtxt,
+) -> Result<NativeFunctionAbi, String> {
+    if mir_func.params.len() != source_def.params.len() {
+        return Err(format!(
+            "Codegen error: MIR/source parameter count mismatch for '{}'",
+            mir_func.name
+        ));
     }
+
+    let return_ty = mir_func.body.local_decls[mir_func.return_place].ty.ok_or_else(|| {
+        format!(
+            "Codegen error: return local {:?} has no type for '{}'",
+            mir_func.return_place, mir_func.name
+        )
+    })?;
+    ensure_source_mir_type_match(
+        tcx,
+        &source_def.return_type,
+        return_ty,
+        &format!("return type of '{}'", mir_func.name),
+    )?;
+
+    let return_abi = match tcx.get(return_ty) {
+        omni_mir::TyKind::Unit => NativeReturnAbi::Unit,
+        omni_mir::TyKind::Int
+        | omni_mir::TyKind::Bool
+        | omni_mir::TyKind::Byte
+        | omni_mir::TyKind::Char
+        | omni_mir::TyKind::Float => NativeReturnAbi::Direct(
+            native_abi_type_from_ty(tcx, return_ty)?.ok_or_else(|| {
+                format!("Codegen error: scalar return type for '{}' has no ABI type", mir_func.name)
+            })?,
+        ),
+        omni_mir::TyKind::Tuple(_) | omni_mir::TyKind::Array(..) | omni_mir::TyKind::Struct(..) => {
+            layout
+                .aggregate_layout(layout_workspace, return_ty)
+                .map_err(|e| {
+                    format!(
+                        "Codegen error: aggregate return type of '{}' has no target layout: {}",
+                        mir_func.name, e
+                    )
+                })?;
+            NativeReturnAbi::AggregateAddress
+        }
+        other => {
+            return Err(format!(
+                "Codegen error: native backend does not yet support return ABI type {:?} in '{}'",
+                other, mir_func.name
+            ));
+        }
+    };
+
+    let mut params = Vec::with_capacity(source_def.params.len());
+    for (param_index, ((_, source_spec), &mir_param)) in
+        source_def.params.iter().zip(&mir_func.params).enumerate()
+    {
+        let mir_ty = mir_func.body.local_decls[mir_param].ty.ok_or_else(|| {
+            format!(
+                "Codegen error: parameter local {:?} has no type for '{}'",
+                mir_param, mir_func.name
+            )
+        })?;
+        ensure_source_mir_type_match(
+            tcx,
+            source_spec,
+            mir_ty,
+            &format!("parameter {} of '{}'", param_index, mir_func.name),
+        )?;
+
+        let abi = match tcx.get(mir_ty) {
+            omni_mir::TyKind::Unit => {
+                return Err(format!(
+                    "Codegen error: Unit parameter {} is not representable in native ABI for '{}'",
+                    param_index, mir_func.name
+                ));
+            }
+            omni_mir::TyKind::Int
+            | omni_mir::TyKind::Bool
+            | omni_mir::TyKind::Byte
+            | omni_mir::TyKind::Char
+            | omni_mir::TyKind::Float => NativeParamAbi::Direct(
+                native_abi_type_from_ty(tcx, mir_ty)?.ok_or_else(|| {
+                    format!(
+                        "Codegen error: scalar parameter {} of '{}' has no ABI type",
+                        param_index, mir_func.name
+                    )
+                })?,
+            ),
+            omni_mir::TyKind::Tuple(_) | omni_mir::TyKind::Array(..) | omni_mir::TyKind::Struct(..) => {
+                layout
+                    .aggregate_layout(layout_workspace, mir_ty)
+                    .map_err(|e| {
+                        format!(
+                            "Codegen error: aggregate parameter {} of '{}' has no target layout: {}",
+                            param_index, mir_func.name, e
+                        )
+                    })?;
+                NativeParamAbi::AggregateAddress
+            }
+            other => {
+                return Err(format!(
+                    "Codegen error: native backend does not yet support parameter {} ABI type {:?} in '{}'",
+                    param_index, other, mir_func.name
+                ));
+            }
+        };
+        params.push(abi);
+    }
+
+    Ok(NativeFunctionAbi { return_abi, params })
+}
+
+fn signature_for_native_abi(module: &ObjectModule, abi: &NativeFunctionAbi) -> Signature {
+    let pointer_type = module.isa().pointer_type();
+    let mut sig = Signature::new(module.isa().default_call_conv());
+    if matches!(abi.return_abi, NativeReturnAbi::AggregateAddress) {
+        sig.params.push(AbiParam::new(pointer_type));
+    }
+    if let NativeReturnAbi::Direct(ty) = abi.return_abi {
+        sig.returns.push(AbiParam::new(ty));
+    }
+    for param in &abi.params {
+        sig.params.push(AbiParam::new(match param {
+            NativeParamAbi::Direct(ty) => *ty,
+            NativeParamAbi::AggregateAddress => pointer_type,
+        }));
+    }
+    sig
 }
 
 fn ensure_source_mir_type_match(
@@ -210,13 +355,32 @@ fn compile_mir_program(
     let layout_engine = TargetLayout::new(target_facts, &mir_prog.struct_defs);
     let mut layout_tcx = mir_prog.tcx.clone();
 
-    // Predeclare every concrete MIR function with the same ABI signature before emitting
-    // any body, so calls can only reference already-qualified declarations.
+    // Precompute one concrete backend ABI for every function, then predeclare
+    // every function with exactly that signature before emitting any body.
+    let pointer_type = module.isa().pointer_type();
+    let mut function_abis = std::collections::HashMap::new();
     for mir_func in &mir_prog.functions {
-        let source_def =
-            prog.functions.iter().find(|f| f.name == mir_func.name).ok_or_else(|| {
-                format!("Codegen error: missing source function '{}'", mir_func.name)
-            })?;
+        let source_def = prog
+            .functions
+            .iter()
+            .find(|f| f.name == mir_func.name)
+            .ok_or_else(|| format!("Codegen error: missing source function '{}'", mir_func.name))?;
+        let abi = native_function_abi(
+            mir_func,
+            source_def,
+            &mir_prog.tcx,
+            &layout_engine,
+            &mut layout_tcx,
+        )?;
+        let sig = signature_for_native_abi(&module, &abi);
+        let func_id = module
+            .declare_function(&mir_func.name, Linkage::Export, &sig)
+            .map_err(|e| format!("Function declaration error: {}", e))?;
+        function_abis.insert(mir_func.name.clone(), abi);
+        function_ids.insert(mir_func.name.clone(), func_id);
+    }
+
+    for mir_func in &mir_prog.functions {
         if mir_func.params.len() != source_def.params.len() {
             return Err(format!(
                 "Codegen error: MIR/source parameter count mismatch for '{}'",
@@ -300,22 +464,11 @@ fn compile_mir_program(
             format!("Codegen error: function '{}' was not predeclared", mir_func.name)
         })?;
 
+        let abi = function_abis
+            .get(&mir_func.name)
+            .ok_or_else(|| format!("Codegen error: ABI for '{}' was not precomputed", mir_func.name))?;
         let mut ctx = module.make_context();
-        let mut sig = Signature::new(module.isa().default_call_conv());
-        if let Some(ret_ty) = native_abi_type(&source_def.return_type)? {
-            sig.returns.push(AbiParam::new(ret_ty));
-        }
-        for (_, param_spec) in &source_def.params {
-            let param_ty = native_abi_type(param_spec)?.ok_or_else(|| {
-                format!(
-                    "Codegen error: Unit parameter is not representable in native ABI for '{}'",
-                    source_def.name
-                )
-            })?;
-            sig.params.push(AbiParam::new(param_ty));
-        }
-        ctx.func.signature = sig;
-
+        ctx.func.signature = signature_for_native_abi(&module, abi);
         let mut fn_builder_ctx = FunctionBuilderContext::new();
         let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
 
@@ -392,28 +545,73 @@ fn compile_mir_program(
             storage: &storage,
             body: &mir_func.body,
             func_name: &mir_func.name,
+            pointer_type,
+        };
+
+        let mut abi_param_cursor = 0usize;
+        let result_pointer = if matches!(abi.return_abi, NativeReturnAbi::AggregateAddress) {
+            let value = *builder
+                .block_params(entry_cl_block)
+                .get(abi_param_cursor)
+                .ok_or_else(|| {
+                    format!(
+                        "Codegen error: aggregate-returning function '{}' is missing its hidden result pointer",
+                        mir_func.name
+                    )
+                })?;
+            abi_param_cursor += 1;
+            Some(value)
+        } else {
+            None
         };
 
         for (p_idx, &param_local) in mir_func.params.iter().enumerate() {
-            let cl_val =
-                builder.block_params(entry_cl_block).get(p_idx).copied().ok_or_else(|| {
+            let cl_val = *builder
+                .block_params(entry_cl_block)
+                .get(abi_param_cursor)
+                .ok_or_else(|| {
                     format!(
                         "Codegen error: function '{}' has no Cranelift parameter for MIR parameter {}",
                         mir_func.name, p_idx
                     )
                 })?;
-            // Aggregate parameters are rejected by the ABI gate above, so a
-            // parameter must be a scalar SSA variable here.
-            let variable = match emitter.storage.get(&param_local) {
-                Some(NativeStorage::Scalar(variable)) => *variable,
-                _ => {
-                    return Err(format!(
-                        "Codegen error: function parameter local {:?} has no scalar native representation (aggregate parameters require an explicit ABI contract)",
-                        param_local
-                    ));
+            abi_param_cursor += 1;
+            match abi.params.get(p_idx).ok_or_else(|| {
+                format!(
+                    "Codegen error: missing ABI entry for parameter {} of '{}'",
+                    p_idx, mir_func.name
+                )
+            })? {
+                NativeParamAbi::Direct(_) => {
+                    let variable = match emitter.storage.get(&param_local) {
+                        Some(NativeStorage::Scalar(variable)) => *variable,
+                        _ => {
+                            return Err(format!(
+                                "Codegen error: scalar parameter local {:?} has no scalar native representation in '{}'",
+                                param_local, mir_func.name
+                            ));
+                        }
+                    };
+                    builder.def_var(variable, cl_val);
                 }
-            };
-            builder.def_var(variable, cl_val);
+                NativeParamAbi::AggregateAddress => {
+                    let site = resolve_aggregate_operand(
+                        &mut emitter,
+                        &omni_mir::ir::Operand::Copy(omni_mir::ir::Place::local(param_local)),
+                        &format!("aggregate parameter {} of '{}'", p_idx, mir_func.name),
+                    )?;
+                    copy_aggregate_from_pointer(
+                        &mut builder,
+                        &mut emitter,
+                        &site,
+                        cl_val,
+                        &format!(
+                            "initialization of aggregate parameter {} in '{}'",
+                            p_idx, mir_func.name
+                        ),
+                    )?;
+                }
+            }
         }
 
         for (b_idx, mir_block) in mir_func.body.blocks.iter().enumerate() {
@@ -477,25 +675,45 @@ fn compile_mir_program(
             })?;
 
             match term {
-                omni_mir::ir::Terminator::Return => {
-                    if native_abi_type(&source_def.return_type)?.is_some() {
-                        // Aggregate returns are rejected by the ABI gate
-                        // above, so the return place must be scalar here.
+                omni_mir::ir::Terminator::Return => match abi.return_abi {
+                    NativeReturnAbi::Unit => builder.ins().return_(&[]),
+                    NativeReturnAbi::Direct(_) => {
                         let variable = match emitter.storage.get(&mir_func.return_place) {
                             Some(NativeStorage::Scalar(variable)) => *variable,
                             _ => {
                                 return Err(format!(
-                                    "Codegen error: return local {:?} has no scalar native representation (aggregate returns require an explicit ABI contract)",
-                                    mir_func.return_place
+                                    "Codegen error: scalar return local {:?} has no scalar native representation in '{}'",
+                                    mir_func.return_place, mir_func.name
                                 ));
                             }
                         };
                         let ret_val = builder.use_var(variable);
                         builder.ins().return_(&[ret_val]);
-                    } else {
+                    }
+                    NativeReturnAbi::AggregateAddress => {
+                        let result_pointer = result_pointer.ok_or_else(|| {
+                            format!(
+                                "Codegen error: aggregate-returning function '{}' lost its hidden result pointer",
+                                mir_func.name
+                            )
+                        })?;
+                        let site = resolve_aggregate_operand(
+                            &mut emitter,
+                            &omni_mir::ir::Operand::Copy(omni_mir::ir::Place::local(
+                                mir_func.return_place,
+                            )),
+                            &format!("aggregate return of '{}'", mir_func.name),
+                        )?;
+                        copy_aggregate_to_pointer(
+                            &mut builder,
+                            &mut emitter,
+                            &site,
+                            result_pointer,
+                            &format!("aggregate return of '{}'", mir_func.name),
+                        )?;
                         builder.ins().return_(&[]);
                     }
-                }
+                },
                 omni_mir::ir::Terminator::Goto(target) => {
                     let target_cl = *cl_blocks.get(&target.index()).ok_or_else(|| {
                         format!("Codegen error: undefined goto target {:?}", target)
@@ -546,24 +764,68 @@ fn compile_mir_program(
                         ));
                     }
 
-                    let mut call_args = Vec::with_capacity(args.len());
-                    for (arg, (_, param_spec)) in args.iter().zip(source_callee.params.iter()) {
-                        let value = lower_operand_to_cl(&mut builder, &mut emitter, arg)?;
-                        let expected = native_abi_type(param_spec)?.ok_or_else(|| {
+                    let callee_abi = function_abis.get(fn_name).ok_or_else(|| {
+                        format!("Codegen error: ABI for callee '{}' was not precomputed", fn_name)
+                    })?;
+                    if args.len() != callee_abi.params.len() {
+                        return Err(format!(
+                            "Codegen error: call '{}' ABI parameter count mismatch: expected {}, found {}",
+                            fn_name,
+                            callee_abi.params.len(),
+                            args.len()
+                        ));
+                    }
+
+                    let mut call_args = Vec::with_capacity(args.len() + 1);
+                    if matches!(callee_abi.return_abi, NativeReturnAbi::AggregateAddress) {
+                        let destination = destination.as_ref().ok_or_else(|| {
                             format!(
-                                "Codegen error: Unit argument is not representable in native ABI for '{}'",
-                                source_callee.name
+                                "Codegen error: aggregate-returning call '{}' requires a destination",
+                                fn_name
                             )
                         })?;
-                        if builder.func.dfg.value_type(value) != expected {
-                            return Err(format!(
-                                "Codegen error: call '{}' argument ABI type mismatch: expected {:?}, found {:?}",
-                                fn_name,
-                                expected,
-                                builder.func.dfg.value_type(value)
-                            ));
+                        let result_site = resolve_aggregate_operand(
+                            &mut emitter,
+                            &omni_mir::ir::Operand::Copy(destination.clone()),
+                            &format!("aggregate call destination for '{}'", fn_name),
+                        )?;
+                        call_args.push(builder.ins().stack_addr(
+                            emitter.pointer_type,
+                            result_site.slot,
+                            stack_offset(result_site.offset, emitter.func_name)?,
+                        ));
+                    }
+
+                    for (arg_index, (arg, param_abi)) in
+                        args.iter().zip(callee_abi.params.iter()).enumerate()
+                    {
+                        match param_abi {
+                            NativeParamAbi::Direct(expected) => {
+                                let value = lower_operand_to_cl(&mut builder, &mut emitter, arg)?;
+                                if builder.func.dfg.value_type(value) != *expected {
+                                    return Err(format!(
+                                        "Codegen error: call '{}' argument {} ABI type mismatch: expected {:?}, found {:?}",
+                                        fn_name,
+                                        arg_index,
+                                        expected,
+                                        builder.func.dfg.value_type(value)
+                                    ));
+                                }
+                                call_args.push(value);
+                            }
+                            NativeParamAbi::AggregateAddress => {
+                                let site = resolve_aggregate_operand(
+                                    &mut emitter,
+                                    arg,
+                                    &format!("aggregate argument {} to '{}'", arg_index, fn_name),
+                                )?;
+                                call_args.push(builder.ins().stack_addr(
+                                    emitter.pointer_type,
+                                    site.slot,
+                                    stack_offset(site.offset, emitter.func_name)?,
+                                ));
+                            }
                         }
-                        call_args.push(value);
                     }
 
                     let callee_id = *function_ids.get(fn_name).ok_or_else(|| {
@@ -573,20 +835,31 @@ fn compile_mir_program(
                     let call_inst = builder.ins().call(local_callee, &call_args);
                     let results = builder.inst_results(call_inst);
 
-                    match destination {
-                        Some(destination) => {
+                    match (&callee_abi.return_abi, destination) {
+                        (NativeReturnAbi::AggregateAddress, Some(_)) => {
+                            if !results.is_empty() {
+                                return Err(format!(
+                                    "Codegen error: aggregate-returning call '{}' unexpectedly produced direct results",
+                                    fn_name
+                                ));
+                            }
+                        }
+                        (NativeReturnAbi::AggregateAddress, None) => {
+                            return Err(format!(
+                                "Codegen error: aggregate-returning call '{}' requires a destination",
+                                fn_name
+                            ));
+                        }
+                        (NativeReturnAbi::Direct(_), Some(destination)) => {
                             if results.len() != 1 {
                                 return Err(format!(
-                                    "Codegen error: call '{}' has no return value but MIR requests destination {:?}",
+                                    "Codegen error: direct-value call '{}' result count mismatch for destination {:?}",
                                     fn_name, destination
                                 ));
                             }
-                            // Aggregate call results are rejected by the ABI
-                            // gate above, so a destination must be a whole
-                            // scalar local here.
                             if !destination.is_local() {
                                 return Err(format!(
-                                    "Codegen error: call '{}' destination {:?} carries a projection, which call results do not support",
+                                    "Codegen error: direct-value call '{}' destination {:?} must be a whole scalar local",
                                     fn_name, destination
                                 ));
                             }
@@ -594,17 +867,29 @@ fn compile_mir_program(
                                 Some(NativeStorage::Scalar(variable)) => *variable,
                                 _ => {
                                     return Err(format!(
-                                        "Codegen error: call destination local {:?} has no scalar native representation",
-                                        destination.local
+                                        "Codegen error: direct-value call '{}' destination {:?} has no scalar native storage",
+                                        fn_name, destination
                                     ));
                                 }
                             };
                             builder.def_var(variable, results[0]);
                         }
-                        None => {
+                        (NativeReturnAbi::Direct(_), None) => {
+                            return Err(format!(
+                                "Codegen error: value-returning call '{}' has no destination",
+                                fn_name
+                            ));
+                        }
+                        (NativeReturnAbi::Unit, Some(destination)) => {
+                            return Err(format!(
+                                "Codegen error: Unit-returning call '{}' unexpectedly has destination {:?}",
+                                fn_name, destination
+                            ));
+                        }
+                        (NativeReturnAbi::Unit, None) => {
                             if !results.is_empty() {
                                 return Err(format!(
-                                    "Codegen error: call '{}' returns a value but MIR has no destination",
+                                    "Codegen error: Unit-returning call '{}' unexpectedly produced results",
                                     fn_name
                                 ));
                             }
@@ -650,6 +935,7 @@ struct PlaceEmitter<'a, 'l> {
     storage: &'a HashMap<omni_mir::ir::Local, NativeStorage>,
     body: &'a omni_mir::ir::Body,
     func_name: &'a str,
+    pointer_type: cranelift_codegen::ir::Type,
 }
 
 /// Emits `place = rvalue`, honouring the Stage 4C storage split.
@@ -1083,6 +1369,151 @@ fn resolve_projection_source(
     }
     let (slot, offset, layout) = aggregate_place_address(emitter.storage, &full, context)?;
     Ok(AggregateSite { slot, offset, ty, layout })
+}
+
+/// Copies an aggregate from an incoming pointer into callee-owned stack
+/// storage. TargetLayout remains the only authority for member offsets.
+fn copy_aggregate_from_pointer(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    dst: &AggregateSite,
+    src_ptr: cranelift_codegen::ir::Value,
+    context: &str,
+) -> Result<(), String> {
+    fn visit(
+        builder: &mut FunctionBuilder,
+        emitter: &mut PlaceEmitter,
+        dst: &AggregateSite,
+        src_ptr: cranelift_codegen::ir::Value,
+        src_offset: u64,
+        context: &str,
+    ) -> Result<(), String> {
+        if let Some(clif_ty) = emitter.layout.scalar_clif_type(emitter.tcx, dst.ty) {
+            if dst.layout.size != u64::from(clif_ty.bytes()) {
+                return Err(format!(
+                    "Codegen error: {} scalar layout size {} disagrees with {:?}",
+                    context, dst.layout.size, dst.ty
+                ));
+            }
+            let value = builder.ins().load(
+                clif_ty,
+                cranelift_codegen::ir::MemFlagsData::new().with_aligned(),
+                src_ptr,
+                stack_offset(src_offset, emitter.func_name)?,
+            );
+            builder.ins().stack_store(
+                emitter.pointer_type,
+                value,
+                dst.slot,
+                stack_offset(dst.offset, emitter.func_name)?,
+            );
+            return Ok(());
+        }
+
+        let part_tys = aggregate_part_tys(emitter, dst.ty)?;
+        if part_tys.len() != dst.layout.parts.len() {
+            return Err(format!(
+                "Codegen error: {} aggregate type and layout disagree on part count",
+                context
+            ));
+        }
+        for (index, ((name, part_ty), part)) in
+            part_tys.into_iter().zip(dst.layout.parts.iter()).enumerate()
+        {
+            if part.name != name {
+                return Err(format!(
+                    "Codegen error: {} part {} names {:?} but the layout names {:?}",
+                    context, index, name, part.name
+                ));
+            }
+            let next_src_offset = src_offset.checked_add(part.offset).ok_or_else(|| {
+                format!("Codegen error: {} overflows its source pointer offset", context)
+            })?;
+            visit(
+                builder,
+                emitter,
+                &dst.child(part_ty, part, context)?,
+                src_ptr,
+                next_src_offset,
+                context,
+            )?;
+        }
+        Ok(())
+    }
+
+    visit(builder, emitter, dst, src_ptr, 0, context)
+}
+
+/// Copies a callee-owned aggregate into caller-provided result storage.
+fn copy_aggregate_to_pointer(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    src: &AggregateSite,
+    dst_ptr: cranelift_codegen::ir::Value,
+    context: &str,
+) -> Result<(), String> {
+    fn visit(
+        builder: &mut FunctionBuilder,
+        emitter: &mut PlaceEmitter,
+        src: &AggregateSite,
+        dst_ptr: cranelift_codegen::ir::Value,
+        dst_offset: u64,
+        context: &str,
+    ) -> Result<(), String> {
+        if let Some(clif_ty) = emitter.layout.scalar_clif_type(emitter.tcx, src.ty) {
+            if src.layout.size != u64::from(clif_ty.bytes()) {
+                return Err(format!(
+                    "Codegen error: {} scalar layout size {} disagrees with {:?}",
+                    context, src.layout.size, src.ty
+                ));
+            }
+            let value = builder.ins().stack_load(
+                emitter.pointer_type,
+                clif_ty,
+                src.slot,
+                stack_offset(src.offset, emitter.func_name)?,
+            );
+            builder.ins().store(
+                cranelift_codegen::ir::MemFlagsData::new().with_aligned(),
+                value,
+                dst_ptr,
+                stack_offset(dst_offset, emitter.func_name)?,
+            );
+            return Ok(());
+        }
+
+        let part_tys = aggregate_part_tys(emitter, src.ty)?;
+        if part_tys.len() != src.layout.parts.len() {
+            return Err(format!(
+                "Codegen error: {} aggregate type and layout disagree on part count",
+                context
+            ));
+        }
+        for (index, ((name, part_ty), part)) in
+            part_tys.into_iter().zip(src.layout.parts.iter()).enumerate()
+        {
+            if part.name != name {
+                return Err(format!(
+                    "Codegen error: {} part {} names {:?} but the layout names {:?}",
+                    context, index, name, part.name
+                ));
+            }
+            let next_dst_offset = dst_offset.checked_add(part.offset).ok_or_else(|| {
+                format!("Codegen error: {} overflows its result pointer offset", context)
+            })?;
+            visit(
+                builder,
+                emitter,
+                &src.child(part_ty, part, context)?,
+                dst_ptr,
+                next_dst_offset,
+                context,
+            )?;
+        }
+        Ok(())
+    }
+
+    visit(builder, emitter, src, dst_ptr, 0, context)
 }
 
 /// Copies one aggregate value onto another, recursing through nested
