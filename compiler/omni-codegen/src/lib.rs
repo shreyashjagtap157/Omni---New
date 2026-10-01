@@ -536,7 +536,9 @@ fn compile_mir_program(
             let cl_b = *cl_blocks
                 .get(&b_idx)
                 .ok_or_else(|| format!("Codegen error: missing Cranelift block {}", b_idx))?;
-            builder.switch_to_block(cl_b);
+            if b_idx != 0 {
+                builder.switch_to_block(cl_b);
+            }
 
             for stmt in &mir_block.statements {
                 match stmt {
