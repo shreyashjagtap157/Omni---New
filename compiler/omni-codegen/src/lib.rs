@@ -1290,7 +1290,7 @@ fn resolve_place_address(
                                 "Codegen error: {} array element offsets are not monotonic",
                                 context
                             )
-                        })?
+                        })?,
                 };
 
                 let index_value = match emitter.storage.get(index_local) {
