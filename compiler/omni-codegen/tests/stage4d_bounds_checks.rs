@@ -65,7 +65,6 @@ fn constant_index_zero_is_valid() {
     let index = Expr::Literal(Lit::Int(0));
     let body = Expr::Index { expr: Box::new(array), index: Box::new(index) };
 
-
     let program = int_main_with_locals(body);
     let mir_function = omni_mir::lower::LoweringContext::new()
         .lower_monomorphized_program(&program)
@@ -94,7 +93,6 @@ fn constant_index_out_of_bounds_high_rejected() {
     let index = Expr::Literal(Lit::Int(5));
     let body = Expr::Index { expr: Box::new(array), index: Box::new(index) };
 
-
     let program = int_main_with_locals(body);
     let result = omni_mir::lower::LoweringContext::new()
         .lower_monomorphized_program(&program);
@@ -118,7 +116,6 @@ fn dynamic_index_in_bounds() {
     ]);
     let index = Expr::Var("index".to_string());
     let body = Expr::Index { expr: Box::new(array), index: Box::new(index) };
-
 
     let program = int_main_with_index_param(body);
     let mir_function = omni_mir::lower::LoweringContext::new()
@@ -147,7 +144,6 @@ fn dynamic_index_out_of_bounds() {
     ]);
     let index = Expr::Var("index".to_string());
     let body = Expr::Index { expr: Box::new(array), index: Box::new(index) };
-
 
     let program = int_main_with_index_param(body);
     let mir_function = omni_mir::lower::LoweringContext::new()
@@ -214,7 +210,6 @@ fn bounds_check_inserted_for_dynamic_index() {
 
     let body = Expr::Index { expr: Box::new(array), index: Box::new(index) };
 
-
     let program = int_main_with_index_param(body);
 
     // Check that the MIR contains a BoundsCheck statement
@@ -243,7 +238,6 @@ fn no_bounds_check_for_constant_index() {
     let index = Expr::Literal(Lit::Int(1)); // Constant index
 
     let body = Expr::Index { expr: Box::new(array), index: Box::new(index) };
-
 
     let program = int_main_with_locals(body);
 
