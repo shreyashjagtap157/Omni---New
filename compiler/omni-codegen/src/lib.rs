@@ -1805,6 +1805,55 @@ fn emit_projection_load(
     builder: &mut FunctionBuilder,
     emitter: &mut PlaceEmitter,
     base: &omni_mir::ir::Operand,
+    projection: omni_mir::ir::Projection,
+    ty: omni_mir::Ty,
+    context: &str,
+) -> Result<cranelift_codegen::ir::Value, String> {
+    let base_place = match base {
+        omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => place.clone(),
+        omni_mir::ir::Operand::Constant(_) => {
+            return Err(format!(
+                "Codegen error: {} base must be a place, found a constant",
+                context
+            ));
+        }
+    };
+    let mut full = base_place;
+    full.projections.push(projection);
+    let root_ty = emitter.body.local_decls[full.local].ty.ok_or_else(|| {
+        format!("Codegen error: local {:?} in '{}' has no type", full.local, emitter.func_name)
+    })?;
+    let projected = projected_ty(emitter, root_ty, &full.projections)?;
+    if projected != ty {
+        return Err(format!(
+            "Codegen error: {} in '{}' declares type {:?} but projection resolves to {:?}",
+            context,
+            emitter.func_name,
+            emitter.tcx.get(ty),
+            emitter.tcx.get(projected)
+        ));
+    }
+    let clif_ty = emitter.layout.scalar_clif_type(emitter.tcx, ty).ok_or_else(|| {
+        format!(
+            "Codegen error: {} in '{}' is aggregate-typed and has no scalar SSA form; store it into an aggregate destination instead",
+            context, emitter.func_name
+        )
+    })?;
+    let (address, _) = resolve_place_address(builder, emitter, &full, context)?;
+    Ok(match address {
+        NativeAddress::Stack { slot, offset } => {
+            builder.ins().stack_load(clif_ty, slot, stack_offset(offset, emitter.func_name)?)
+        }
+        NativeAddress::Pointer(ptr) => {
+            builder.ins().load(clif_ty, cranelift_codegen::ir::MemFlags::new(), ptr, 0)
+        }
+    })
+}
+
+fn emit_index_projection_load(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    base: &omni_mir::ir::Operand,
     projection_operand: &omni_mir::ir::Operand,
     ty: omni_mir::Ty,
     context: &str,
@@ -2218,7 +2267,7 @@ fn lower_rvalue_to_cl(
         omni_mir::ir::Rvalue::Range { .. } => Err(
             "Codegen error: range value representation requires target layout metadata".into(),
         ),
-        omni_mir::ir::Rvalue::Index { base, index, ty } => emit_projection_load(
+        omni_mir::ir::Rvalue::Index { base, index, ty } => emit_index_projection_load(
             builder,
             emitter,
             base,
