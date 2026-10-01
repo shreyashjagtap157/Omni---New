@@ -925,12 +925,7 @@ fn emit_assign(
                         );
                     }
                     NativeAddress::Pointer(ptr) => {
-                        builder.ins().store(
-                            cranelift_codegen::ir::MemFlags::new(),
-                            val,
-                            ptr,
-                            0,
-                        );
+                        builder.ins().store(cranelift_codegen::ir::MemFlags::new(), val, ptr, 0);
                     }
                 }
                 Ok(())
@@ -1231,10 +1226,7 @@ fn resolve_place_address(
         }
     };
     let root_ty = emitter.body.local_decls[place.local].ty.ok_or_else(|| {
-        format!(
-            "Codegen error: local {:?} in '{}' has no type",
-            place.local, emitter.func_name
-        )
+        format!("Codegen error: local {:?} in '{}' has no type", place.local, emitter.func_name)
     })?;
 
     let mut current_ty = root_ty;
@@ -1282,16 +1274,14 @@ fn resolve_place_address(
                 let stride = match array_len {
                     0 => 0,
                     1 => layout.size,
-                    _ => layout.parts[1]
-                        .offset
-                        .checked_sub(layout.parts[0].offset)
-                        .ok_or_else(|| {
+                    _ => layout.parts[1].offset.checked_sub(layout.parts[0].offset).ok_or_else(
+                        || {
                             format!(
                                 "Codegen error: {} array element offsets are not monotonic",
                                 context
                             )
-                        })?,
-                };
+                        },
+                    )?,                };
 
                 let index_value = match emitter.storage.get(index_local) {
                     Some(NativeStorage::Scalar(variable)) => builder.use_var(*variable),
@@ -1337,15 +1327,15 @@ fn resolve_place_address(
                 let prefix_end = projection_index + 1;
                 current_ty = projected_ty(emitter, root_ty, &place.projections[..prefix_end])?;
                 if projection_index + 1 < place.projections.len() {
-                    layout = emitter.layout.aggregate_layout(
-                        emitter.layout_workspace,
-                        current_ty,
-                    ).map_err(|e| {
-                        format!(
-                            "Codegen error: {} cannot lay out dynamic array element: {}",
-                            context, e
-                        )
-                    })?;
+                    layout = emitter
+                        .layout
+                        .aggregate_layout(emitter.layout_workspace, current_ty)
+                        .map_err(|e| {
+                            format!(
+                                "Codegen error: {} cannot lay out dynamic array element: {}",
+                                context, e
+                            )
+                        })?;
                 }
                 continue;
             }
@@ -1868,9 +1858,9 @@ fn emit_index_projection_load(
         }
     };
     let projection = match projection_operand {
-        omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(
-            omni_mir::ast::Lit::Int(n),
-        )) if *n >= 0 => omni_mir::ir::Projection::ConstantIndex(*n as usize),
+        omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(
+            n,
+        ))) if *n >= 0 => omni_mir::ir::Projection::ConstantIndex(*n as usize),
         omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => {
             omni_mir::ir::Projection::Index(place.local)
         }
