@@ -87,7 +87,6 @@ fn classify_local_storage(
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeParamAbi {
     Direct(cranelift_codegen::ir::Type),
@@ -146,20 +145,18 @@ fn native_function_abi(
         | omni_mir::TyKind::Bool
         | omni_mir::TyKind::Byte
         | omni_mir::TyKind::Char
-        | omni_mir::TyKind::Float => NativeReturnAbi::Direct(
-            native_abi_type_from_ty(tcx, return_ty)?.ok_or_else(|| {
+        | omni_mir::TyKind::Float => {
+            NativeReturnAbi::Direct(native_abi_type_from_ty(tcx, return_ty)?.ok_or_else(|| {
                 format!("Codegen error: scalar return type for '{}' has no ABI type", mir_func.name)
-            })?,
-        ),
+            })?)
+        }
         omni_mir::TyKind::Tuple(_) | omni_mir::TyKind::Array(..) | omni_mir::TyKind::Struct(..) => {
-            layout
-                .aggregate_layout(layout_workspace, return_ty)
-                .map_err(|e| {
-                    format!(
-                        "Codegen error: aggregate return type of '{}' has no target layout: {}",
-                        mir_func.name, e
-                    )
-                })?;
+            layout.aggregate_layout(layout_workspace, return_ty).map_err(|e| {
+                format!(
+                    "Codegen error: aggregate return type of '{}' has no target layout: {}",
+                    mir_func.name, e
+                )
+            })?;
             NativeReturnAbi::AggregateAddress
         }
         other => {
@@ -198,23 +195,23 @@ fn native_function_abi(
             | omni_mir::TyKind::Bool
             | omni_mir::TyKind::Byte
             | omni_mir::TyKind::Char
-            | omni_mir::TyKind::Float => NativeParamAbi::Direct(
-                native_abi_type_from_ty(tcx, mir_ty)?.ok_or_else(|| {
+            | omni_mir::TyKind::Float => {
+                NativeParamAbi::Direct(native_abi_type_from_ty(tcx, mir_ty)?.ok_or_else(|| {
                     format!(
                         "Codegen error: scalar parameter {} of '{}' has no ABI type",
                         param_index, mir_func.name
                     )
-                })?,
-            ),
-            omni_mir::TyKind::Tuple(_) | omni_mir::TyKind::Array(..) | omni_mir::TyKind::Struct(..) => {
-                layout
-                    .aggregate_layout(layout_workspace, mir_ty)
-                    .map_err(|e| {
-                        format!(
-                            "Codegen error: aggregate parameter {} of '{}' has no target layout: {}",
-                            param_index, mir_func.name, e
-                        )
-                    })?;
+                })?)
+            }
+            omni_mir::TyKind::Tuple(_)
+            | omni_mir::TyKind::Array(..)
+            | omni_mir::TyKind::Struct(..) => {
+                layout.aggregate_layout(layout_workspace, mir_ty).map_err(|e| {
+                    format!(
+                        "Codegen error: aggregate parameter {} of '{}' has no target layout: {}",
+                        param_index, mir_func.name, e
+                    )
+                })?;
                 NativeParamAbi::AggregateAddress
             }
             other => {
@@ -361,11 +358,10 @@ fn compile_mir_program(
     let pointer_type = module.isa().pointer_type();
     let mut function_abis = std::collections::HashMap::new();
     for mir_func in &mir_prog.functions {
-        let source_def = prog
-            .functions
-            .iter()
-            .find(|f| f.name == mir_func.name)
-            .ok_or_else(|| format!("Codegen error: missing source function '{}'", mir_func.name))?;
+        let source_def =
+            prog.functions.iter().find(|f| f.name == mir_func.name).ok_or_else(|| {
+                format!("Codegen error: missing source function '{}'", mir_func.name)
+            })?;
         let abi = native_function_abi(
             mir_func,
             source_def,
@@ -386,9 +382,9 @@ fn compile_mir_program(
             format!("Codegen error: function '{}' was not predeclared", mir_func.name)
         })?;
 
-        let abi = function_abis
-            .get(&mir_func.name)
-            .ok_or_else(|| format!("Codegen error: ABI for '{}' was not precomputed", mir_func.name))?;
+        let abi = function_abis.get(&mir_func.name).ok_or_else(|| {
+            format!("Codegen error: ABI for '{}' was not precomputed", mir_func.name)
+        })?;
         let mut ctx = module.make_context();
         ctx.func.signature = signature_for_native_abi(&module, abi);
         let mut fn_builder_ctx = FunctionBuilderContext::new();
@@ -551,36 +547,41 @@ fn compile_mir_program(
                     omni_mir::ir::Statement::BoundsCheck { index, length } => {
                         // Generate runtime bounds check: trap if index >= 0 && index < length is false
                         let storage = emitter.storage.get(&index).ok_or_else(|| {
-                            format!("Codegen error: bounds check index local {:?} has no storage", index)
+                            format!(
+                                "Codegen error: bounds check index local {:?} has no storage",
+                                index
+                            )
                         })?;
                         let index_val = match storage {
                             NativeStorage::Scalar(variable) => builder.use_var(*variable),
                             NativeStorage::Aggregate { .. } => {
-                                return Err("Codegen error: bounds check index must be scalar".to_string());
+                                return Err(
+                                    "Codegen error: bounds check index must be scalar".to_string()
+                                );
                             }
                         };
-                        
+
                         // Check if index >= 0
                         let is_non_negative = builder.ins().icmp_imm(
                             cranelift_codegen::ir::condcodes::IntCC::SignedGreaterThanOrEqual,
                             index_val,
                             0,
                         );
-                        
+
                         // Check if index < length
                         let is_less_than_length = builder.ins().icmp_imm(
                             cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
                             index_val,
                             *length as i64,
                         );
-                        
+
                         // Both conditions must be true: index >= 0 && index < length
                         let is_valid = builder.ins().band(is_non_negative, is_less_than_length);
-                        
+
                         // Trap if the index is out of bounds
                         let valid_block = builder.create_block();
                         let trap_block = builder.create_block();
-                        
+
                         builder.ins().brif(is_valid, valid_block, &[], trap_block, &[]);
                         builder.switch_to_block(trap_block);
                         builder.ins().trap(cranelift_codegen::ir::TrapCode::User(1));
