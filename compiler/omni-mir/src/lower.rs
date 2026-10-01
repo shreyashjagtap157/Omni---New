@@ -56,16 +56,16 @@ impl LoweringContext {
 
         for func in &prog.functions {
             let params = func
-.params
-.iter()
-.map(|(_, spec)| tcx.lower_type_spec(spec, &subst))
-.collect::<Vec<_>>();
+                .params
+                .iter()
+                .map(|(_, spec)| tcx.lower_type_spec(spec, &subst))
+                .collect::<Vec<_>>();
             let ret = tcx.lower_type_spec(&func.return_type, &subst);
             if fn_sigs.insert(func.name.clone(), (params, ret)).is_some() {
-return Err(format!(
-    "MIR lowering error: duplicate monomorphized function '{}'",
-    func.name
-));
+                return Err(format!(
+                    "MIR lowering error: duplicate monomorphized function '{}'",
+                    func.name
+                ));
             }
         }
 
@@ -78,29 +78,29 @@ return Err(format!(
 
             let ret_ty = tcx.lower_type_spec(&func.return_type, &subst);
             let return_place = local_decls
-.push(crate::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(ret_ty) });
+                .push(crate::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(ret_ty) });
 
             let mut param_locals = Vec::with_capacity(func.params.len());
             for (p_name, p_type) in &func.params {
-let p_ty = tcx.lower_type_spec(p_type, &subst);
-let p_local = local_decls
-    .push(crate::ir::LocalDecl { name: Some(p_name.clone()), ty: Some(p_ty) });
-param_locals.push(p_local);
-scope.insert(p_name.clone(), p_local);
+                let p_ty = tcx.lower_type_spec(p_type, &subst);
+                let p_local = local_decls
+                    .push(crate::ir::LocalDecl { name: Some(p_name.clone()), ty: Some(p_ty) });
+                param_locals.push(p_local);
+                scope.insert(p_name.clone(), p_local);
             }
 
             let mut builder = FnMirBuilder {
-tcx: &mut tcx,
-subst: &subst,
-local_decls: &mut local_decls,
-blocks: &mut blocks,
-scope,
-fn_sigs: &fn_sigs,
-struct_defs: &self.struct_defs,
-return_ty: ret_ty,
-current_block: None,
-loops: Vec::new(),
-diverged: false,
+                tcx: &mut tcx,
+                subst: &subst,
+                local_decls: &mut local_decls,
+                blocks: &mut blocks,
+                scope,
+                fn_sigs: &fn_sigs,
+                struct_defs: &self.struct_defs,
+                return_ty: ret_ty,
+                current_block: None,
+                loops: Vec::new(),
+                diverged: false,
             };
 
             let entry_block = builder.new_block();
@@ -109,50 +109,50 @@ diverged: false,
             let result = builder.lower_expr(&func.body)?;
 
             if let Some(curr) = builder.current_block {
-match result {
-    Some((operand, value_ty)) => {
-        if value_ty != ret_ty {
-            return Err(format!(
-"MIR lowering error in '{}': function body has type {:?}, expected {:?}",
-func.name, value_ty, ret_ty
-            ));
-        }
-        let ret_p = crate::ir::Place::local(return_place);
-        builder.blocks[curr].statements.push(crate::ir::Statement::Assign(
-            ret_p,
-            crate::ir::Rvalue::Use(operand),
-        ));
-    }
-    None => {
-        // A `None` body result means control never produced a
-        // value on this path. That is admissible for a `Never`
-        // return type, which is how a diverging function (for
-        // example one whose only statement is an infinite
-        // `loop`) is typed. Any other non-Unit return type would
-        // need a value the body never produced.
-        let unit_ty = builder.tcx.intern(TyKind::Unit);
-        let never_ty = builder.tcx.intern(TyKind::Never);
-        if ret_ty != unit_ty && ret_ty != never_ty {
-            return Err(format!(
-"MIR lowering error in '{}': function body has no value, expected {:?}",
-func.name, ret_ty
-            ));
-        }
-    }
-}
+                match result {
+                    Some((operand, value_ty)) => {
+                        if value_ty != ret_ty {
+                            return Err(format!(
+                                "MIR lowering error in '{}': function body has type {:?}, expected {:?}",
+                                func.name, value_ty, ret_ty
+                            ));
+                        }
+                        let ret_p = crate::ir::Place::local(return_place);
+                        builder.blocks[curr].statements.push(crate::ir::Statement::Assign(
+                            ret_p,
+                            crate::ir::Rvalue::Use(operand),
+                        ));
+                    }
+                    None => {
+                        // A `None` body result means control never produced a
+                        // value on this path. That is admissible for a `Never`
+                        // return type, which is how a diverging function (for
+                        // example one whose only statement is an infinite
+                        // `loop`) is typed. Any other non-Unit return type would
+                        // need a value the body never produced.
+                        let unit_ty = builder.tcx.intern(TyKind::Unit);
+                        let never_ty = builder.tcx.intern(TyKind::Never);
+                        if ret_ty != unit_ty && ret_ty != never_ty {
+                            return Err(format!(
+                                "MIR lowering error in '{}': function body has no value, expected {:?}",
+                                func.name, ret_ty
+                            ));
+                        }
+                    }
+                }
 
-if builder.blocks[curr].terminator.is_none() {
-    builder.blocks[curr].terminator = Some(crate::ir::Terminator::Return);
-}
+                if builder.blocks[curr].terminator.is_none() {
+                    builder.blocks[curr].terminator = Some(crate::ir::Terminator::Return);
+                }
             }
 
             let body = Body { blocks, local_decls };
             mir_functions.push(crate::ir::MirFunction {
-name: func.name.clone(),
-params: param_locals,
-return_place,
-return_type: func.return_type.clone(),
-body,
+                name: func.name.clone(),
+                params: param_locals,
+                return_place,
+                return_type: func.return_type.clone(),
+                body,
             });
         }
 
@@ -231,32 +231,32 @@ impl<'a> FnMirBuilder<'a> {
         let mut current = base_ty;
         for projection in projections {
             current = match projection {
-crate::ir::Projection::Field(name) => self.field_ty(current, name)?,
-crate::ir::Projection::ConstantIndex(index) => {
-    self.constant_index_ty(current, *index)?
-}
-// A runtime index carries no constant, so the element type of an
-// array is known but a tuple position is not. Tuples are
-// required to use constant subscripts, which is what
-// `ConstantIndex` exists for.
-crate::ir::Projection::Index(_) => match self.tcx.get(current).clone() {
-    TyKind::Array(elem, _) => elem,
-    other => {
-        return Err(format!(
-            "MIR lowering error: index projection requires an array, found {:?}",
-            other
-        ))
-    }
-},
-crate::ir::Projection::Deref => match self.tcx.get(current).clone() {
-    TyKind::Reference { inner, .. } => inner,
-    other => {
-        return Err(format!(
-            "MIR lowering error: deref projection requires a reference, found {:?}",
-            other
-        ))
-    }
-},
+                crate::ir::Projection::Field(name) => self.field_ty(current, name)?,
+                crate::ir::Projection::ConstantIndex(index) => {
+                    self.constant_index_ty(current, *index)?
+                }
+                // A runtime index carries no constant, so the element type of an
+                // array is known but a tuple position is not. Tuples are
+                // required to use constant subscripts, which is what
+                // `ConstantIndex` exists for.
+                crate::ir::Projection::Index(_) => match self.tcx.get(current).clone() {
+                    TyKind::Array(elem, _) => elem,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: index projection requires an array, found {:?}",
+                            other
+                        ))
+                    }
+                },
+                crate::ir::Projection::Deref => match self.tcx.get(current).clone() {
+                    TyKind::Reference { inner, .. } => inner,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: deref projection requires a reference, found {:?}",
+                            other
+                        ))
+                    }
+                },
             };
         }
         Ok(current)
@@ -266,32 +266,32 @@ crate::ir::Projection::Deref => match self.tcx.get(current).clone() {
     fn field_ty(&mut self, base_ty: Ty, field: &str) -> Result<Ty, String> {
         match self.tcx.get(base_ty).clone() {
             TyKind::Struct(name, args) => {
-let def = self.struct_defs.get(&name).cloned().ok_or_else(|| {
-    format!("MIR lowering error: unknown struct '{}' in field '{}'", name, field)
-})?;
-let mut field_env = omni_types::checker::SubstEnv::new();
-for (param, arg) in def.type_params.iter().zip(args.iter()) {
-    field_env.insert(param.clone(), *arg);
-}
-def.fields
-    .iter()
-    .find(|f| f.name == field)
-    .map(|f| self.tcx.lower_type_spec(&f.ty, &field_env))
-    .ok_or_else(|| {
-        format!("MIR lowering error: field '{}' not found on '{}'", field, name)
-    })
+                let def = self.struct_defs.get(&name).cloned().ok_or_else(|| {
+                    format!("MIR lowering error: unknown struct '{}' in field '{}'", name, field)
+                })?;
+                let mut field_env = omni_types::checker::SubstEnv::new();
+                for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                    field_env.insert(param.clone(), *arg);
+                }
+                def.fields
+                    .iter()
+                    .find(|f| f.name == field)
+                    .map(|f| self.tcx.lower_type_spec(&f.ty, &field_env))
+                    .ok_or_else(|| {
+                        format!("MIR lowering error: field '{}' not found on '{}'", field, name)
+                    })
             }
             TyKind::Tuple(types) => {
-let index: usize = field.parse().map_err(|_| {
-    "MIR lowering error: tuple field must be a numeric index".to_string()
-})?;
-types.get(index).copied().ok_or_else(|| {
-    format!("MIR lowering error: tuple field index {} out of bounds", index)
-})
+                let index: usize = field.parse().map_err(|_| {
+                    "MIR lowering error: tuple field must be a numeric index".to_string()
+                })?;
+                types.get(index).copied().ok_or_else(|| {
+                    format!("MIR lowering error: tuple field index {} out of bounds", index)
+                })
             }
             other => Err(format!(
-"MIR lowering error: field projection requires struct or tuple, found {:?}",
-other
+                "MIR lowering error: field projection requires struct or tuple, found {:?}",
+                other
             )),
         }
     }
@@ -300,21 +300,21 @@ other
     fn constant_index_ty(&self, base_ty: Ty, index: usize) -> Result<Ty, String> {
         match self.tcx.get(base_ty).clone() {
             TyKind::Array(elem, length) => {
-if index >= length {
-    return Err(format!(
-        "MIR lowering error: array index {} is out of bounds for length {}",
-        index, length
-    ));
-}
-Ok(elem)
+                if index >= length {
+                    return Err(format!(
+                        "MIR lowering error: array index {} is out of bounds for length {}",
+                        index, length
+                    ));
+                }
+                Ok(elem)
             }
             TyKind::Tuple(types) => types
-.get(index)
-.copied()
-.ok_or_else(|| format!("MIR lowering error: tuple index {} out of bounds", index)),
+                .get(index)
+                .copied()
+                .ok_or_else(|| format!("MIR lowering error: tuple index {} out of bounds", index)),
             other => Err(format!(
-"MIR lowering error: index projection requires array or tuple, found {:?}",
-other
+                "MIR lowering error: index projection requires array or tuple, found {:?}",
+                other
             )),
         }
     }
@@ -332,65 +332,65 @@ other
     ) -> Result<(crate::ir::Place, Ty), String> {
         match target {
             omni_types::ast::Expr::Var(name) => {
-let local = *self.scope.get(name).ok_or_else(|| {
-    format!("MIR lowering error: assignment target '{}' is not bound", name)
-})?;
-let ty = self.local_ty(local)?;
-Ok((crate::ir::Place::local(local), ty))
+                let local = *self.scope.get(name).ok_or_else(|| {
+                    format!("MIR lowering error: assignment target '{}' is not bound", name)
+                })?;
+                let ty = self.local_ty(local)?;
+                Ok((crate::ir::Place::local(local), ty))
             }
             omni_types::ast::Expr::Field { expr, field } => {
-let (base_place, base_ty) = self.lower_assign_place(expr)?;
-let place = base_place.project(crate::ir::Projection::Field(field.clone()));
-let ty = self.projected_ty(base_ty, &place.projections)?;
-Ok((place, ty))
+                let (base_place, base_ty) = self.lower_assign_place(expr)?;
+                let place = base_place.project(crate::ir::Projection::Field(field.clone()));
+                let ty = self.projected_ty(base_ty, &place.projections)?;
+                Ok((place, ty))
             }
             omni_types::ast::Expr::Index { expr, index } => {
-let (base_place, base_ty) = self.lower_assign_place(expr)?;
-// A literal subscript folds to a constant projection, which keeps
-// the destination statically checkable against the array length.
-if let omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n)) = index.as_ref()
-{
-    if *n < 0 {
-        return Err("MIR lowering error: index must not be negative".to_string());
-    }
-    let place =
-        base_place.project(crate::ir::Projection::ConstantIndex(*n as usize));
-    let ty = self.projected_ty(base_ty, &place.projections)?;
-    return Ok((place, ty));
-}
-// A computed subscript is bound to a temporary local, and the
-// projection refers to that local. The index expression is
-// evaluated exactly once, before the store.
-let int_ty = self.tcx.intern(TyKind::Int);
-let (index_op, index_ty) = self
-    .lower_expr(index)?
-    .ok_or_else(|| "MIR lowering error: index expression is Unit".to_string())?;
-if index_ty != int_ty {
-    return Err(format!(
-        "MIR lowering error: index expression must be Int, found {:?}",
-        index_ty
-    ));
-}
-let element_ty = match self.tcx.get(base_ty).clone() {
-    TyKind::Array(elem, _) => elem,
-    other => {
-        return Err(format!(
-            "MIR lowering error: index assignment requires an array, found {:?}",
-            other
-        ))
-    }
-};
-let block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: index assignment has no live block".to_string()
-})?;
-let index_local = self.new_temp(Some("_index_tmp".to_string()), int_ty);
-let index_place = crate::ir::Place::local(index_local);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    index_place.clone(),
-    crate::ir::Rvalue::Use(index_op),
-));
-let place = base_place.project(crate::ir::Projection::Index(index_local));
-Ok((place, element_ty))
+                let (base_place, base_ty) = self.lower_assign_place(expr)?;
+                // A literal subscript folds to a constant projection, which keeps
+                // the destination statically checkable against the array length.
+                if let omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n)) = index.as_ref()
+                {
+                    if *n < 0 {
+                        return Err("MIR lowering error: index must not be negative".to_string());
+                    }
+                    let place =
+                        base_place.project(crate::ir::Projection::ConstantIndex(*n as usize));
+                    let ty = self.projected_ty(base_ty, &place.projections)?;
+                    return Ok((place, ty));
+                }
+                // A computed subscript is bound to a temporary local, and the
+                // projection refers to that local. The index expression is
+                // evaluated exactly once, before the store.
+                let int_ty = self.tcx.intern(TyKind::Int);
+                let (index_op, index_ty) = self
+                    .lower_expr(index)?
+                    .ok_or_else(|| "MIR lowering error: index expression is Unit".to_string())?;
+                if index_ty != int_ty {
+                    return Err(format!(
+                        "MIR lowering error: index expression must be Int, found {:?}",
+                        index_ty
+                    ));
+                }
+                let element_ty = match self.tcx.get(base_ty).clone() {
+                    TyKind::Array(elem, _) => elem,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: index assignment requires an array, found {:?}",
+                            other
+                        ))
+                    }
+                };
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: index assignment has no live block".to_string()
+                })?;
+                let index_local = self.new_temp(Some("_index_tmp".to_string()), int_ty);
+                let index_place = crate::ir::Place::local(index_local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    index_place.clone(),
+                    crate::ir::Rvalue::Use(index_op),
+                ));
+                let place = base_place.project(crate::ir::Projection::Index(index_local));
+                Ok((place, element_ty))
             }
             other => Err(format!("MIR lowering error: unsupported assignment target {:?}", other)),
         }
@@ -415,51 +415,51 @@ Ok((place, element_ty))
     ) -> Result<Vec<(String, crate::ir::Local)>, String> {
         match pattern {
             omni_types::ast::Pattern::Binding(name) => {
-let block = self.current_block.ok_or_else(|| "MIR lowering error: let pattern has no live block".to_string())?;
-let local = self.new_temp(Some(name.clone()), ty);
-let place = crate::ir::Place::local(local);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Use(operand),
-));
-Ok(vec![(name.clone(), local)])
+                let block = self.current_block.ok_or_else(|| "MIR lowering error: let pattern has no live block".to_string())?;
+                let local = self.new_temp(Some(name.clone()), ty);
+                let place = crate::ir::Place::local(local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Use(operand),
+                ));
+                Ok(vec![(name.clone(), local)])
             }
             omni_types::ast::Pattern::Wildcard => Ok(Vec::new()),
             omni_types::ast::Pattern::Tuple(patterns) => {
-let TyKind::Tuple(types) = self.tcx.get(ty).clone() else {
-    return Err("MIR lowering error: tuple destructuring requires a tuple initializer".into());
-};
-if patterns.len() != types.len() {
-    return Err(format!(
-        "MIR lowering error: tuple pattern has {} elements, initializer has {}",
-        patterns.len(),
-        types.len()
-    ));
-}
-let mut bindings = Vec::new();
-for (index, (subpattern, sub_ty)) in patterns.iter().zip(types.iter()).enumerate() {
-    let block = self.current_block.ok_or_else(|| "MIR lowering error: tuple destructuring has no live block".to_string())?;
-    let local = self.new_temp(Some(format!("_tuple_field_{index}")), *sub_ty);
-    let place = crate::ir::Place::local(local);
-    let projection = crate::ir::Rvalue::Field {
-        base: operand.clone(),
-        field: index.to_string(),
-        ty: *sub_ty,
-    };
-    self.blocks[block].statements.push(crate::ir::Statement::Assign(
-        place.clone(),
-        projection,
-    ));
-    bindings.extend(self.bind_let_pattern(
-        subpattern,
-        crate::ir::Operand::Copy(place),
-        *sub_ty,
-    )?);
-}
-Ok(bindings)
+                let TyKind::Tuple(types) = self.tcx.get(ty).clone() else {
+                    return Err("MIR lowering error: tuple destructuring requires a tuple initializer".into());
+                };
+                if patterns.len() != types.len() {
+                    return Err(format!(
+                        "MIR lowering error: tuple pattern has {} elements, initializer has {}",
+                        patterns.len(),
+                        types.len()
+                    ));
+                }
+                let mut bindings = Vec::new();
+                for (index, (subpattern, sub_ty)) in patterns.iter().zip(types.iter()).enumerate() {
+                    let block = self.current_block.ok_or_else(|| "MIR lowering error: tuple destructuring has no live block".to_string())?;
+                    let local = self.new_temp(Some(format!("_tuple_field_{index}")), *sub_ty);
+                    let place = crate::ir::Place::local(local);
+                    let projection = crate::ir::Rvalue::Field {
+                        base: operand.clone(),
+                        field: index.to_string(),
+                        ty: *sub_ty,
+                    };
+                    self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                        place.clone(),
+                        projection,
+                    ));
+                    bindings.extend(self.bind_let_pattern(
+                        subpattern,
+                        crate::ir::Operand::Copy(place),
+                        *sub_ty,
+                    )?);
+                }
+                Ok(bindings)
             }
             omni_types::ast::Pattern::Reference { .. } => {
-Err("MIR lowering error: reference-pattern let bindings require reference storage".into())
+                Err("MIR lowering error: reference-pattern let bindings require reference storage".into())
             }
             _ => Err("MIR lowering error: let destructuring pattern is not representable by current MIR projections".into()),
         }
@@ -496,7 +496,7 @@ Err("MIR lowering error: reference-pattern let bindings require reference storag
         self.diverged = outer_diverged;
         if let Some(block) = self.current_block {
             if self.blocks[block].terminator.is_none() {
-self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(header));
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(header));
             }
         }
         let context = self.loops.pop().expect("loop context balanced");
@@ -507,9 +507,9 @@ self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(header));
             Ok(Some((crate::ir::Operand::Copy(crate::ir::Place::local(local)), ty)))
         } else if let Some(ty) = context.result_ty {
             if matches!(self.tcx.get(ty), TyKind::Unit) {
-Ok(None)
+                Ok(None)
             } else {
-Err("MIR lowering error: loop break value has no result storage".into())
+                Err("MIR lowering error: loop break value has no result storage".into())
             }
         } else {
             Ok(None)
@@ -537,8 +537,8 @@ Err("MIR lowering error: loop break value has no result storage".into())
         let bool_ty = self.tcx.intern(TyKind::Bool);
         if condition_ty != bool_ty {
             return Err(format!(
-"MIR lowering error: while condition has type {:?}, expected Bool",
-condition_ty
+                "MIR lowering error: while condition has type {:?}, expected Bool",
+                condition_ty
             ));
         }
         self.blocks[condition_block].terminator = Some(crate::ir::Terminator::SwitchInt {
@@ -558,7 +558,7 @@ condition_ty
         self.lower_expr(body)?;
         if let Some(block) = self.current_block {
             if self.blocks[block].terminator.is_none() {
-self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(condition_block));
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(condition_block));
             }
         }
         let context = self.loops.pop().expect("while loop context balanced");
@@ -578,8 +578,8 @@ self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(condition_block
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         let value_result = if let Some(expr) = value {
             Some(
-self.lower_expr(expr)?
-    .ok_or_else(|| "MIR lowering error: break value is Unit".to_string())?,
+                self.lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: break value is Unit".to_string())?,
             )
         } else {
             None
@@ -589,14 +589,14 @@ self.lower_expr(expr)?
             .ok_or_else(|| "MIR lowering error: break has no live block".to_string())?;
         let loop_index = if let Some(label) = label {
             self.loops
-.iter()
-.rposition(|ctx| ctx.label.as_deref() == Some(label))
-.ok_or_else(|| format!("MIR lowering error: unknown break label '{}'", label))?
+                .iter()
+                .rposition(|ctx| ctx.label.as_deref() == Some(label))
+                .ok_or_else(|| format!("MIR lowering error: unknown break label '{}'", label))?
         } else {
             self.loops
-.len()
-.checked_sub(1)
-.ok_or_else(|| "MIR lowering error: break outside loop".to_string())?
+                .len()
+                .checked_sub(1)
+                .ok_or_else(|| "MIR lowering error: break outside loop".to_string())?
         };
         let value_ty = value_result
             .as_ref()
@@ -606,10 +606,10 @@ self.lower_expr(expr)?
         let break_target = self.loops[loop_index].break_block;
         if let Some(existing) = self.loops[loop_index].result_ty {
             if existing != value_ty {
-return Err(format!(
-    "MIR lowering error: break type {:?} does not match loop break type {:?}",
-    value_ty, existing
-));
+                return Err(format!(
+                    "MIR lowering error: break type {:?} does not match loop break type {:?}",
+                    value_ty, existing
+                ));
             }
         } else {
             self.loops[loop_index].result_ty = Some(value_ty);
@@ -617,16 +617,16 @@ return Err(format!(
 
         if let Some((operand, _)) = value_result {
             let result_local = if let Some(local) = self.loops[loop_index].result_local {
-local
+                local
             } else {
-let local = self.new_temp(Some("_loop_result".to_string()), value_ty);
-self.loops[loop_index].result_local = Some(local);
-local
+                let local = self.new_temp(Some("_loop_result".to_string()), value_ty);
+                self.loops[loop_index].result_local = Some(local);
+                local
             };
             let place = crate::ir::Place::local(result_local);
             self.blocks[block]
-.statements
-.push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(operand)));
+                .statements
+                .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(operand)));
         }
 
         self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(break_target));
@@ -640,14 +640,14 @@ local
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         let loop_index = if let Some(label) = label {
             self.loops
-.iter()
-.rposition(|ctx| ctx.label.as_deref() == Some(label))
-.ok_or_else(|| format!("MIR lowering error: unknown continue label '{}'", label))?
+                .iter()
+                .rposition(|ctx| ctx.label.as_deref() == Some(label))
+                .ok_or_else(|| format!("MIR lowering error: unknown continue label '{}'", label))?
         } else {
             self.loops
-.len()
-.checked_sub(1)
-.ok_or_else(|| "MIR lowering error: continue outside loop".to_string())?
+                .len()
+                .checked_sub(1)
+                .ok_or_else(|| "MIR lowering error: continue outside loop".to_string())?
         };
         let continue_block = self.loops[loop_index].continue_block;
         let current = self
@@ -667,8 +667,8 @@ local
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         let omni_types::ast::Expr::Range { start, end, inclusive } = iterable else {
             return Err(
-"MIR lowering error: only integer ranges are currently supported by for iteration"
-    .into(),
+                "MIR lowering error: only integer ranges are currently supported by for iteration"
+                    .into(),
             );
         };
         let (start_op, start_ty) = self
@@ -711,9 +711,9 @@ local
         self.blocks[header].statements.push(crate::ir::Statement::Assign(
             cmp_place.clone(),
             crate::ir::Rvalue::BinaryOp(
-cmp_op,
-crate::ir::Operand::Copy(index_place.clone()),
-crate::ir::Operand::Copy(end_place.clone()),
+                cmp_op,
+                crate::ir::Operand::Copy(index_place.clone()),
+                crate::ir::Operand::Copy(end_place.clone()),
             ),
         ));
         self.blocks[header].terminator = Some(crate::ir::Terminator::SwitchInt {
@@ -726,9 +726,9 @@ crate::ir::Operand::Copy(end_place.clone()),
             omni_types::ast::Pattern::Binding(name) => Some(name.clone()),
             omni_types::ast::Pattern::Wildcard => None,
             _ => {
-return Err(
-    "MIR lowering error: for-range pattern must be a binding or wildcard".into()
-)
+                return Err(
+                    "MIR lowering error: for-range pattern must be a binding or wildcard".into()
+                )
             }
         };
 
@@ -749,7 +749,7 @@ return Err(
 
         if let Some(block) = self.current_block {
             if self.blocks[block].terminator.is_none() {
-self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(step_block));
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(step_block));
             }
         }
         self.loops.pop().expect("for loop context balanced");
@@ -758,11 +758,11 @@ self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(step_block));
         self.blocks[step_block].statements.push(crate::ir::Statement::Assign(
             index_place.clone(),
             crate::ir::Rvalue::BinaryOp(
-crate::ir::BinOp::Add,
-crate::ir::Operand::Copy(index_place.clone()),
-crate::ir::Operand::Constant(crate::ir::Constant::Lit(omni_types::ast::Lit::Int(
-    1,
-))),
+                crate::ir::BinOp::Add,
+                crate::ir::Operand::Copy(index_place.clone()),
+                crate::ir::Operand::Constant(crate::ir::Constant::Lit(omni_types::ast::Lit::Int(
+                    1,
+                ))),
             ),
         ));
         self.blocks[step_block].terminator = Some(crate::ir::Terminator::Goto(header));
@@ -783,8 +783,8 @@ crate::ir::Operand::Constant(crate::ir::Constant::Lit(omni_types::ast::Lit::Int(
         let bool_ty = self.tcx.intern(TyKind::Bool);
         if cond_ty != bool_ty {
             return Err(format!(
-"MIR lowering error: if condition has type {:?}, expected Bool",
-cond_ty
+                "MIR lowering error: if condition has type {:?}, expected Bool",
+                cond_ty
             ));
         }
         let entry = self
@@ -831,13 +831,13 @@ cond_ty
             // would reject the ordinary `if c { return 1; }` statement form.
             (Some(_), None) if expr_diverges(then_branch) => self.tcx.intern(TyKind::Unit),
             (Some(_), None) | (None, Some(_)) => {
-return Err("MIR lowering error: non-unit if branch requires an else value".into());
+                return Err("MIR lowering error: non-unit if branch requires an else value".into());
             }
             (Some((_, a)), Some((_, b))) => {
-return Err(format!(
-    "MIR lowering error: if branches have types {:?} and {:?}",
-    a, b
-));
+                return Err(format!(
+                    "MIR lowering error: if branches have types {:?} and {:?}",
+                    a, b
+                ));
             }
         };
 
@@ -850,34 +850,34 @@ return Err(format!(
         if let (Some((operand, _)), Some(end)) = (&then_result, then_end) {
             let place = result_local.map(|l| crate::ir::Place::local(l));
             if let Some(place) = place {
-self.blocks[end].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Use(operand.clone()),
-));
+                self.blocks[end].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Use(operand.clone()),
+                ));
             }
             if self.blocks[end].terminator.is_none() {
-self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+                self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
             }
         } else if let Some(end) = then_end {
             if self.blocks[end].terminator.is_none() {
-self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+                self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
             }
         }
 
         if let (Some((operand, _)), Some(end)) = (&else_result.0, else_result.1) {
             let place = result_local.map(|l| crate::ir::Place::local(l));
             if let Some(place) = place {
-self.blocks[end].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Use(operand.clone()),
-));
+                self.blocks[end].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Use(operand.clone()),
+                ));
             }
             if self.blocks[end].terminator.is_none() {
-self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+                self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
             }
         } else if let Some(end) = else_result.1 {
             if self.blocks[end].terminator.is_none() {
-self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
+                self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
             }
         }
 
@@ -900,7 +900,7 @@ self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
         }
         if arms.iter().any(|arm| arm.guard.is_some()) {
             return Err(
-"MIR lowering error: guarded match arms require guard-aware dispatch".into()
+                "MIR lowering error: guarded match arms require guard-aware dispatch".into()
             );
         }
 
@@ -915,13 +915,13 @@ self.blocks[end].terminator = Some(crate::ir::Terminator::Goto(join_block));
         let scrutinee_place = match scrutinee_op {
             crate::ir::Operand::Copy(place) | crate::ir::Operand::Move(place) => place,
             operand => {
-let local = self.new_temp(Some("_match_scrutinee".to_string()), scrutinee_ty);
-let place = crate::ir::Place::local(local);
-self.blocks[entry].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Use(operand),
-));
-place
+                let local = self.new_temp(Some("_match_scrutinee".to_string()), scrutinee_ty);
+                let place = crate::ir::Place::local(local);
+                self.blocks[entry].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Use(operand),
+                ));
+                place
             }
         };
 
@@ -933,10 +933,10 @@ place
         let mut wildcard_target = None;
         for (index, arm) in arms.iter().enumerate() {
             self.collect_match_targets(
-&arm.pattern,
-arm_blocks[index],
-&mut targets,
-&mut wildcard_target,
+                &arm.pattern,
+                arm_blocks[index],
+                &mut targets,
+                &mut wildcard_target,
             )?;
         }
         let otherwise_block = wildcard_target.unwrap_or(otherwise);
@@ -954,7 +954,7 @@ arm_blocks[index],
             self.current_block = Some(arm_blocks[index]);
             let saved_scope = self.scope.clone();
             if let Some(name) = simple_pattern_binding(&arm.pattern) {
-self.scope.insert(name, scrutinee_place.local);
+                self.scope.insert(name, scrutinee_place.local);
             }
 
             let body = self.lower_expr(&arm.body)?;
@@ -966,36 +966,36 @@ self.scope.insert(name, scrutinee_place.local);
             any_arm_diverged |= arm_diverged;
 
             if let Some((_, ty)) = &body {
-if let Some(expected) = result_ty {
-    if expected != *ty {
-        return Err(format!(
-            "MIR lowering error: match arm {} has type {:?}, expected {:?}",
-            index, ty, expected
-        ));
-    }
-} else {
-    result_ty = Some(*ty);
-    let local = self.new_temp(Some("_match_tmp".to_string()), *ty);
-    result_local = Some(local);
-}
+                if let Some(expected) = result_ty {
+                    if expected != *ty {
+                        return Err(format!(
+                            "MIR lowering error: match arm {} has type {:?}, expected {:?}",
+                            index, ty, expected
+                        ));
+                    }
+                } else {
+                    result_ty = Some(*ty);
+                    let local = self.new_temp(Some("_match_tmp".to_string()), *ty);
+                    result_local = Some(local);
+                }
             } else if result_ty.is_none() {
-result_ty = Some(self.tcx.intern(TyKind::Unit));
+                result_ty = Some(self.tcx.intern(TyKind::Unit));
             }
 
             if let (Some((operand, _)), Some(local)) = (body, result_local) {
-if let Some(block) = self.current_block {
-    let place = crate::ir::Place::local(local);
-    self.blocks[block]
-        .statements
-        .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(operand)));
-    if self.blocks[block].terminator.is_none() {
-        self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
-    }
-}
+                if let Some(block) = self.current_block {
+                    let place = crate::ir::Place::local(local);
+                    self.blocks[block]
+                        .statements
+                        .push(crate::ir::Statement::Assign(place, crate::ir::Rvalue::Use(operand)));
+                    if self.blocks[block].terminator.is_none() {
+                        self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
+                    }
+                }
             } else if let Some(block) = self.current_block {
-if self.blocks[block].terminator.is_none() {
-    self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
-}
+                if self.blocks[block].terminator.is_none() {
+                    self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
+                }
             }
         }
 
@@ -1016,8 +1016,8 @@ if self.blocks[block].terminator.is_none() {
         self.current_block = Some(join);
         match result_local {
             Some(local) => Ok(Some((
-crate::ir::Operand::Copy(crate::ir::Place::local(local)),
-result_ty.expect("result type exists"),
+                crate::ir::Operand::Copy(crate::ir::Place::local(local)),
+                result_ty.expect("result type exists"),
             ))),
             None => Ok(None),
         }
@@ -1032,33 +1032,33 @@ result_ty.expect("result type exists"),
     ) -> Result<(), String> {
         match pattern {
             omni_types::ast::Pattern::Wildcard | omni_types::ast::Pattern::Binding(_) => {
-if wildcard_target.replace(target).is_some() {
-    return Err("MIR lowering error: multiple wildcard match arms".into());
-}
+                if wildcard_target.replace(target).is_some() {
+                    return Err("MIR lowering error: multiple wildcard match arms".into());
+                }
             }
             omni_types::ast::Pattern::Or(patterns) => {
-for pattern in patterns {
-    self.collect_match_targets(pattern, target, targets, wildcard_target)?;
-}
+                for pattern in patterns {
+                    self.collect_match_targets(pattern, target, targets, wildcard_target)?;
+                }
             }
             omni_types::ast::Pattern::Lit(lit) => {
-let value = match lit {
-    omni_types::ast::Lit::Bool(v) => u64::from(*v),
-    omni_types::ast::Lit::Int(v) => *v as u64,
-    omni_types::ast::Lit::Byte(v) => u64::from(*v),
-    omni_types::ast::Lit::Char(v) => *v as u64,
-    _ => return Err(format!(
-        "MIR lowering error: literal pattern {:?} is not representable by SwitchInt",
-        lit
-    )),
-};
-targets.push((value, target));
+                let value = match lit {
+                    omni_types::ast::Lit::Bool(v) => u64::from(*v),
+                    omni_types::ast::Lit::Int(v) => *v as u64,
+                    omni_types::ast::Lit::Byte(v) => u64::from(*v),
+                    omni_types::ast::Lit::Char(v) => *v as u64,
+                    _ => return Err(format!(
+                        "MIR lowering error: literal pattern {:?} is not representable by SwitchInt",
+                        lit
+                    )),
+                };
+                targets.push((value, target));
             }
             other => {
-return Err(format!(
-    "MIR lowering error: match pattern {:?} requires aggregate/discriminant lowering",
-    other
-));
+                return Err(format!(
+                    "MIR lowering error: match pattern {:?} requires aggregate/discriminant lowering",
+                    other
+                ));
             }
         }
         Ok(())
@@ -1122,7 +1122,7 @@ return Err(format!(
         self.blocks[short_block].statements.push(crate::ir::Statement::Assign(
             result_place.clone(),
             crate::ir::Rvalue::Use(crate::ir::Operand::Constant(crate::ir::Constant::Lit(
-omni_types::ast::Lit::Bool(short_value == 1),
+                omni_types::ast::Lit::Bool(short_value == 1),
             ))),
         ));
         self.blocks[short_block].terminator = Some(crate::ir::Terminator::Goto(join_block));
@@ -1137,735 +1137,744 @@ omni_types::ast::Lit::Bool(short_value == 1),
     ) -> Result<Option<(crate::ir::Operand, Ty)>, String> {
         if self.current_block.is_none() {
             return Err("MIR lowering error: expression evaluated after control flow terminated"
-.to_string());
+                .to_string());
         }
 
         match expr {
             omni_types::ast::Expr::Literal(lit) => {
-let ty = self.literal_ty(lit);
-Ok(Some((crate::ir::Operand::Constant(crate::ir::Constant::Lit(lit.clone())), ty)))
+                let ty = self.literal_ty(lit);
+                Ok(Some((crate::ir::Operand::Constant(crate::ir::Constant::Lit(lit.clone())), ty)))
             }
             omni_types::ast::Expr::Var(name) => {
-let local =
-    self.scope.get(name).copied().ok_or_else(|| {
-        format!("MIR lowering error: undefined variable '{}'", name)
-    })?;
-let ty = self.local_ty(local)?;
-Ok(Some((crate::ir::Operand::Copy(crate::ir::Place::local(local)), ty)))
+                let local =
+                    self.scope.get(name).copied().ok_or_else(|| {
+                        format!("MIR lowering error: undefined variable '{}'", name)
+                    })?;
+                let ty = self.local_ty(local)?;
+                Ok(Some((crate::ir::Operand::Copy(crate::ir::Place::local(local)), ty)))
             }
             omni_types::ast::Expr::Binary { op, lhs, rhs }
-if matches!(
-    op,
-    omni_types::ast::BinOp::LogicalAnd | omni_types::ast::BinOp::LogicalOr
-) =>
+                if matches!(
+                    op,
+                    omni_types::ast::BinOp::LogicalAnd | omni_types::ast::BinOp::LogicalOr
+                ) =>
             {
-self.lower_short_circuit(op.clone(), lhs, rhs)
+                self.lower_short_circuit(op.clone(), lhs, rhs)
             }
             omni_types::ast::Expr::Binary { op, lhs, rhs } => {
-let (lhs_op, lhs_ty) = self
-    .lower_expr(lhs)?
-    .ok_or_else(|| "MIR lowering error: left operand is Unit".to_string())?;
-let (rhs_op, rhs_ty) = self
-    .lower_expr(rhs)?
-    .ok_or_else(|| "MIR lowering error: right operand is Unit".to_string())?;
-if lhs_ty != rhs_ty {
-    return Err(format!(
-        "MIR lowering error: binary operands have incompatible types {:?} and {:?}",
-        lhs_ty, rhs_ty
-    ));
-}
-let float_ty = self.tcx.intern(TyKind::Float);
-if lhs_ty == float_ty
-    && matches!(
-        op,
-        omni_types::ast::BinOp::Rem
-            | omni_types::ast::BinOp::BitAnd
-            | omni_types::ast::BinOp::BitOr
-            | omni_types::ast::BinOp::BitXor
-            | omni_types::ast::BinOp::Shl
-            | omni_types::ast::BinOp::Shr
-    )
-{
-    return Err(format!(
-        "MIR lowering error: operator {:?} is not defined for Float",
-        op
-    ));
-}
-let mir_op = match op {
-    omni_types::ast::BinOp::Add => crate::ir::BinOp::Add,
-    omni_types::ast::BinOp::Sub => crate::ir::BinOp::Sub,
-    omni_types::ast::BinOp::Mul => crate::ir::BinOp::Mul,
-    omni_types::ast::BinOp::Div => crate::ir::BinOp::Div,
-    omni_types::ast::BinOp::Rem => crate::ir::BinOp::Rem,
-    omni_types::ast::BinOp::BitAnd => crate::ir::BinOp::BitAnd,
-    omni_types::ast::BinOp::BitOr => crate::ir::BinOp::BitOr,
-    omni_types::ast::BinOp::BitXor => crate::ir::BinOp::BitXor,
-    omni_types::ast::BinOp::Shl => crate::ir::BinOp::Shl,
-    omni_types::ast::BinOp::Shr => crate::ir::BinOp::Shr,
-    omni_types::ast::BinOp::Eq => crate::ir::BinOp::Eq,
-    omni_types::ast::BinOp::Ne => crate::ir::BinOp::Ne,
-    omni_types::ast::BinOp::Lt => crate::ir::BinOp::Lt,
-    omni_types::ast::BinOp::Le => crate::ir::BinOp::Le,
-    omni_types::ast::BinOp::Gt => crate::ir::BinOp::Gt,
-    omni_types::ast::BinOp::Ge => crate::ir::BinOp::Ge,
-    omni_types::ast::BinOp::LogicalAnd | omni_types::ast::BinOp::LogicalOr => {
-        return Err(
-            "MIR lowering error: logical operators require short-circuit lowering"
-.into(),
-        );
-    }
-};
-let result_ty = match op {
-    omni_types::ast::BinOp::Eq
-    | omni_types::ast::BinOp::Ne
-    | omni_types::ast::BinOp::Lt
-    | omni_types::ast::BinOp::Le
-    | omni_types::ast::BinOp::Gt
-    | omni_types::ast::BinOp::Ge
-    | omni_types::ast::BinOp::LogicalAnd
-    | omni_types::ast::BinOp::LogicalOr => self.tcx.intern(TyKind::Bool),
-    omni_types::ast::BinOp::Add
-    | omni_types::ast::BinOp::Sub
-    | omni_types::ast::BinOp::Mul
-    | omni_types::ast::BinOp::Div
-    | omni_types::ast::BinOp::Rem
-    | omni_types::ast::BinOp::BitAnd
-    | omni_types::ast::BinOp::BitOr
-    | omni_types::ast::BinOp::BitXor
-    | omni_types::ast::BinOp::Shl
-    | omni_types::ast::BinOp::Shr => lhs_ty,
-};
-let curr_block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: binary expression has no live continuation block"
-        .to_string()
-})?;
-let temp_local = self.new_temp(Some("_bin_tmp".to_string()), result_ty);
-let place = crate::ir::Place::local(temp_local);
-self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::BinaryOp(mir_op, lhs_op, rhs_op),
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
+                let (lhs_op, lhs_ty) = self
+                    .lower_expr(lhs)?
+                    .ok_or_else(|| "MIR lowering error: left operand is Unit".to_string())?;
+                let (rhs_op, rhs_ty) = self
+                    .lower_expr(rhs)?
+                    .ok_or_else(|| "MIR lowering error: right operand is Unit".to_string())?;
+                if lhs_ty != rhs_ty {
+                    return Err(format!(
+                        "MIR lowering error: binary operands have incompatible types {:?} and {:?}",
+                        lhs_ty, rhs_ty
+                    ));
+                }
+                let float_ty = self.tcx.intern(TyKind::Float);
+                if lhs_ty == float_ty
+                    && matches!(
+                        op,
+                        omni_types::ast::BinOp::Rem
+                            | omni_types::ast::BinOp::BitAnd
+                            | omni_types::ast::BinOp::BitOr
+                            | omni_types::ast::BinOp::BitXor
+                            | omni_types::ast::BinOp::Shl
+                            | omni_types::ast::BinOp::Shr
+                    )
+                {
+                    return Err(format!(
+                        "MIR lowering error: operator {:?} is not defined for Float",
+                        op
+                    ));
+                }
+                let mir_op = match op {
+                    omni_types::ast::BinOp::Add => crate::ir::BinOp::Add,
+                    omni_types::ast::BinOp::Sub => crate::ir::BinOp::Sub,
+                    omni_types::ast::BinOp::Mul => crate::ir::BinOp::Mul,
+                    omni_types::ast::BinOp::Div => crate::ir::BinOp::Div,
+                    omni_types::ast::BinOp::Rem => crate::ir::BinOp::Rem,
+                    omni_types::ast::BinOp::BitAnd => crate::ir::BinOp::BitAnd,
+                    omni_types::ast::BinOp::BitOr => crate::ir::BinOp::BitOr,
+                    omni_types::ast::BinOp::BitXor => crate::ir::BinOp::BitXor,
+                    omni_types::ast::BinOp::Shl => crate::ir::BinOp::Shl,
+                    omni_types::ast::BinOp::Shr => crate::ir::BinOp::Shr,
+                    omni_types::ast::BinOp::Eq => crate::ir::BinOp::Eq,
+                    omni_types::ast::BinOp::Ne => crate::ir::BinOp::Ne,
+                    omni_types::ast::BinOp::Lt => crate::ir::BinOp::Lt,
+                    omni_types::ast::BinOp::Le => crate::ir::BinOp::Le,
+                    omni_types::ast::BinOp::Gt => crate::ir::BinOp::Gt,
+                    omni_types::ast::BinOp::Ge => crate::ir::BinOp::Ge,
+                    omni_types::ast::BinOp::LogicalAnd | omni_types::ast::BinOp::LogicalOr => {
+                        return Err(
+                            "MIR lowering error: logical operators require short-circuit lowering"
+                                .into(),
+                        );
+                    }
+                };
+                let result_ty = match op {
+                    omni_types::ast::BinOp::Eq
+                    | omni_types::ast::BinOp::Ne
+                    | omni_types::ast::BinOp::Lt
+                    | omni_types::ast::BinOp::Le
+                    | omni_types::ast::BinOp::Gt
+                    | omni_types::ast::BinOp::Ge
+                    | omni_types::ast::BinOp::LogicalAnd
+                    | omni_types::ast::BinOp::LogicalOr => self.tcx.intern(TyKind::Bool),
+                    omni_types::ast::BinOp::Add
+                    | omni_types::ast::BinOp::Sub
+                    | omni_types::ast::BinOp::Mul
+                    | omni_types::ast::BinOp::Div
+                    | omni_types::ast::BinOp::Rem
+                    | omni_types::ast::BinOp::BitAnd
+                    | omni_types::ast::BinOp::BitOr
+                    | omni_types::ast::BinOp::BitXor
+                    | omni_types::ast::BinOp::Shl
+                    | omni_types::ast::BinOp::Shr => lhs_ty,
+                };
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: binary expression has no live continuation block"
+                        .to_string()
+                })?;
+                let temp_local = self.new_temp(Some("_bin_tmp".to_string()), result_ty);
+                let place = crate::ir::Place::local(temp_local);
+                self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::BinaryOp(mir_op, lhs_op, rhs_op),
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
             }
             omni_types::ast::Expr::Unary { op, expr } => {
-let (inner_op, inner_ty) = self
-    .lower_expr(expr)?
-    .ok_or_else(|| "MIR lowering error: unary operand is Unit".to_string())?;
-let bool_ty = self.tcx.intern(TyKind::Bool);
-let int_ty = self.tcx.intern(TyKind::Int);
-match op {
-    omni_types::ast::UnOp::Neg
-        if inner_ty != int_ty && inner_ty != self.tcx.intern(TyKind::Float) =>
-    {
-        return Err(format!(
-            "MIR lowering error: unary operator requires Int or Float for '-', found {:?}",
-            inner_ty
-        ));
-    }
-    omni_types::ast::UnOp::Not if inner_ty != bool_ty => {
-        return Err(format!(
-            "MIR lowering error: unary '!' requires Bool, found {:?}",
-            inner_ty
-        ));
-    }
-    _ => {}
-}
-let mir_op = match op {
-    omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
-    omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
-    omni_types::ast::UnOp::BitNot => crate::ir::UnOp::BitNot,
-    omni_types::ast::UnOp::BorrowShared => {
-        return Err(
-            "MIR lowering error: shared borrow requires reference storage".into()
-        );
-    }
-    omni_types::ast::UnOp::BorrowMut => {
-        return Err(
-            "MIR lowering error: mutable borrow requires reference storage".into(),
-        );
-    }
-    omni_types::ast::UnOp::Deref => {
-        return Err(
-            "MIR lowering error: dereference requires reference-place projection"
-.into(),
-        );
-    }
-};
-let curr_block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: unary expression has no live continuation block"
-        .to_string()
-})?;
-let temp_local = self.new_temp(Some("_un_tmp".to_string()), inner_ty);
-let place = crate::ir::Place::local(temp_local);
-self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::UnaryOp(mir_op, inner_op),
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), inner_ty)))
+                let (inner_op, inner_ty) = self
+                    .lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: unary operand is Unit".to_string())?;
+                let bool_ty = self.tcx.intern(TyKind::Bool);
+                let int_ty = self.tcx.intern(TyKind::Int);
+                match op {
+                    omni_types::ast::UnOp::Neg
+                        if inner_ty != int_ty && inner_ty != self.tcx.intern(TyKind::Float) =>
+                    {
+                        return Err(format!(
+                            "MIR lowering error: unary operator requires Int or Float for '-', found {:?}",
+                            inner_ty
+                        ));
+                    }
+                    omni_types::ast::UnOp::Not if inner_ty != bool_ty => {
+                        return Err(format!(
+                            "MIR lowering error: unary '!' requires Bool, found {:?}",
+                            inner_ty
+                        ));
+                    }
+                    _ => {}
+                }
+                let mir_op = match op {
+                    omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
+                    omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
+                    omni_types::ast::UnOp::BitNot => crate::ir::UnOp::BitNot,
+                    omni_types::ast::UnOp::BorrowShared => {
+                        return Err(
+                            "MIR lowering error: shared borrow requires reference storage".into()
+                        );
+                    }
+                    omni_types::ast::UnOp::BorrowMut => {
+                        return Err(
+                            "MIR lowering error: mutable borrow requires reference storage".into(),
+                        );
+                    }
+                    omni_types::ast::UnOp::Deref => {
+                        return Err(
+                            "MIR lowering error: dereference requires reference-place projection"
+                                .into(),
+                        );
+                    }
+                };
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: unary expression has no live continuation block"
+                        .to_string()
+                })?;
+                let temp_local = self.new_temp(Some("_un_tmp".to_string()), inner_ty);
+                let place = crate::ir::Place::local(temp_local);
+                self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::UnaryOp(mir_op, inner_op),
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), inner_ty)))
             }
             omni_types::ast::Expr::Let { pattern, ty, init, body } => {
-let (init_op, init_ty) = self.lower_expr(init)?.ok_or_else(|| {
-    "MIR lowering error: Unit-valued let initializers are not materialized"
-        .to_string()
-})?;
-let var_ty = if let Some(spec) = ty {
-    self.tcx.lower_type_spec(spec, self.subst)
-} else {
-    init_ty
-};
-if var_ty != init_ty {
-    return Err(format!(
-        "MIR lowering error: let initializer has type {:?}, declared type is {:?}",
-        init_ty, var_ty
-    ));
-}
-let saved_scope = self.scope.clone();
-let bindings = self.bind_let_pattern(pattern, init_op, var_ty)?;
-for (name, local) in bindings {
-    self.scope.insert(name, local);
-}
-let result = self.lower_expr(body);
-self.scope = saved_scope;
-result
+                let (init_op, init_ty) = self.lower_expr(init)?.ok_or_else(|| {
+                    "MIR lowering error: Unit-valued let initializers are not materialized"
+                        .to_string()
+                })?;
+                let var_ty = if let Some(spec) = ty {
+                    self.tcx.lower_type_spec(spec, self.subst)
+                } else {
+                    init_ty
+                };
+                if var_ty != init_ty {
+                    return Err(format!(
+                        "MIR lowering error: let initializer has type {:?}, declared type is {:?}",
+                        init_ty, var_ty
+                    ));
+                }
+                let saved_scope = self.scope.clone();
+                let bindings = self.bind_let_pattern(pattern, init_op, var_ty)?;
+                for (name, local) in bindings {
+                    self.scope.insert(name, local);
+                }
+                let result = self.lower_expr(body);
+                self.scope = saved_scope;
+                result
             }
             omni_types::ast::Expr::Block(exprs) => {
-let mut last = None;
-for expr in exprs {
-    if self.diverged {
-        // The whole function has left through a `return`, so no
-        // later statement in this block is reachable.
-        break;
-    }
-    if self.current_block.is_none() {
-        // `break`/`continue` only end the current basic block
-        // *inside a loop*; control still has somewhere to go, so
-        // the remaining statements are lowered into a fresh
-        // block rather than dropped. Outside a loop the block
-        // would be unreachable, which is left to the verifier.
-        let resume = self.new_block();
-        self.current_block = Some(resume);
-    }
-    last = self.lower_expr(expr)?;
-}
-Ok(last)
+                let mut last = None;
+                for expr in exprs {
+                    if self.diverged {
+                        // The whole function has left through a `return`, so no
+                        // later statement in this block is reachable.
+                        break;
+                    }
+                    if self.current_block.is_none() {
+                        // `break`/`continue` only end the current basic block
+                        // *inside a loop*; control still has somewhere to go, so
+                        // the remaining statements are lowered into a fresh
+                        // block rather than dropped. Outside a loop the block
+                        // would be unreachable, which is left to the verifier.
+                        let resume = self.new_block();
+                        self.current_block = Some(resume);
+                    }
+                    last = self.lower_expr(expr)?;
+                }
+                Ok(last)
             }
             omni_types::ast::Expr::Tuple(elements) => {
-let mut operands = Vec::with_capacity(elements.len());
-let mut types = Vec::with_capacity(elements.len());
-for element in elements {
-    let (operand, ty) = self
-        .lower_expr(element)?
-        .ok_or_else(|| "MIR lowering error: tuple element is Unit".to_string())?;
-    operands.push(operand);
-    types.push(ty);
-}
-let tuple_ty = self.tcx.intern(TyKind::Tuple(types));
-let block = self
-    .current_block
-    .ok_or_else(|| "MIR lowering error: tuple has no live block".to_string())?;
-let local = self.new_temp(Some("_tuple_tmp".to_string()), tuple_ty);
-let place = crate::ir::Place::local(local);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Aggregate {
-        kind: crate::ir::AggregateKind::Tuple,
-        operands,
-        ty: tuple_ty,
-    },
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), tuple_ty)))
+                let mut operands = Vec::with_capacity(elements.len());
+                let mut types = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let (operand, ty) = self
+                        .lower_expr(element)?
+                        .ok_or_else(|| "MIR lowering error: tuple element is Unit".to_string())?;
+                    operands.push(operand);
+                    types.push(ty);
+                }
+                let tuple_ty = self.tcx.intern(TyKind::Tuple(types));
+                let block = self
+                    .current_block
+                    .ok_or_else(|| "MIR lowering error: tuple has no live block".to_string())?;
+                let local = self.new_temp(Some("_tuple_tmp".to_string()), tuple_ty);
+                let place = crate::ir::Place::local(local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Aggregate {
+                        kind: crate::ir::AggregateKind::Tuple,
+                        operands,
+                        ty: tuple_ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), tuple_ty)))
             }
             omni_types::ast::Expr::Array(elements) => {
-if elements.is_empty() {
-    return Err(
-        "MIR lowering error: empty array requires contextual element type".into()
-    );
-}
-let mut operands = Vec::with_capacity(elements.len());
-let mut elem_ty = None;
-for element in elements {
-    let (operand, ty) = self
-        .lower_expr(element)?
-        .ok_or_else(|| "MIR lowering error: array element is Unit".to_string())?;
-    if let Some(expected) = elem_ty {
-        if expected != ty {
-            return Err(format!(
-"MIR lowering error: array elements have incompatible types {:?} and {:?}",
-expected, ty
-            ));
-        }
-    } else {
-        elem_ty = Some(ty);
-    }
-    operands.push(operand);
-}
-let elem_ty = elem_ty.expect("non-empty array has an element type");
-let array_ty = self.tcx.intern(TyKind::Array(elem_ty, elements.len()));
-let block = self
-    .current_block
-    .ok_or_else(|| "MIR lowering error: array has no live block".to_string())?;
-let local = self.new_temp(Some("_array_tmp".to_string()), array_ty);
-let place = crate::ir::Place::local(local);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Aggregate {
-        kind: crate::ir::AggregateKind::Array,
-        operands,
-        ty: array_ty,
-    },
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), array_ty)))
+                if elements.is_empty() {
+                    return Err(
+                        "MIR lowering error: empty array requires contextual element type".into()
+                    );
+                }
+                let mut operands = Vec::with_capacity(elements.len());
+                let mut elem_ty = None;
+                for element in elements {
+                    let (operand, ty) = self
+                        .lower_expr(element)?
+                        .ok_or_else(|| "MIR lowering error: array element is Unit".to_string())?;
+                    if let Some(expected) = elem_ty {
+                        if expected != ty {
+                            return Err(format!(
+                                "MIR lowering error: array elements have incompatible types {:?} and {:?}",
+                                expected, ty
+                            ));
+                        }
+                    } else {
+                        elem_ty = Some(ty);
+                    }
+                    operands.push(operand);
+                }
+                let elem_ty = elem_ty.expect("non-empty array has an element type");
+                let array_ty = self.tcx.intern(TyKind::Array(elem_ty, elements.len()));
+                let block = self
+                    .current_block
+                    .ok_or_else(|| "MIR lowering error: array has no live block".to_string())?;
+                let local = self.new_temp(Some("_array_tmp".to_string()), array_ty);
+                let place = crate::ir::Place::local(local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Aggregate {
+                        kind: crate::ir::AggregateKind::Array,
+                        operands,
+                        ty: array_ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), array_ty)))
             }
             omni_types::ast::Expr::Field { expr, field } => {
-let (base, base_ty) = self
-    .lower_expr(expr)?
-    .ok_or_else(|| "MIR lowering error: field base is Unit".to_string())?;
-let result_ty = match self.tcx.get(base_ty).clone() {
-    TyKind::Struct(name, args) => {
-        let def = self.struct_defs.get(&name).ok_or_else(|| {
-            format!("MIR lowering error: unknown struct '{}'", name)
-        })?;
-        let mut field_env = omni_types::checker::SubstEnv::new();
-        for (param, arg) in def.type_params.iter().zip(args.iter()) {
-            field_env.insert(param.clone(), *arg);
-        }
-        let mut found = None;
-        for f in &def.fields {
-            if f.name == *field {
-found = Some(self.tcx.lower_type_spec(&f.ty, &field_env));
-break;
-            }
-        }
-        found.ok_or_else(|| {
-            format!("MIR lowering error: field '{}' not found on '{}'", field, name)
-        })?
-    }
-    TyKind::Tuple(types) => {
-        let index = field.parse::<usize>().map_err(|_| {
-            "MIR lowering error: tuple field must be a numeric index".to_string()
-        })?;
-        *types.get(index).ok_or_else(|| {
-            format!("MIR lowering error: tuple field index {} out of bounds", index)
-        })?
-    }
-    _ => {
-        return Err(format!(
-        "MIR lowering error: field projection requires struct or tuple, found {:?}",
-        self.tcx.get(base_ty)
-    ))
-    }
-};
-let block = self
-    .current_block
-    .ok_or_else(|| "MIR lowering error: field has no live block".to_string())?;
-let local = self.new_temp(Some("_field_tmp".to_string()), result_ty);
-let place = crate::ir::Place::local(local);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Field { base, field: field.clone(), ty: result_ty },
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
+                let (base, base_ty) = self
+                    .lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: field base is Unit".to_string())?;
+                let result_ty = match self.tcx.get(base_ty).clone() {
+                    TyKind::Struct(name, args) => {
+                        let def = self.struct_defs.get(&name).ok_or_else(|| {
+                            format!("MIR lowering error: unknown struct '{}'", name)
+                        })?;
+                        let mut field_env = omni_types::checker::SubstEnv::new();
+                        for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                            field_env.insert(param.clone(), *arg);
+                        }
+                        let mut found = None;
+                        for f in &def.fields {
+                            if f.name == *field {
+                                found = Some(self.tcx.lower_type_spec(&f.ty, &field_env));
+                                break;
+                            }
+                        }
+                        found.ok_or_else(|| {
+                            format!("MIR lowering error: field '{}' not found on '{}'", field, name)
+                        })?
+                    }
+                    TyKind::Tuple(types) => {
+                        let index = field.parse::<usize>().map_err(|_| {
+                            "MIR lowering error: tuple field must be a numeric index".to_string()
+                        })?;
+                        *types.get(index).ok_or_else(|| {
+                            format!("MIR lowering error: tuple field index {} out of bounds", index)
+                        })?
+                    }
+                    _ => {
+                        return Err(format!(
+                        "MIR lowering error: field projection requires struct or tuple, found {:?}",
+                        self.tcx.get(base_ty)
+                    ))
+                    }
+                };
+                let block = self
+                    .current_block
+                    .ok_or_else(|| "MIR lowering error: field has no live block".to_string())?;
+                let local = self.new_temp(Some("_field_tmp".to_string()), result_ty);
+                let place = crate::ir::Place::local(local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Field { base, field: field.clone(), ty: result_ty },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
             }
             omni_types::ast::Expr::Index { expr, index } => {
-let (base, base_ty) = self
-    .lower_expr(expr)?
-    .ok_or_else(|| "MIR lowering error: index base is Unit".to_string())?;
-let (index_op, index_ty) = self
-    .lower_expr(index)?
-    .ok_or_else(|| "MIR lowering error: index is Unit".to_string())?;
-let int_ty = self.tcx.intern(TyKind::Int);
-if index_ty != int_ty {
-    return Err(format!(
-        "MIR lowering error: index expression must be Int, found {:?}",
-        index_ty
-    ));
-}
-let (result_ty, index_local_for_final) = match self.tcx.get(base_ty).clone() {
-    TyKind::Array(elem, length) => {
-        // Check if this is a constant or dynamic index
-        let index_local = match index.as_ref() {
-            omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n))
-if *n >= 0 =>
-            {
-// Constant index: check bounds at compile time
-if *n >= length as i64 {
-    return Err(format!(
-        "MIR lowering error: array index {} out of bounds for length {}",
-        n, length
-    ));
-}
-None
-            }
-            _ => {
-// Dynamic index: insert runtime bounds check
-let index_local = self.new_temp(Some("_index_local".to_string()), index_ty);
-let block = self
-    .current_block
-    .ok_or_else(|| "MIR lowering error: index has no live block".to_string())?;
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    crate::ir::Place::local(index_local),
-    crate::ir::Rvalue::Use(index_op.clone()),
-));
-// Insert bounds check for dynamic index
-self.blocks[block].statements.push(crate::ir::Statement::BoundsCheck {
-    index: index_local,
-    length: length,
-});
-Some(index_local)
-            }
-        };
-        (elem, index_local)
-    }
-    TyKind::Tuple(types) => {
-        let position = match index.as_ref() {
-            omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n))
-if *n >= 0 =>
-            {
-*n as usize
-            }
-            _ => {
-return Err(
-    "MIR lowering error: tuple index must be a constant Int"
-        .to_string(),
-)
-            }
-        };
-        (*types.get(position).ok_or_else(|| {
-            format!("MIR lowering error: tuple index {} out of bounds", position)
-        })?, None)
-    }
-    other => {
-        return Err(format!(
-            "MIR lowering error: indexing requires Array or Tuple, found {:?}",
-            other
-        ))
-    }
-};
-let block = self
-    .current_block
-    .ok_or_else(|| "MIR lowering error: index has no live block".to_string())?;
-let local = self.new_temp(Some("_index_tmp".to_string()), result_ty);
-let place = crate::ir::Place::local(local);
-
-// Use the index local if it was created for dynamic indexing, otherwise use the original operand
-let final_index_op = match index_local_for_final {
-    None => {
-        // Constant index: use original operand
-        index_op
-    }
-    Some(index_local) => {
-        // Dynamic index: use the local that was assigned and bounds-checked
-        crate::ir::Operand::Copy(crate::ir::Place::local(index_local))
-    }
-};
-
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Index { base, index: final_index_op, ty: result_ty },
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
+                let (base, base_ty) = self
+                    .lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: index base is Unit".to_string())?;
+                let (index_op, index_ty) = self
+                    .lower_expr(index)?
+                    .ok_or_else(|| "MIR lowering error: index is Unit".to_string())?;
+                let int_ty = self.tcx.intern(TyKind::Int);
+                if index_ty != int_ty {
+                    return Err(format!(
+                        "MIR lowering error: index expression must be Int, found {:?}",
+                        index_ty
+                    ));
+                }
+                let (result_ty, index_local_for_final) = match self.tcx.get(base_ty).clone() {
+                    TyKind::Array(elem, length) => {
+                        // Check if this is a constant or dynamic index
+                        let index_local = match index.as_ref() {
+                            omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n))
+                                if *n >= 0 =>
+                            {
+                                // Constant index: check bounds at compile time
+                                if *n >= length as i64 {
+                                    return Err(format!(
+                                        "MIR lowering error: array index {} out of bounds for length {}",
+                                        n, length
+                                    ));
+                                }
+                                None
+                            }
+                            _ => {
+                                // Dynamic index: insert runtime bounds check
+                                let index_local =
+                                    self.new_temp(Some("_index_local".to_string()), index_ty);
+                                let block = self.current_block.ok_or_else(|| {
+                                    "MIR lowering error: index has no live block".to_string()
+                                })?;
+                                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                                    crate::ir::Place::local(index_local),
+                                    crate::ir::Rvalue::Use(index_op.clone()),
+                                ));
+                                // Insert bounds check for dynamic index
+                                self.blocks[block].statements.push(
+                                    crate::ir::Statement::BoundsCheck {
+                                        index: index_local,
+                                        length: length,
+                                    },
+                                );
+                                Some(index_local)
+                            }
+                        };
+                        (elem, index_local)
+                    }
+                    TyKind::Tuple(types) => {
+                        let position = match index.as_ref() {
+                            omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n))
+                                if *n >= 0 =>
+                            {
+                                *n as usize
+                            }
+                            _ => {
+                                return Err(
+                                    "MIR lowering error: tuple index must be a constant Int"
+                                        .to_string(),
+                                )
+                            }
+                        };
+                        (
+                            *types.get(position).ok_or_else(|| {
+                                format!(
+                                    "MIR lowering error: tuple index {} out of bounds",
+                                    position
+                                )
+                            })?,
+                            None,
+                        )
+                    }
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: indexing requires Array or Tuple, found {:?}",
+                            other
+                        ))
+                    }
+                };
+                let block = self
+                    .current_block
+                    .ok_or_else(|| "MIR lowering error: index has no live block".to_string())?;
+                let local = self.new_temp(Some("_index_tmp".to_string()), result_ty);
+                let place = crate::ir::Place::local(local);
+                
+                // Use the index local if it was created for dynamic indexing, otherwise use the original operand
+                let final_index_op = match index_local_for_final {
+                    None => {
+                        // Constant index: use original operand
+                        index_op
+                    }
+                    Some(index_local) => {
+                        // Dynamic index: use the local that was assigned and bounds-checked
+                        crate::ir::Operand::Copy(crate::ir::Place::local(index_local))
+                    }
+                };
+                
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Index { base, index: final_index_op, ty: result_ty },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
             }
             omni_types::ast::Expr::Struct { name, generic_args, fields } => {
-let args = generic_args
-    .iter()
-    .map(|spec| self.tcx.lower_type_spec(spec, self.subst))
-    .collect::<Vec<_>>();
-let ty = self.tcx.intern(TyKind::Struct(name.clone(), args));
-let mut lowered_fields = Vec::with_capacity(fields.len());
-for (field_name, value) in fields {
-    let (operand, _) = self.lower_expr(value)?.ok_or_else(|| {
-        format!("MIR lowering error: struct field '{}' is Unit", field_name)
-    })?;
-    lowered_fields.push((field_name.clone(), operand));
-}
-let block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: struct literal has no live block".to_string()
-})?;
-let local = self.new_temp(Some("_struct_tmp".to_string()), ty);
-let place = crate::ir::Place::local(local);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Struct { name: name.clone(), fields: lowered_fields, ty },
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), ty)))
+                let args = generic_args
+                    .iter()
+                    .map(|spec| self.tcx.lower_type_spec(spec, self.subst))
+                    .collect::<Vec<_>>();
+                let ty = self.tcx.intern(TyKind::Struct(name.clone(), args));
+                let mut lowered_fields = Vec::with_capacity(fields.len());
+                for (field_name, value) in fields {
+                    let (operand, _) = self.lower_expr(value)?.ok_or_else(|| {
+                        format!("MIR lowering error: struct field '{}' is Unit", field_name)
+                    })?;
+                    lowered_fields.push((field_name.clone(), operand));
+                }
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: struct literal has no live block".to_string()
+                })?;
+                let local = self.new_temp(Some("_struct_tmp".to_string()), ty);
+                let place = crate::ir::Place::local(local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Struct { name: name.clone(), fields: lowered_fields, ty },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), ty)))
             }
             omni_types::ast::Expr::EnumVariant { enum_name, variant, generic_args, args } => {
-let generic_tys = generic_args
-    .iter()
-    .map(|spec| self.tcx.lower_type_spec(spec, self.subst))
-    .collect::<Vec<_>>();
-let ty = self.tcx.intern(TyKind::Enum(enum_name.clone(), generic_tys));
-let mut operands = Vec::with_capacity(args.len());
-for arg in args {
-    let (operand, _) = self.lower_expr(arg)?.ok_or_else(|| {
-        format!(
-            "MIR lowering error: enum constructor '{}::{}' contains Unit payload",
-            enum_name, variant
-        )
-    })?;
-    operands.push(operand);
-}
-let block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: enum constructor has no live block".to_string()
-})?;
-let local = self.new_temp(Some("_enum_tmp".to_string()), ty);
-let place = crate::ir::Place::local(local);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::EnumVariant {
-        enum_name: enum_name.clone(),
-        variant: variant.clone(),
-        operands,
-        ty,
-    },
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), ty)))
+                let generic_tys = generic_args
+                    .iter()
+                    .map(|spec| self.tcx.lower_type_spec(spec, self.subst))
+                    .collect::<Vec<_>>();
+                let ty = self.tcx.intern(TyKind::Enum(enum_name.clone(), generic_tys));
+                let mut operands = Vec::with_capacity(args.len());
+                for arg in args {
+                    let (operand, _) = self.lower_expr(arg)?.ok_or_else(|| {
+                        format!(
+                            "MIR lowering error: enum constructor '{}::{}' contains Unit payload",
+                            enum_name, variant
+                        )
+                    })?;
+                    operands.push(operand);
+                }
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: enum constructor has no live block".to_string()
+                })?;
+                let local = self.new_temp(Some("_enum_tmp".to_string()), ty);
+                let place = crate::ir::Place::local(local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::EnumVariant {
+                        enum_name: enum_name.clone(),
+                        variant: variant.clone(),
+                        operands,
+                        ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), ty)))
             }
             omni_types::ast::Expr::Call { func, generic_args: _, args } => {
-let (param_tys, ret_ty) = self.fn_sigs.get(func).cloned().ok_or_else(|| {
-    format!(
-        "MIR lowering error: call target '{}' is not present in monomorphized program",
-        func
-    )
-})?;
-if args.len() != param_tys.len() {
-    return Err(format!(
-        "MIR lowering error in call '{}': expected {} arguments, found {}",
-        func,
-        param_tys.len(),
-        args.len()
-    ));
-}
+                let (param_tys, ret_ty) = self.fn_sigs.get(func).cloned().ok_or_else(|| {
+                    format!(
+                        "MIR lowering error: call target '{}' is not present in monomorphized program",
+                        func
+                    )
+                })?;
+                if args.len() != param_tys.len() {
+                    return Err(format!(
+                        "MIR lowering error in call '{}': expected {} arguments, found {}",
+                        func,
+                        param_tys.len(),
+                        args.len()
+                    ));
+                }
 
-let mut arg_ops = Vec::with_capacity(args.len());
-for (arg, expected_ty) in args.iter().zip(param_tys.iter()) {
-    let (arg_op, arg_ty) = self.lower_expr(arg)?.ok_or_else(|| {
-        "MIR lowering error: Unit-valued call argument".to_string()
-    })?;
-    if arg_ty != *expected_ty {
-        return Err(format!(
-            "MIR lowering error in call '{}': expected argument type {:?}, found {:?}",
-            func, expected_ty, arg_ty
-        ));
-    }
-    arg_ops.push(arg_op);
-}
+                let mut arg_ops = Vec::with_capacity(args.len());
+                for (arg, expected_ty) in args.iter().zip(param_tys.iter()) {
+                    let (arg_op, arg_ty) = self.lower_expr(arg)?.ok_or_else(|| {
+                        "MIR lowering error: Unit-valued call argument".to_string()
+                    })?;
+                    if arg_ty != *expected_ty {
+                        return Err(format!(
+                            "MIR lowering error in call '{}': expected argument type {:?}, found {:?}",
+                            func, expected_ty, arg_ty
+                        ));
+                    }
+                    arg_ops.push(arg_op);
+                }
 
-let curr_block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: call has no live continuation block".to_string()
-})?;
-let next_block = self.new_block();
-let destination = if ret_ty == self.tcx.intern(TyKind::Unit) {
-    None
-} else {
-    let dest_local = self.new_temp(Some("_call_dest".to_string()), ret_ty);
-    Some(crate::ir::Place::local(dest_local))
-};
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: call has no live continuation block".to_string()
+                })?;
+                let next_block = self.new_block();
+                let destination = if ret_ty == self.tcx.intern(TyKind::Unit) {
+                    None
+                } else {
+                    let dest_local = self.new_temp(Some("_call_dest".to_string()), ret_ty);
+                    Some(crate::ir::Place::local(dest_local))
+                };
 
-self.blocks[curr_block].terminator = Some(crate::ir::Terminator::Call {
-    func: crate::ir::Operand::Constant(crate::ir::Constant::FnRef(func.clone())),
-    args: arg_ops,
-    destination: destination.clone(),
-    target: next_block,
-    cleanup: None,
-});
-self.current_block = Some(next_block);
+                self.blocks[curr_block].terminator = Some(crate::ir::Terminator::Call {
+                    func: crate::ir::Operand::Constant(crate::ir::Constant::FnRef(func.clone())),
+                    args: arg_ops,
+                    destination: destination.clone(),
+                    target: next_block,
+                    cleanup: None,
+                });
+                self.current_block = Some(next_block);
 
-match destination {
-    Some(place) => Ok(Some((crate::ir::Operand::Copy(place.clone()), ret_ty))),
-    None => Ok(None),
-}
+                match destination {
+                    Some(place) => Ok(Some((crate::ir::Operand::Copy(place.clone()), ret_ty))),
+                    None => Ok(None),
+                }
             }
             omni_types::ast::Expr::Assign { target, value } => {
-let (target_place, target_ty) = self.lower_assign_place(target)?;
-let (value_op, value_ty) = self
-    .lower_expr(value)?
-    .ok_or_else(|| "MIR lowering error: assignment value is Unit".to_string())?;
-if target_ty != value_ty {
-    return Err(format!(
-        "MIR lowering error: assignment to {} expects {:?}, found {:?}",
-        target_place, target_ty, value_ty
-    ));
-}
-let block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: assignment has no live block".to_string()
-})?;
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    target_place.clone(),
-    crate::ir::Rvalue::Use(value_op),
-));
-Ok(Some((crate::ir::Operand::Copy(target_place.clone()), target_ty)))
+                let (target_place, target_ty) = self.lower_assign_place(target)?;
+                let (value_op, value_ty) = self
+                    .lower_expr(value)?
+                    .ok_or_else(|| "MIR lowering error: assignment value is Unit".to_string())?;
+                if target_ty != value_ty {
+                    return Err(format!(
+                        "MIR lowering error: assignment to {} expects {:?}, found {:?}",
+                        target_place, target_ty, value_ty
+                    ));
+                }
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: assignment has no live block".to_string()
+                })?;
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    target_place.clone(),
+                    crate::ir::Rvalue::Use(value_op),
+                ));
+                Ok(Some((crate::ir::Operand::Copy(target_place.clone()), target_ty)))
             }
             omni_types::ast::Expr::Range { start, end, inclusive } => {
-let (start_op, start_ty) = self
-    .lower_expr(start)?
-    .ok_or_else(|| "MIR lowering error: range start is Unit".to_string())?;
-let (end_op, end_ty) = self
-    .lower_expr(end)?
-    .ok_or_else(|| "MIR lowering error: range end is Unit".to_string())?;
-if start_ty != end_ty {
-    return Err(format!(
-        "MIR lowering error: range endpoints have incompatible types {:?} and {:?}",
-        start_ty, end_ty
-    ));
-}
-if !matches!(self.tcx.get(start_ty), TyKind::Int | TyKind::Byte | TyKind::Char) {
-    return Err(
-        "MIR lowering error: only scalar ranges are representable by current MIR"
-            .into(),
-    );
-}
-let range_ty = self.tcx.intern(TyKind::Range(start_ty));
-let block = self
-    .current_block
-    .ok_or_else(|| "MIR lowering error: range has no live block".to_string())?;
-let local = self.new_temp(Some("_range_tmp".to_string()), range_ty);
-let place = crate::ir::Place::local(local);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Range {
-        start: start_op,
-        end: end_op,
-        inclusive: *inclusive,
-        ty: range_ty,
-    },
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), range_ty)))
+                let (start_op, start_ty) = self
+                    .lower_expr(start)?
+                    .ok_or_else(|| "MIR lowering error: range start is Unit".to_string())?;
+                let (end_op, end_ty) = self
+                    .lower_expr(end)?
+                    .ok_or_else(|| "MIR lowering error: range end is Unit".to_string())?;
+                if start_ty != end_ty {
+                    return Err(format!(
+                        "MIR lowering error: range endpoints have incompatible types {:?} and {:?}",
+                        start_ty, end_ty
+                    ));
+                }
+                if !matches!(self.tcx.get(start_ty), TyKind::Int | TyKind::Byte | TyKind::Char) {
+                    return Err(
+                        "MIR lowering error: only scalar ranges are representable by current MIR"
+                            .into(),
+                    );
+                }
+                let range_ty = self.tcx.intern(TyKind::Range(start_ty));
+                let block = self
+                    .current_block
+                    .ok_or_else(|| "MIR lowering error: range has no live block".to_string())?;
+                let local = self.new_temp(Some("_range_tmp".to_string()), range_ty);
+                let place = crate::ir::Place::local(local);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Range {
+                        start: start_op,
+                        end: end_op,
+                        inclusive: *inclusive,
+                        ty: range_ty,
+                    },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), range_ty)))
             }
             omni_types::ast::Expr::Cast { expr, ty } => {
-let (operand, from_ty) = self
-    .lower_expr(expr)?
-    .ok_or_else(|| "MIR lowering error: cast source is Unit".to_string())?;
-let to_ty = self.tcx.lower_type_spec(ty, self.subst);
-let scalar = |t: Ty, tcx: &TyCtxt| {
-    matches!(tcx.get(t), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float)
-};
-if !scalar(from_ty, self.tcx) || !scalar(to_ty, self.tcx) {
-    return Err(format!(
-        "MIR lowering error: unsupported non-scalar cast {:?} -> {:?}",
-        from_ty, to_ty
-    ));
-}
-let block = self
-    .current_block
-    .ok_or_else(|| "MIR lowering error: cast has no live block".to_string())?;
-let temp = self.new_temp(Some("_cast_tmp".to_string()), to_ty);
-let place = crate::ir::Place::local(temp);
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    place.clone(),
-    crate::ir::Rvalue::Cast { operand, from: from_ty, to: to_ty },
-));
-Ok(Some((crate::ir::Operand::Copy(place.clone()), to_ty)))
+                let (operand, from_ty) = self
+                    .lower_expr(expr)?
+                    .ok_or_else(|| "MIR lowering error: cast source is Unit".to_string())?;
+                let to_ty = self.tcx.lower_type_spec(ty, self.subst);
+                let scalar = |t: Ty, tcx: &TyCtxt| {
+                    matches!(tcx.get(t), TyKind::Int | TyKind::Byte | TyKind::Char | TyKind::Float)
+                };
+                if !scalar(from_ty, self.tcx) || !scalar(to_ty, self.tcx) {
+                    return Err(format!(
+                        "MIR lowering error: unsupported non-scalar cast {:?} -> {:?}",
+                        from_ty, to_ty
+                    ));
+                }
+                let block = self
+                    .current_block
+                    .ok_or_else(|| "MIR lowering error: cast has no live block".to_string())?;
+                let temp = self.new_temp(Some("_cast_tmp".to_string()), to_ty);
+                let place = crate::ir::Place::local(temp);
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    place.clone(),
+                    crate::ir::Rvalue::Cast { operand, from: from_ty, to: to_ty },
+                ));
+                Ok(Some((crate::ir::Operand::Copy(place.clone()), to_ty)))
             }
             omni_types::ast::Expr::CompoundAssign { op, target, value } => {
-let omni_types::ast::Expr::Var(name) = target.as_ref() else {
-    return Err("MIR lowering error: compound assignment target must be a local variable in the native backend".into());
-};
-let target_local = *self.scope.get(name).ok_or_else(|| {
-    format!(
-        "MIR lowering error: compound assignment target '{}' is not bound",
-        name
-    )
-})?;
-let target_place = crate::ir::Place::local(target_local);
-let target_ty = self.local_ty(target_local)?;
-let target_op = crate::ir::Operand::Copy(target_place.clone());
-let (value_op, value_ty) = self.lower_expr(value)?.ok_or_else(|| {
-    "MIR lowering error: compound assignment value is Unit".to_string()
-})?;
-if target_ty != value_ty {
-    return Err(format!(
-        "MIR lowering error: compound assignment operands have incompatible types {:?} and {:?}",
-        target_ty, value_ty
-    ));
-}
-let mir_op = match op {
-    omni_types::ast::AssignOp::Add => crate::ir::BinOp::Add,
-    omni_types::ast::AssignOp::Sub => crate::ir::BinOp::Sub,
-    omni_types::ast::AssignOp::Mul => crate::ir::BinOp::Mul,
-    omni_types::ast::AssignOp::Div => crate::ir::BinOp::Div,
-    omni_types::ast::AssignOp::Rem => crate::ir::BinOp::Rem,
-    omni_types::ast::AssignOp::BitAnd => crate::ir::BinOp::BitAnd,
-    omni_types::ast::AssignOp::BitOr => crate::ir::BinOp::BitOr,
-    omni_types::ast::AssignOp::BitXor => crate::ir::BinOp::BitXor,
-    omni_types::ast::AssignOp::Shl => crate::ir::BinOp::Shl,
-    omni_types::ast::AssignOp::Shr => crate::ir::BinOp::Shr,
-    omni_types::ast::AssignOp::Assign => {
-        return Err(
-            "MIR lowering error: plain assignment is not a compound operation"
-.into(),
-        );
-    }
-};
-let block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: compound assignment has no live block".to_string()
-})?;
-self.blocks[block].statements.push(crate::ir::Statement::Assign(
-    target_place.clone(),
-    crate::ir::Rvalue::BinaryOp(mir_op, target_op, value_op),
-));
-Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
+                let omni_types::ast::Expr::Var(name) = target.as_ref() else {
+                    return Err("MIR lowering error: compound assignment target must be a local variable in the native backend".into());
+                };
+                let target_local = *self.scope.get(name).ok_or_else(|| {
+                    format!(
+                        "MIR lowering error: compound assignment target '{}' is not bound",
+                        name
+                    )
+                })?;
+                let target_place = crate::ir::Place::local(target_local);
+                let target_ty = self.local_ty(target_local)?;
+                let target_op = crate::ir::Operand::Copy(target_place.clone());
+                let (value_op, value_ty) = self.lower_expr(value)?.ok_or_else(|| {
+                    "MIR lowering error: compound assignment value is Unit".to_string()
+                })?;
+                if target_ty != value_ty {
+                    return Err(format!(
+                        "MIR lowering error: compound assignment operands have incompatible types {:?} and {:?}",
+                        target_ty, value_ty
+                    ));
+                }
+                let mir_op = match op {
+                    omni_types::ast::AssignOp::Add => crate::ir::BinOp::Add,
+                    omni_types::ast::AssignOp::Sub => crate::ir::BinOp::Sub,
+                    omni_types::ast::AssignOp::Mul => crate::ir::BinOp::Mul,
+                    omni_types::ast::AssignOp::Div => crate::ir::BinOp::Div,
+                    omni_types::ast::AssignOp::Rem => crate::ir::BinOp::Rem,
+                    omni_types::ast::AssignOp::BitAnd => crate::ir::BinOp::BitAnd,
+                    omni_types::ast::AssignOp::BitOr => crate::ir::BinOp::BitOr,
+                    omni_types::ast::AssignOp::BitXor => crate::ir::BinOp::BitXor,
+                    omni_types::ast::AssignOp::Shl => crate::ir::BinOp::Shl,
+                    omni_types::ast::AssignOp::Shr => crate::ir::BinOp::Shr,
+                    omni_types::ast::AssignOp::Assign => {
+                        return Err(
+                            "MIR lowering error: plain assignment is not a compound operation"
+                                .into(),
+                        );
+                    }
+                };
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: compound assignment has no live block".to_string()
+                })?;
+                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                    target_place.clone(),
+                    crate::ir::Rvalue::BinaryOp(mir_op, target_op, value_op),
+                ));
+                Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
             }
             omni_types::ast::Expr::If { condition, then_branch, else_branch } => {
-self.lower_if_expression(condition, then_branch, else_branch.as_deref())
+                self.lower_if_expression(condition, then_branch, else_branch.as_deref())
             }
             omni_types::ast::Expr::Loop { label, body } => {
-self.lower_loop_expression(label.as_deref(), body)
+                self.lower_loop_expression(label.as_deref(), body)
             }
             omni_types::ast::Expr::While { label, condition, body } => {
-self.lower_while_expression(label.as_deref(), condition, body)
+                self.lower_while_expression(label.as_deref(), condition, body)
             }
             omni_types::ast::Expr::For { label, pattern, iterable, body } => {
-self.lower_for_expression(label.as_deref(), pattern, iterable, body)
+                self.lower_for_expression(label.as_deref(), pattern, iterable, body)
             }
             omni_types::ast::Expr::Match { expr, arms } => self.lower_match_expression(expr, arms),
             omni_types::ast::Expr::Return(opt_expr) => {
-let ret_result = if let Some(inner) = opt_expr {
-    let value = self.lower_expr(inner)?.ok_or_else(|| {
-        "MIR lowering error: explicit return expression evaluates to Unit"
-            .to_string()
-    })?;
-    if value.1 != self.return_ty {
-        return Err(format!(
-            "MIR lowering error: return expression has type {:?}, expected {:?}",
-            value.1, self.return_ty
-        ));
-    }
-    Some(value)
-} else {
-    let unit_ty = self.tcx.intern(TyKind::Unit);
-    if self.return_ty != unit_ty {
-        return Err(format!(
-            "MIR lowering error: bare return requires Unit return type, found {:?}",
-            self.return_ty
-        ));
-    }
-    None
-};
+                let ret_result = if let Some(inner) = opt_expr {
+                    let value = self.lower_expr(inner)?.ok_or_else(|| {
+                        "MIR lowering error: explicit return expression evaluates to Unit"
+                            .to_string()
+                    })?;
+                    if value.1 != self.return_ty {
+                        return Err(format!(
+                            "MIR lowering error: return expression has type {:?}, expected {:?}",
+                            value.1, self.return_ty
+                        ));
+                    }
+                    Some(value)
+                } else {
+                    let unit_ty = self.tcx.intern(TyKind::Unit);
+                    if self.return_ty != unit_ty {
+                        return Err(format!(
+                            "MIR lowering error: bare return requires Unit return type, found {:?}",
+                            self.return_ty
+                        ));
+                    }
+                    None
+                };
 
-let curr_block = self.current_block.ok_or_else(|| {
-    "MIR lowering error: return has no live continuation block".to_string()
-})?;
-if let Some((operand, _)) = &ret_result {
-    let ret_p = crate::ir::Place::local(crate::ir::Local::from_usize(0));
-    self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
-        ret_p,
-        crate::ir::Rvalue::Use(operand.clone()),
-    ));
-}
-self.blocks[curr_block].terminator = Some(crate::ir::Terminator::Return);
-self.current_block = None;
-self.diverged = true;
-Ok(ret_result)
+                let curr_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: return has no live continuation block".to_string()
+                })?;
+                if let Some((operand, _)) = &ret_result {
+                    let ret_p = crate::ir::Place::local(crate::ir::Local::from_usize(0));
+                    self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
+                        ret_p,
+                        crate::ir::Rvalue::Use(operand.clone()),
+                    ));
+                }
+                self.blocks[curr_block].terminator = Some(crate::ir::Terminator::Return);
+                self.current_block = None;
+                self.diverged = true;
+                Ok(ret_result)
             }
             omni_types::ast::Expr::Break { label, value } => {
-self.lower_break_expression(label.as_deref(), value.as_deref())
+                self.lower_break_expression(label.as_deref(), value.as_deref())
             }
             omni_types::ast::Expr::Continue { label } => {
-self.lower_continue_expression(label.as_deref())
+                self.lower_continue_expression(label.as_deref())
             }
             unsupported => {
-Err(format!("Unsupported AST expression form for MIR lowering: {:?}", unsupported))
+                Err(format!("Unsupported AST expression form for MIR lowering: {:?}", unsupported))
             }
         }
     }
@@ -1889,8 +1898,8 @@ mod tests {
             .iter()
             .flat_map(|b| b.statements.iter())
             .filter_map(|s| match s {
-crate::ir::Statement::Assign(place, _) => Some(place.clone()),
-_ => None,
+                crate::ir::Statement::Assign(place, _) => Some(place.clone()),
+                _ => None,
             })
             .collect()
     }
@@ -1903,14 +1912,14 @@ _ => None,
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "f".to_string(),
-type_params: vec![],
-bounds: vec![],
-params,
-return_type: TypeSpec::Int,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body,
+                name: "f".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params,
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body,
             }],
         };
         ctx.lower_monomorphized_program(&prog).map(|mut mir| mir.functions.remove(0))
@@ -1927,11 +1936,11 @@ body,
         let func = lower_with(
             vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
             Expr::Assign {
-target: Box::new(Expr::Field {
-    expr: Box::new(Expr::Var("p".to_string())),
-    field: "0".to_string(),
-}),
-value: Box::new(Expr::Literal(Lit::Int(30))),
+                target: Box::new(Expr::Field {
+                    expr: Box::new(Expr::Var("p".to_string())),
+                    field: "0".to_string(),
+                }),
+                value: Box::new(Expr::Literal(Lit::Int(30))),
             },
         )
         .expect("lowering should succeed");
@@ -1947,11 +1956,11 @@ value: Box::new(Expr::Literal(Lit::Int(30))),
         let func = lower_with(
             vec![("a".to_string(), TypeSpec::Array(Box::new(TypeSpec::Int), 3))],
             Expr::Assign {
-target: Box::new(Expr::Index {
-    expr: Box::new(Expr::Var("a".to_string())),
-    index: Box::new(Expr::Literal(Lit::Int(1))),
-}),
-value: Box::new(Expr::Literal(Lit::Int(9))),
+                target: Box::new(Expr::Index {
+                    expr: Box::new(Expr::Var("a".to_string())),
+                    index: Box::new(Expr::Literal(Lit::Int(1))),
+                }),
+                value: Box::new(Expr::Literal(Lit::Int(9))),
             },
         )
         .expect("lowering should succeed");
@@ -1978,11 +1987,11 @@ value: Box::new(Expr::Literal(Lit::Int(9))),
         let err = lower_with(
             vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
             Expr::Assign {
-target: Box::new(Expr::Field {
-    expr: Box::new(Expr::Var("p".to_string())),
-    field: "5".to_string(),
-}),
-value: Box::new(Expr::Literal(Lit::Int(1))),
+                target: Box::new(Expr::Field {
+                    expr: Box::new(Expr::Var("p".to_string())),
+                    field: "5".to_string(),
+                }),
+                value: Box::new(Expr::Literal(Lit::Int(1))),
             },
         )
         .unwrap_err();
@@ -1994,11 +2003,11 @@ value: Box::new(Expr::Literal(Lit::Int(1))),
         let err = lower_with(
             vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
             Expr::Assign {
-target: Box::new(Expr::Field {
-    expr: Box::new(Expr::Var("p".to_string())),
-    field: "0".to_string(),
-}),
-value: Box::new(Expr::Literal(Lit::Bool(true))),
+                target: Box::new(Expr::Field {
+                    expr: Box::new(Expr::Var("p".to_string())),
+                    field: "0".to_string(),
+                }),
+                value: Box::new(Expr::Literal(Lit::Bool(true))),
             },
         )
         .unwrap_err();
@@ -2012,11 +2021,11 @@ value: Box::new(Expr::Literal(Lit::Bool(true))),
         let err = lower_with(
             vec![("a".to_string(), TypeSpec::Array(Box::new(TypeSpec::Int), 2))],
             Expr::Assign {
-target: Box::new(Expr::Index {
-    expr: Box::new(Expr::Var("a".to_string())),
-    index: Box::new(Expr::Literal(Lit::Int(7))),
-}),
-value: Box::new(Expr::Literal(Lit::Int(1))),
+                target: Box::new(Expr::Index {
+                    expr: Box::new(Expr::Var("a".to_string())),
+                    index: Box::new(Expr::Literal(Lit::Int(7))),
+                }),
+                value: Box::new(Expr::Literal(Lit::Int(1))),
             },
         )
         .unwrap_err();
@@ -2028,18 +2037,18 @@ value: Box::new(Expr::Literal(Lit::Int(1))),
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "logic".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![("a".to_string(), TypeSpec::Bool), ("b".to_string(), TypeSpec::Bool)],
-return_type: TypeSpec::Bool,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::Binary {
-    op: omni_types::ast::BinOp::LogicalAnd,
-    lhs: Box::new(Expr::Var("a".to_string())),
-    rhs: Box::new(Expr::Var("b".to_string())),
-},
+                name: "logic".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("a".to_string(), TypeSpec::Bool), ("b".to_string(), TypeSpec::Bool)],
+                return_type: TypeSpec::Bool,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Binary {
+                    op: omni_types::ast::BinOp::LogicalAnd,
+                    lhs: Box::new(Expr::Var("a".to_string())),
+                    rhs: Box::new(Expr::Var("b".to_string())),
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&prog).expect("logical lowering");
@@ -2061,28 +2070,28 @@ body: Expr::Binary {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "choose".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![("x".to_string(), TypeSpec::Int)],
-return_type: TypeSpec::Int,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::Match {
-    expr: Box::new(Expr::Var("x".to_string())),
-    arms: vec![
-        omni_types::ast::MatchArm {
-            pattern: omni_types::ast::Pattern::Lit(omni_types::ast::Lit::Int(0)),
-            guard: None,
-            body: Expr::Literal(omni_types::ast::Lit::Int(10)),
-        },
-        omni_types::ast::MatchArm {
-            pattern: omni_types::ast::Pattern::Wildcard,
-            guard: None,
-            body: Expr::Literal(omni_types::ast::Lit::Int(20)),
-        },
-    ],
-},
+                name: "choose".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("x".to_string(), TypeSpec::Int)],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Match {
+                    expr: Box::new(Expr::Var("x".to_string())),
+                    arms: vec![
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Lit(omni_types::ast::Lit::Int(0)),
+                            guard: None,
+                            body: Expr::Literal(omni_types::ast::Lit::Int(10)),
+                        },
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Wildcard,
+                            guard: None,
+                            body: Expr::Literal(omni_types::ast::Lit::Int(20)),
+                        },
+                    ],
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&prog).expect("scalar match lowering");
@@ -2093,12 +2102,12 @@ body: Expr::Match {
             .any(|b| { matches!(b.terminator, Some(crate::ir::Terminator::SwitchInt { .. })) }));
         assert!(
             mir.functions[0]
-.body
-.blocks
-.iter()
-.filter(|b| { matches!(b.terminator, Some(crate::ir::Terminator::Goto(_))) })
-.count()
->= 2
+                .body
+                .blocks
+                .iter()
+                .filter(|b| { matches!(b.terminator, Some(crate::ir::Terminator::Goto(_))) })
+                .count()
+                >= 2
         );
     }
 
@@ -2107,20 +2116,20 @@ body: Expr::Match {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "count".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Int,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::Loop {
-    label: None,
-    body: Box::new(Expr::Break {
-        label: None,
-        value: Some(Box::new(Expr::Literal(omni_types::ast::Lit::Int(7)))),
-    }),
-},
+                name: "count".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Loop {
+                    label: None,
+                    body: Box::new(Expr::Break {
+                        label: None,
+                        value: Some(Box::new(Expr::Literal(omni_types::ast::Lit::Int(7)))),
+                    }),
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&prog).expect("loop lowering");
@@ -2141,17 +2150,17 @@ body: Expr::Loop {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "spin_forever".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Never,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::Loop {
-    label: Some("spin".to_string()),
-    body: Box::new(Expr::Continue { label: Some("spin".to_string()) }),
-},
+                name: "spin_forever".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Never,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Loop {
+                    label: Some("spin".to_string()),
+                    body: Box::new(Expr::Continue { label: Some("spin".to_string()) }),
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&prog).expect("infinite loop lowering");
@@ -2167,18 +2176,18 @@ body: Expr::Loop {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "spin".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Unit,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::While {
-    label: None,
-    condition: Box::new(Expr::Literal(omni_types::ast::Lit::Bool(true))),
-    body: Box::new(Expr::Continue { label: None }),
-},
+                name: "spin".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::While {
+                    label: None,
+                    condition: Box::new(Expr::Literal(omni_types::ast::Lit::Bool(true))),
+                    body: Box::new(Expr::Continue { label: None }),
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&prog).expect("continue lowering");
@@ -2190,23 +2199,23 @@ body: Expr::While {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "loop_fn".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![("x".to_string(), TypeSpec::Int)],
-return_type: TypeSpec::Int,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::Loop {
-    label: None,
-    body: Box::new(Expr::Block(vec![
-        Expr::Continue { label: None },
-        Expr::Break {
-            label: None,
-            value: Some(Box::new(Expr::Var("x".to_string()))),
-        },
-    ])),
-},
+                name: "loop_fn".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("x".to_string(), TypeSpec::Int)],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Loop {
+                    label: None,
+                    body: Box::new(Expr::Block(vec![
+                        Expr::Continue { label: None },
+                        Expr::Break {
+                            label: None,
+                            value: Some(Box::new(Expr::Var("x".to_string()))),
+                        },
+                    ])),
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&prog).expect("loop lowering");
@@ -2227,27 +2236,27 @@ body: Expr::Loop {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "sum".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![("sum".to_string(), TypeSpec::Int)],
-return_type: TypeSpec::Unit,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::For {
-    label: None,
-    pattern: omni_types::ast::Pattern::Binding("i".to_string()),
-    iterable: Box::new(Expr::Range {
-        start: Box::new(Expr::Literal(omni_types::ast::Lit::Int(0))),
-        end: Box::new(Expr::Literal(omni_types::ast::Lit::Int(3))),
-        inclusive: false,
-    }),
-    body: Box::new(Expr::CompoundAssign {
-        op: omni_types::ast::AssignOp::Add,
-        target: Box::new(Expr::Var("sum".to_string())),
-        value: Box::new(Expr::Var("i".to_string())),
-    }),
-},
+                name: "sum".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("sum".to_string(), TypeSpec::Int)],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::For {
+                    label: None,
+                    pattern: omni_types::ast::Pattern::Binding("i".to_string()),
+                    iterable: Box::new(Expr::Range {
+                        start: Box::new(Expr::Literal(omni_types::ast::Lit::Int(0))),
+                        end: Box::new(Expr::Literal(omni_types::ast::Lit::Int(3))),
+                        inclusive: false,
+                    }),
+                    body: Box::new(Expr::CompoundAssign {
+                        op: omni_types::ast::AssignOp::Add,
+                        target: Box::new(Expr::Var("sum".to_string())),
+                        value: Box::new(Expr::Var("i".to_string())),
+                    }),
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&prog).expect("for lowering");
@@ -2258,12 +2267,12 @@ body: Expr::For {
             .any(|b| { matches!(b.terminator, Some(crate::ir::Terminator::SwitchInt { .. })) }));
         assert!(
             mir.functions[0]
-.body
-.blocks
-.iter()
-.filter(|b| { matches!(b.terminator, Some(crate::ir::Terminator::Goto(_))) })
-.count()
->= 3
+                .body
+                .blocks
+                .iter()
+                .filter(|b| { matches!(b.terminator, Some(crate::ir::Terminator::Goto(_))) })
+                .count()
+                >= 3
         );
         assert!(mir.functions[0]
             .body
@@ -2277,18 +2286,18 @@ body: Expr::For {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "while_fn".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![("x".to_string(), TypeSpec::Bool)],
-return_type: TypeSpec::Unit,
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::While {
-    label: Some("outer".to_string()),
-    condition: Box::new(Expr::Var("x".to_string())),
-    body: Box::new(Expr::Break { label: Some("outer".to_string()), value: None }),
-},
+                name: "while_fn".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("x".to_string(), TypeSpec::Bool)],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::While {
+                    label: Some("outer".to_string()),
+                    condition: Box::new(Expr::Var("x".to_string())),
+                    body: Box::new(Expr::Break { label: Some("outer".to_string()), value: None }),
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&prog).expect("while lowering");
@@ -2299,12 +2308,12 @@ body: Expr::While {
             .any(|b| { matches!(b.terminator, Some(crate::ir::Terminator::SwitchInt { .. })) }));
         assert!(
             mir.functions[0]
-.body
-.blocks
-.iter()
-.filter(|b| { matches!(b.terminator, Some(crate::ir::Terminator::Goto(_))) })
-.count()
->= 2
+                .body
+                .blocks
+                .iter()
+                .filter(|b| { matches!(b.terminator, Some(crate::ir::Terminator::Goto(_))) })
+                .count()
+                >= 2
         );
     }
 
@@ -2324,21 +2333,21 @@ body: Expr::While {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "struct_ctor".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Struct("Pair".to_string(), vec![]),
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::Struct {
-    name: "Pair".to_string(),
-    generic_args: vec![],
-    fields: vec![
-        ("first".to_string(), Expr::Literal(Lit::Int(1))),
-        ("second".to_string(), Expr::Literal(Lit::Int(2))),
-    ],
-},
+                name: "struct_ctor".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Struct("Pair".to_string(), vec![]),
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Struct {
+                    name: "Pair".to_string(),
+                    generic_args: vec![],
+                    fields: vec![
+                        ("first".to_string(), Expr::Literal(Lit::Int(1))),
+                        ("second".to_string(), Expr::Literal(Lit::Int(2))),
+                    ],
+                },
             }],
         };
         let mut mir =
@@ -2348,9 +2357,9 @@ body: Expr::Struct {
         let ty = mir.tcx.intern(TyKind::Struct("Pair".to_string(), vec![]));
         assert!(
             f.body.blocks.iter().any(|b| b.statements.iter().any(|s| matches!(
-s,
-crate::ir::Statement::Assign(_, crate::ir::Rvalue::Struct { name, ty: t, .. })
-    if name == "Pair" && *t == ty
+                s,
+                crate::ir::Statement::Assign(_, crate::ir::Rvalue::Struct { name, ty: t, .. })
+                    if name == "Pair" && *t == ty
             ))),
             "struct construction must emit a typed Rvalue::Struct"
         );
@@ -2361,19 +2370,19 @@ crate::ir::Statement::Assign(_, crate::ir::Rvalue::Struct { name, ty: t, .. })
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "enum_ctor".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Enum("Option".to_string(), vec![TypeSpec::Int]),
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::EnumVariant {
-    enum_name: "Option".to_string(),
-    variant: "None".to_string(),
-    generic_args: vec![TypeSpec::Int],
-    args: vec![],
-},
+                name: "enum_ctor".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Enum("Option".to_string(), vec![TypeSpec::Int]),
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::EnumVariant {
+                    enum_name: "Option".to_string(),
+                    variant: "None".to_string(),
+                    generic_args: vec![TypeSpec::Int],
+                    args: vec![],
+                },
             }],
         };
         let mut mir =
@@ -2383,11 +2392,11 @@ body: Expr::EnumVariant {
         let ty = mir.tcx.intern(TyKind::Enum("Option".to_string(), vec![int_ty]));
         assert!(
             f.body.blocks.iter().any(|b| b.statements.iter().any(|s| matches!(
-s,
-crate::ir::Statement::Assign(
-    _,
-    crate::ir::Rvalue::EnumVariant { enum_name, variant, ty: t, .. }
-) if enum_name == "Option" && variant == "None" && *t == ty
+                s,
+                crate::ir::Statement::Assign(
+                    _,
+                    crate::ir::Rvalue::EnumVariant { enum_name, variant, ty: t, .. }
+                ) if enum_name == "Option" && variant == "None" && *t == ty
             ))),
             "enum construction must emit a typed Rvalue::EnumVariant carrying its arguments"
         );
@@ -2398,14 +2407,14 @@ crate::ir::Statement::Assign(
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "main_spec".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Unit,
-effects: omni_effects::EffectRow::default(),
-capabilities: vec![],
-body: Expr::Block(vec![]),
+                name: "main_spec".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Block(vec![]),
             }],
         };
 
@@ -2418,14 +2427,14 @@ body: Expr::Block(vec![]),
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "unspecialized".to_string(),
-type_params: vec!["T".to_string()],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Unit,
-effects: omni_effects::EffectRow::default(),
-capabilities: vec![],
-body: Expr::Literal(Lit::Int(42)),
+                name: "unspecialized".to_string(),
+                type_params: vec!["T".to_string()],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Literal(Lit::Int(42)),
             }],
         };
 
@@ -2442,17 +2451,17 @@ body: Expr::Literal(Lit::Int(42)),
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "unresolved_bound".to_string(),
-type_params: vec![],
-bounds: vec![(
-    "T".to_string(),
-    omni_types::ast::TraitBound::Positive("Display".to_string()),
-)],
-params: vec![],
-return_type: TypeSpec::Unit,
-effects: omni_effects::EffectRow::default(),
-capabilities: vec![],
-body: Expr::Literal(Lit::Int(42)),
+                name: "unresolved_bound".to_string(),
+                type_params: vec![],
+                bounds: vec![(
+                    "T".to_string(),
+                    omni_types::ast::TraitBound::Positive("Display".to_string()),
+                )],
+                params: vec![],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Literal(Lit::Int(42)),
             }],
         };
 
@@ -2469,30 +2478,30 @@ body: Expr::Literal(Lit::Int(42)),
         let mut ctx = LoweringContext::new();
         let program = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "range".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Range(Box::new(TypeSpec::Int)),
-effects: omni_effects::EffectRow::pure(),
-capabilities: vec![],
-body: Expr::Range {
-    start: Box::new(Expr::Literal(Lit::Int(1))),
-    end: Box::new(Expr::Literal(Lit::Int(4))),
-    inclusive: true,
-},
+                name: "range".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Range(Box::new(TypeSpec::Int)),
+                effects: omni_effects::EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Range {
+                    start: Box::new(Expr::Literal(Lit::Int(1))),
+                    end: Box::new(Expr::Literal(Lit::Int(4))),
+                    inclusive: true,
+                },
             }],
         };
         let mir = ctx.lower_monomorphized_program(&program).expect("range lowering");
         assert!(mir.functions[0].body.blocks.iter().any(|block| {
             block.statements.iter().any(|statement| {
-matches!(
-    statement,
-    crate::ir::Statement::Assign(
-        _,
-        crate::ir::Rvalue::Range { inclusive: true, .. }
-    )
-)
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::Range { inclusive: true, .. }
+                    )
+                )
             })
         }));
     }
@@ -2502,37 +2511,37 @@ matches!(
         let mut ctx = LoweringContext::new();
         let program = MonomorphizedProgram {
             functions: vec![
-GenericFnDef {
-    name: "tuple_value".to_string(),
-    type_params: vec![],
-    bounds: vec![],
-    params: vec![],
-    return_type: TypeSpec::Tuple(vec![TypeSpec::Int, TypeSpec::Int]),
-    effects: omni_effects::EffectRow::default(),
-    capabilities: vec![],
-    body: Expr::Tuple(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))]),
-},
-GenericFnDef {
-    name: "array_value".to_string(),
-    type_params: vec![],
-    bounds: vec![],
-    params: vec![],
-    return_type: TypeSpec::Array(Box::new(TypeSpec::Int), 2),
-    effects: omni_effects::EffectRow::default(),
-    capabilities: vec![],
-    body: Expr::Array(vec![Expr::Literal(Lit::Int(3)), Expr::Literal(Lit::Int(4))]),
-},
+                GenericFnDef {
+                    name: "tuple_value".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Tuple(vec![TypeSpec::Int, TypeSpec::Int]),
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Tuple(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))]),
+                },
+                GenericFnDef {
+                    name: "array_value".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Array(Box::new(TypeSpec::Int), 2),
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Array(vec![Expr::Literal(Lit::Int(3)), Expr::Literal(Lit::Int(4))]),
+                },
             ],
         };
         let mir = ctx.lower_monomorphized_program(&program).expect("aggregate lowering");
         assert!(mir.functions.iter().all(|f| {
             f.body.blocks.iter().any(|b| {
-b.statements.iter().any(|s| {
-    matches!(
-        s,
-        crate::ir::Statement::Assign(_, crate::ir::Rvalue::Aggregate { .. })
-    )
-})
+                b.statements.iter().any(|s| {
+                    matches!(
+                        s,
+                        crate::ir::Statement::Assign(_, crate::ir::Rvalue::Aggregate { .. })
+                    )
+                })
             })
         }));
     }
@@ -2542,23 +2551,23 @@ b.statements.iter().any(|s| {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "add_let".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![("x".to_string(), TypeSpec::Int)],
-return_type: TypeSpec::Int,
-effects: omni_effects::EffectRow::default(),
-capabilities: vec![],
-body: Expr::Let {
-    pattern: omni_types::ast::Pattern::Binding("y".to_string()),
-    ty: None,
-    init: Box::new(Expr::Binary {
-        op: omni_types::ast::BinOp::Add,
-        lhs: Box::new(Expr::Var("x".to_string())),
-        rhs: Box::new(Expr::Literal(Lit::Int(2))),
-    }),
-    body: Box::new(Expr::Var("y".to_string())),
-},
+                name: "add_let".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("x".to_string(), TypeSpec::Int)],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Let {
+                    pattern: omni_types::ast::Pattern::Binding("y".to_string()),
+                    ty: None,
+                    init: Box::new(Expr::Binary {
+                        op: omni_types::ast::BinOp::Add,
+                        lhs: Box::new(Expr::Var("x".to_string())),
+                        rhs: Box::new(Expr::Literal(Lit::Int(2))),
+                    }),
+                    body: Box::new(Expr::Var("y".to_string())),
+                },
             }],
         };
 
@@ -2591,9 +2600,9 @@ body: Expr::Let {
             effects: omni_effects::EffectRow::default(),
             capabilities: vec![],
             body: Expr::Call {
-func: "inc".to_string(),
-generic_args: vec![],
-args: vec![Expr::Literal(Lit::Int(41))],
+                func: "inc".to_string(),
+                generic_args: vec![],
+                args: vec![Expr::Literal(Lit::Int(41))],
             },
         };
         let prog = MonomorphizedProgram { functions: vec![callee, caller] };
@@ -2611,18 +2620,18 @@ args: vec![Expr::Literal(Lit::Int(41))],
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "cmp".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Bool,
-effects: omni_effects::EffectRow::default(),
-capabilities: vec![],
-body: Expr::Binary {
-    op: omni_types::ast::BinOp::Eq,
-    lhs: Box::new(Expr::Literal(Lit::Int(1))),
-    rhs: Box::new(Expr::Literal(Lit::Int(1))),
-},
+                name: "cmp".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Bool,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Binary {
+                    op: omni_types::ast::BinOp::Eq,
+                    lhs: Box::new(Expr::Literal(Lit::Int(1))),
+                    rhs: Box::new(Expr::Literal(Lit::Int(1))),
+                },
             }],
         };
 
@@ -2642,14 +2651,14 @@ body: Expr::Binary {
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "bad".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Int,
-effects: omni_effects::EffectRow::default(),
-capabilities: vec![],
-body: Expr::Literal(Lit::Bool(true)),
+                name: "bad".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Literal(Lit::Bool(true)),
             }],
         };
 
@@ -2663,14 +2672,14 @@ body: Expr::Literal(Lit::Bool(true)),
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "unit_return".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Unit,
-effects: omni_effects::EffectRow::default(),
-capabilities: vec![],
-body: Expr::Return(None),
+                name: "unit_return".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Unit,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Return(None),
             }],
         };
 
@@ -2682,14 +2691,14 @@ body: Expr::Return(None),
         let mut ctx = LoweringContext::new();
         let prog = MonomorphizedProgram {
             functions: vec![GenericFnDef {
-name: "unsupported".to_string(),
-type_params: vec![],
-bounds: vec![],
-params: vec![],
-return_type: TypeSpec::Int,
-effects: omni_effects::EffectRow::default(),
-capabilities: vec![],
-body: Expr::Lambda { params: vec![], body: Box::new(Expr::Literal(Lit::Int(1))) },
+                name: "unsupported".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Lambda { params: vec![], body: Box::new(Expr::Literal(Lit::Int(1))) },
             }],
         };
 
@@ -2703,41 +2712,41 @@ body: Expr::Lambda { params: vec![], body: Box::new(Expr::Literal(Lit::Int(1))) 
         let mut ctx = LoweringContext::new();
         let program = MonomorphizedProgram {
             functions: vec![
-GenericFnDef {
-    name: "inc".to_string(),
-    type_params: vec![],
-    bounds: vec![],
-    params: vec![("x".to_string(), TypeSpec::Int)],
-    return_type: TypeSpec::Int,
-    effects: omni_effects::EffectRow::default(),
-    capabilities: vec![],
-    body: Expr::Return(Some(Box::new(Expr::Binary {
-        op: omni_types::ast::BinOp::Add,
-        lhs: Box::new(Expr::Var("x".to_string())),
-        rhs: Box::new(Expr::Literal(Lit::Int(1))),
-    }))),
-},
-GenericFnDef {
-    name: "main".to_string(),
-    type_params: vec![],
-    bounds: vec![],
-    params: vec![],
-    return_type: TypeSpec::Int,
-    effects: omni_effects::EffectRow::default(),
-    capabilities: vec![],
-    body: Expr::Let {
-        pattern: omni_types::ast::Pattern::Binding("value".to_string()),
-        ty: None,
-        init: Box::new(Expr::Call {
-            func: "inc".to_string(),
-            generic_args: vec![],
-            args: vec![Expr::Literal(Lit::Int(41))],
-        }),
-        body: Box::new(Expr::Return(Some(Box::new(Expr::Var(
-            "value".to_string(),
-        ))))),
-    },
-},
+                GenericFnDef {
+                    name: "inc".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Return(Some(Box::new(Expr::Binary {
+                        op: omni_types::ast::BinOp::Add,
+                        lhs: Box::new(Expr::Var("x".to_string())),
+                        rhs: Box::new(Expr::Literal(Lit::Int(1))),
+                    }))),
+                },
+                GenericFnDef {
+                    name: "main".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Let {
+                        pattern: omni_types::ast::Pattern::Binding("value".to_string()),
+                        ty: None,
+                        init: Box::new(Expr::Call {
+                            func: "inc".to_string(),
+                            generic_args: vec![],
+                            args: vec![Expr::Literal(Lit::Int(41))],
+                        }),
+                        body: Box::new(Expr::Return(Some(Box::new(Expr::Var(
+                            "value".to_string(),
+                        ))))),
+                    },
+                },
             ],
         };
 
@@ -2748,13 +2757,13 @@ GenericFnDef {
         assert!(main.body.blocks.len() >= 2);
         assert!(main.body.blocks.iter().any(|block| {
             block.statements.iter().any(|statement| {
-matches!(
-    statement,
-    crate::ir::Statement::Assign(
-        _,
-        crate::ir::Rvalue::Use(crate::ir::Operand::Copy(_))
-    )
-)
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::Use(crate::ir::Operand::Copy(_))
+                    )
+                )
             })
         }));
     }
@@ -2764,49 +2773,49 @@ matches!(
         let mut ctx = LoweringContext::new();
         let program = MonomorphizedProgram {
             functions: vec![
-GenericFnDef {
-    name: "literal".to_string(),
-    type_params: vec![],
-    bounds: vec![],
-    params: vec![],
-    return_type: TypeSpec::Int,
-    effects: omni_effects::EffectRow::default(),
-    capabilities: vec![],
-    body: Expr::Literal(Lit::Int(7)),
-},
-GenericFnDef {
-    name: "identity".to_string(),
-    type_params: vec![],
-    bounds: vec![],
-    params: vec![("x".to_string(), TypeSpec::Int)],
-    return_type: TypeSpec::Int,
-    effects: omni_effects::EffectRow::default(),
-    capabilities: vec![],
-    body: Expr::Var("x".to_string()),
-},
-GenericFnDef {
-    name: "negate".to_string(),
-    type_params: vec![],
-    bounds: vec![],
-    params: vec![("x".to_string(), TypeSpec::Int)],
-    return_type: TypeSpec::Int,
-    effects: omni_effects::EffectRow::default(),
-    capabilities: vec![],
-    body: Expr::Unary {
-        op: omni_types::ast::UnOp::Neg,
-        expr: Box::new(Expr::Var("x".to_string())),
-    },
-},
-GenericFnDef {
-    name: "block_value".to_string(),
-    type_params: vec![],
-    bounds: vec![],
-    params: vec![],
-    return_type: TypeSpec::Int,
-    effects: omni_effects::EffectRow::default(),
-    capabilities: vec![],
-    body: Expr::Block(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))]),
-},
+                GenericFnDef {
+                    name: "literal".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Literal(Lit::Int(7)),
+                },
+                GenericFnDef {
+                    name: "identity".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Var("x".to_string()),
+                },
+                GenericFnDef {
+                    name: "negate".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Unary {
+                        op: omni_types::ast::UnOp::Neg,
+                        expr: Box::new(Expr::Var("x".to_string())),
+                    },
+                },
+                GenericFnDef {
+                    name: "block_value".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Block(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))]),
+                },
             ],
         };
 
@@ -2814,26 +2823,26 @@ GenericFnDef {
         assert_eq!(mir.functions.len(), 4);
         for function in &mir.functions {
             assert!(
-function.body.blocks.iter().any(|block| !block.statements.is_empty()),
-"function '{}' must materialize at least one MIR statement",
-function.name
+                function.body.blocks.iter().any(|block| !block.statements.is_empty()),
+                "function '{}' must materialize at least one MIR statement",
+                function.name
             );
             assert!(
-function.body.local_decls.iter().all(|decl| decl.ty.is_some()),
-"function '{}' must type every MIR local",
-function.name
+                function.body.local_decls.iter().all(|decl| decl.ty.is_some()),
+                "function '{}' must type every MIR local",
+                function.name
             );
         }
         let negate = mir.functions.iter().find(|f| f.name == "negate").unwrap();
         assert!(negate.body.blocks.iter().any(|block| {
             block.statements.iter().any(|statement| {
-matches!(
-    statement,
-    crate::ir::Statement::Assign(
-        _,
-        crate::ir::Rvalue::UnaryOp(crate::ir::UnOp::Neg, _)
-    )
-)
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::UnaryOp(crate::ir::UnOp::Neg, _)
+                    )
+                )
             })
         }));
     }
