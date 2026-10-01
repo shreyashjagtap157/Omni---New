@@ -502,13 +502,8 @@ impl MirVerifier {
                             });
                         }
                         
-                        // Check that length is positive
-                        if *length == 0 {
-                            return Err(MirVerificationError::InvalidBoundsCheckLength {
-                                func: fn_name.clone(),
-                                length: *length,
-                            });
-                        }
+                        // Length zero is valid: the generated check must trap
+                        // for every index because no element can be in bounds.
                     }
                 }
             }
