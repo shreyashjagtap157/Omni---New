@@ -951,7 +951,7 @@ impl MirVerifier {
 
             for statement in &block.statements {
                 match statement {
-                    Statement::Assign(_, Rvalue::Index { base, index, .. }) => {
+                    Statement::Assign(destination, Rvalue::Index { base, index, .. }) => {
                         if let Operand::Copy(index_place) | Operand::Move(index_place) = index {
                             if !index_place.is_local() {
                                 return Err(MirVerificationError::MissingBoundsCheck {
@@ -1007,6 +1007,9 @@ impl MirVerifier {
                                     index_local: index_place.local,
                                 });
                             }
+                        }
+                        if destination.is_local() {
+                            facts.retain(|(checked_local, _)| *checked_local != destination.local);
                         }
                     }
                     Statement::BoundsCheck { index, length } => {
