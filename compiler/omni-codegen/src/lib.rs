@@ -1,7 +1,7 @@
 //! Native Code Generation via Cranelift for Omni.
 
 use cranelift_codegen::ir::InstBuilder;
-use cranelift_codegen::ir::{types, AbiParam, Signature};
+use cranelift_codegen::ir::{types, AbiParam, Signature, StackSlot, StackSlotData, StackSlotKind};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};
@@ -33,6 +33,59 @@ fn native_abi_type_from_ty(
     }
 }
 
+/// Native storage class for a single MIR local.
+///
+/// Stage 4C boundary: scalar locals keep Cranelift SSA `Variable` storage and
+/// the existing scalar execution path is untouched. Aggregate locals take
+/// Cranelift `StackSlot` storage, and the slot's stored `TypeLayout` is the
+/// single authority for every field/element offset derived from it. The stored
+/// layout means projection walks never recompute offsets ad hoc.
+#[derive(Debug, Clone)]
+enum NativeStorage {
+    /// Scalar local: an SSA value.
+    Scalar(Variable),
+    /// Aggregate local: a stack base address plus its layout.
+    Aggregate { slot: StackSlot, layout: TypeLayout },
+}
+
+/// Stage 4C storage classification, decided by the concrete MIR type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StorageClass {
+    Scalar,
+    Aggregate,
+}
+
+/// Classifies a concrete MIR local type into Stage 4C native storage.
+///
+/// This is a function of the type, not of how the local happens to be used:
+/// `Int`/`Float`/`Bool`/`Char`/`Byte` are scalar, `Tuple`/`Array`/struct types
+/// are aggregate. `Unit` has no storage (`None`). Any type without a defined
+/// native representation is rejected rather than given an invented one.
+///
+/// Aggregate *function* ABI (parameters and returns crossing function
+/// boundaries) is deliberately not classified here; the ABI gates below keep
+/// rejecting it until that milestone is specified.
+fn classify_local_storage(
+    tcx: &omni_mir::TyCtxt,
+    ty: omni_mir::Ty,
+) -> Result<Option<StorageClass>, String> {
+    match tcx.get(ty) {
+        omni_mir::TyKind::Unit => Ok(None),
+        omni_mir::TyKind::Int
+        | omni_mir::TyKind::Bool
+        | omni_mir::TyKind::Byte
+        | omni_mir::TyKind::Char
+        | omni_mir::TyKind::Float => Ok(Some(StorageClass::Scalar)),
+        omni_mir::TyKind::Tuple(_) | omni_mir::TyKind::Array(..) | omni_mir::TyKind::Struct(..) => {
+            Ok(Some(StorageClass::Aggregate))
+        }
+        other => Err(format!(
+            "Codegen error: native backend does not yet support MIR storage type {:?}",
+            other
+        )),
+    }
+}
+
 fn native_abi_type(
     spec: &omni_mir::ast::TypeSpec,
 ) -> Result<Option<cranelift_codegen::ir::Type>, String> {
@@ -58,16 +111,35 @@ fn ensure_source_mir_type_match(
     use omni_mir::ast::TypeSpec;
     use omni_mir::TyKind;
 
-    let matches = matches!(
-        (spec, tcx.get(ty)),
-        (TypeSpec::Unit, TyKind::Unit)
+    // Structural agreement between the source declaration and the MIR type.
+    // Agreement is semantic, not ABI representability: an aggregate matches
+    // its identical aggregate here and is then rejected downstream by the ABI
+    // gate with an ABI reason, rather than being misreported as a semantic
+    // mismatch.
+    fn matches(tcx: &omni_mir::TyCtxt, spec: &TypeSpec, ty: omni_mir::Ty) -> bool {
+        match (spec, tcx.get(ty)) {
+            (TypeSpec::Unit, TyKind::Unit)
             | (TypeSpec::Int, TyKind::Int)
             | (TypeSpec::Bool, TyKind::Bool)
             | (TypeSpec::Byte, TyKind::Byte)
             | (TypeSpec::Char, TyKind::Char)
-            | (TypeSpec::Float, TyKind::Float)
-    );
-    if matches {
+            | (TypeSpec::Float, TyKind::Float) => true,
+            (TypeSpec::Tuple(specs), TyKind::Tuple(tys)) => {
+                specs.len() == tys.len()
+                    && specs.iter().zip(tys.iter()).all(|(s, t)| matches(tcx, s, *t))
+            }
+            (TypeSpec::Array(spec, len), TyKind::Array(ty, length)) => {
+                len == length && matches(tcx, spec, *ty)
+            }
+            (TypeSpec::Struct(spec_name, spec_args), TyKind::Struct(ty_name, ty_args)) => {
+                spec_name == ty_name
+                    && spec_args.len() == ty_args.len()
+                    && spec_args.iter().zip(ty_args.iter()).all(|(s, t)| matches(tcx, s, *t))
+            }
+            _ => false,
+        }
+    }
+    if matches(tcx, spec, ty) {
         Ok(())
     } else {
         Err(format!(
@@ -118,6 +190,7 @@ fn compile_mir_program(
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| format!("ISA build error: {}", e))?;
 
+    let target_facts = TargetFacts::from_isa(&isa);
     let builder = ObjectBuilder::new(
         isa,
         "omni_module".to_string(),
@@ -127,6 +200,15 @@ fn compile_mir_program(
     let mut module = ObjectModule::new(builder);
 
     let mut function_ids = std::collections::HashMap::new();
+
+    // Stage 4C: TargetLayout is the single authority for aggregate size,
+    // alignment and field/element offsets. `layout_tcx` is a workspace clone
+    // of the program context: laying out a struct interns its substituted
+    // field types, which needs `&mut`, while the MIR program itself is only
+    // borrowed. Cloning preserves every existing `Ty` index, so types read
+    // from `mir_prog.tcx` stay valid in the workspace.
+    let layout_engine = TargetLayout::new(target_facts, &mir_prog.struct_defs);
+    let mut layout_tcx = mir_prog.tcx.clone();
 
     // Predeclare every concrete MIR function with the same ABI signature before emitting
     // any body, so calls can only reference already-qualified declarations.
@@ -249,18 +331,68 @@ fn compile_mir_program(
         builder.append_block_params_for_function_params(entry_cl_block);
         builder.switch_to_block(entry_cl_block);
 
-        let mut variables = std::collections::HashMap::new();
+        // Stage 4C: storage is classified by concrete MIR type. Scalars keep
+        // SSA Variables; aggregates take StackSlots sized and aligned by
+        // TargetLayout. Unit has no storage.
+        let mut storage = std::collections::HashMap::new();
         for (local_idx, local_decl) in mir_func.body.local_decls.iter().enumerate() {
             let local = omni_mir::ir::Local::from_usize(local_idx);
             let ty = local_decl
                 .ty
                 .ok_or_else(|| format!("Codegen error: MIR local {:?} has no type", local))?;
-            if let Some(native_ty) = native_abi_type_from_ty(&mir_prog.tcx, ty)? {
-                let variable = Variable::from_u32(local_idx as u32);
-                builder.declare_var(variable, native_ty);
-                variables.insert(local, variable);
+            match classify_local_storage(&mir_prog.tcx, ty)? {
+                None => {}
+                Some(StorageClass::Scalar) => {
+                    let native_ty =
+                        native_abi_type_from_ty(&mir_prog.tcx, ty)?.ok_or_else(|| {
+                            format!(
+                                "Codegen error: scalar local {:?} has no native value type",
+                                local
+                            )
+                        })?;
+                    let variable = Variable::from_u32(local_idx as u32);
+                    builder.declare_var(variable, native_ty);
+                    storage.insert(local, NativeStorage::Scalar(variable));
+                }
+                Some(StorageClass::Aggregate) => {
+                    let layout =
+                        layout_engine.aggregate_layout(&mut layout_tcx, ty).map_err(|e| {
+                            format!(
+                                "Codegen error: cannot lay out aggregate local {:?} in '{}': {}",
+                                local, mir_func.name, e
+                            )
+                        })?;
+                    if !layout.align.is_power_of_two() || layout.align == 0 {
+                        return Err(format!(
+                            "Codegen error: aggregate local {:?} in '{}' has non-power-of-two alignment {}",
+                            local, mir_func.name, layout.align
+                        ));
+                    }
+                    let size = u32::try_from(layout.size).map_err(|_| {
+                        format!(
+                            "Codegen error: aggregate local {:?} in '{}' exceeds the stack-slot size range",
+                            local, mir_func.name
+                        )
+                    })?;
+                    let slot = builder.create_sized_stack_slot(StackSlotData {
+                        kind: StackSlotKind::ExplicitSlot,
+                        size,
+                        align_shift: layout.align.trailing_zeros() as u8,
+                    });
+                    storage.insert(local, NativeStorage::Aggregate { slot, layout });
+                }
             }
         }
+
+        let mut emitter = PlaceEmitter {
+            tcx: &mir_prog.tcx,
+            layout_workspace: &mut layout_tcx,
+            struct_defs: &mir_prog.struct_defs,
+            layout: &layout_engine,
+            storage: &storage,
+            body: &mir_func.body,
+            func_name: &mir_func.name,
+        };
 
         for (p_idx, &param_local) in mir_func.params.iter().enumerate() {
             let cl_val =
@@ -270,12 +402,17 @@ fn compile_mir_program(
                         mir_func.name, p_idx
                     )
                 })?;
-            let variable = *variables.get(&param_local).ok_or_else(|| {
-                format!(
-                    "Codegen error: function parameter local {:?} has no native representation",
-                    param_local
-                )
-            })?;
+            // Aggregate parameters are rejected by the ABI gate above, so a
+            // parameter must be a scalar SSA variable here.
+            let variable = match emitter.storage.get(&param_local) {
+                Some(NativeStorage::Scalar(variable)) => *variable,
+                _ => {
+                    return Err(format!(
+                        "Codegen error: function parameter local {:?} has no scalar native representation (aggregate parameters require an explicit ABI contract)",
+                        param_local
+                    ));
+                }
+            };
             builder.def_var(variable, cl_val);
         }
 
@@ -288,17 +425,47 @@ fn compile_mir_program(
             for stmt in &mir_block.statements {
                 match stmt {
                     omni_mir::ir::Statement::Assign(place, rval) => {
-                        let variable = *variables.get(&place.local).ok_or_else(|| {
-                            format!(
-                                "Codegen error: assignment target local {:?} has no native representation",
-                                place.local
-                            )
-                        })?;
-                        let val =
-                            lower_rvalue_to_cl(&mut builder, rval, &variables, &mir_prog.tcx)?;
-                        builder.def_var(variable, val);
+                        emit_assign(&mut builder, &mut emitter, place, rval)?;
                     }
                     omni_mir::ir::Statement::Assume(_) | omni_mir::ir::Statement::Drop(_) => {}
+                    omni_mir::ir::Statement::BoundsCheck { index, length } => {
+                        // Generate runtime bounds check: trap if index >= 0 && index < length is false
+                        let storage = emitter.storage.get(&index).ok_or_else(|| {
+                            format!("Codegen error: bounds check index local {:?} has no storage", index)
+                        })?;
+                        let index_val = match storage {
+                            NativeStorage::Scalar(variable) => builder.use_var(*variable),
+                            NativeStorage::Aggregate { .. } => {
+                                return Err("Codegen error: bounds check index must be scalar".to_string());
+                            }
+                        };
+                        
+                        // Check if index >= 0
+                        let is_non_negative = builder.ins().icmp_imm(
+                            cranelift_codegen::ir::condcodes::IntCC::SignedGreaterThanOrEqual,
+                            index_val,
+                            0,
+                        );
+                        
+                        // Check if index < length
+                        let is_less_than_length = builder.ins().icmp_imm(
+                            cranelift_codegen::ir::condcodes::IntCC::SignedLessThan,
+                            index_val,
+                            *length as i64,
+                        );
+                        
+                        // Both conditions must be true: index >= 0 && index < length
+                        let is_valid = builder.ins().band(is_non_negative, is_less_than_length);
+                        
+                        // Trap if the index is out of bounds
+                        let valid_block = builder.create_block();
+                        let trap_block = builder.create_block();
+                        
+                        builder.ins().brif(is_valid, valid_block, &[], trap_block, &[]);
+                        builder.switch_to_block(trap_block);
+                        builder.ins().trap(cranelift_codegen::ir::TrapCode::User(1));
+                        builder.switch_to_block(valid_block);
+                    }
                 }
             }
 
@@ -312,12 +479,17 @@ fn compile_mir_program(
             match term {
                 omni_mir::ir::Terminator::Return => {
                     if native_abi_type(&source_def.return_type)?.is_some() {
-                        let variable = *variables.get(&mir_func.return_place).ok_or_else(|| {
-                            format!(
-                                "Codegen error: return local {:?} has no native representation",
-                                mir_func.return_place
-                            )
-                        })?;
+                        // Aggregate returns are rejected by the ABI gate
+                        // above, so the return place must be scalar here.
+                        let variable = match emitter.storage.get(&mir_func.return_place) {
+                            Some(NativeStorage::Scalar(variable)) => *variable,
+                            _ => {
+                                return Err(format!(
+                                    "Codegen error: return local {:?} has no scalar native representation (aggregate returns require an explicit ABI contract)",
+                                    mir_func.return_place
+                                ));
+                            }
+                        };
                         let ret_val = builder.use_var(variable);
                         builder.ins().return_(&[ret_val]);
                     } else {
@@ -331,7 +503,7 @@ fn compile_mir_program(
                     builder.ins().jump(target_cl, &[]);
                 }
                 omni_mir::ir::Terminator::SwitchInt { discr, targets, otherwise } => {
-                    let discr_val = lower_operand_to_cl(&mut builder, discr, &variables)?;
+                    let discr_val = lower_operand_to_cl(&mut builder, &mut emitter, discr)?;
                     let otherwise_cl = *cl_blocks.get(&otherwise.index()).ok_or_else(|| {
                         format!("Codegen error: undefined switch target {:?}", otherwise)
                     })?;
@@ -376,7 +548,7 @@ fn compile_mir_program(
 
                     let mut call_args = Vec::with_capacity(args.len());
                     for (arg, (_, param_spec)) in args.iter().zip(source_callee.params.iter()) {
-                        let value = lower_operand_to_cl(&mut builder, arg, &variables)?;
+                        let value = lower_operand_to_cl(&mut builder, &mut emitter, arg)?;
                         let expected = native_abi_type(param_spec)?.ok_or_else(|| {
                             format!(
                                 "Codegen error: Unit argument is not representable in native ABI for '{}'",
@@ -409,12 +581,24 @@ fn compile_mir_program(
                                     fn_name, destination
                                 ));
                             }
-                            let variable = *variables.get(&destination.local).ok_or_else(|| {
-                                format!(
-                                    "Codegen error: call destination local {:?} has no native representation",
-                                    destination.local
-                                )
-                            })?;
+                            // Aggregate call results are rejected by the ABI
+                            // gate above, so a destination must be a whole
+                            // scalar local here.
+                            if !destination.is_local() {
+                                return Err(format!(
+                                    "Codegen error: call '{}' destination {:?} carries a projection, which call results do not support",
+                                    fn_name, destination
+                                ));
+                            }
+                            let variable = match emitter.storage.get(&destination.local) {
+                                Some(NativeStorage::Scalar(variable)) => *variable,
+                                _ => {
+                                    return Err(format!(
+                                        "Codegen error: call destination local {:?} has no scalar native representation",
+                                        destination.local
+                                    ));
+                                }
+                            };
                             builder.def_var(variable, results[0]);
                         }
                         None => {
@@ -452,17 +636,838 @@ fn compile_mir_program(
     Ok(buffer)
 }
 
+/// Per-function lowering context for Stage 4C place resolution.
+///
+/// `tcx` is the program context the MIR was verified against (read-only).
+/// `layout_workspace` is a clone used whenever computing a projected type
+/// needs to intern substituted struct field types. `layout` is the
+/// [`TargetLayout`] authority for every offset; nothing here invents one.
+struct PlaceEmitter<'a, 'l> {
+    tcx: &'a omni_mir::TyCtxt,
+    layout_workspace: &'a mut omni_mir::TyCtxt,
+    struct_defs: &'a HashMap<String, omni_mir::ast::StructDef>,
+    layout: &'a TargetLayout<'l>,
+    storage: &'a HashMap<omni_mir::ir::Local, NativeStorage>,
+    body: &'a omni_mir::ir::Body,
+    func_name: &'a str,
+}
+
+/// Emits `place = rvalue`, honouring the Stage 4C storage split.
+///
+/// A whole scalar local keeps the historical `def_var` path. A whole
+/// aggregate local is initialized element-wise from an aggregate rvalue or
+/// copied from another aggregate. A projected place is a scalar store through
+/// the layout-derived address; storing an aggregate value through a projection
+/// is rejected because a projection names one scalar sublocation.
+fn emit_assign(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    place: &omni_mir::ir::Place,
+    rval: &omni_mir::ir::Rvalue,
+) -> Result<(), String> {
+    let storage = emitter.storage.get(&place.local).cloned().ok_or_else(|| {
+        format!(
+            "Codegen error: assignment target local {:?} in '{}' has no native representation",
+            place.local, emitter.func_name
+        )
+    })?;
+    match storage {
+        NativeStorage::Scalar(variable) => {
+            if !place.is_local() {
+                return Err(format!(
+                    "Codegen error: assignment to {} in '{}' projects into scalar local {:?}, which has no sublocations",
+                    place, emitter.func_name, place.local
+                ));
+            }
+            let val = lower_rvalue_to_cl(builder, emitter, rval)?;
+            builder.def_var(variable, val);
+            Ok(())
+        }
+        NativeStorage::Aggregate { slot, layout } => {
+            if place.is_local() {
+                let ty = emitter.body.local_decls[place.local].ty.ok_or_else(|| {
+                    format!(
+                        "Codegen error: aggregate local {:?} in '{}' has no type",
+                        place.local, emitter.func_name
+                    )
+                })?;
+                let site = AggregateSite { slot, offset: 0, ty, layout };
+                emit_aggregate_store(
+                    builder,
+                    emitter,
+                    &site,
+                    rval,
+                    &format!("initialization of aggregate local {:?}", place.local),
+                )
+            } else {
+                let (slot, offset, _) =
+                    aggregate_place_address(emitter.storage, place, "assignment target")?;
+                let val = lower_rvalue_to_cl(builder, emitter, rval)?;
+                let offset = stack_offset(offset, emitter.func_name)?;
+                builder.ins().stack_store(val, slot, offset);
+                Ok(())
+            }
+        }
+    }
+}
+
+/// One end of an aggregate move: where it lives plus what it is.
+///
+/// Bundling the slot, offset, MIR type and layout keeps the copy and store
+/// helpers honest about what travels together instead of threading four
+/// parallel arguments. The layout is owned (a small clone) so a site never
+/// borrows the lowering context it is passed alongside.
+#[derive(Debug, Clone)]
+struct AggregateSite {
+    slot: StackSlot,
+    offset: u64,
+    ty: omni_mir::Ty,
+    layout: TypeLayout,
+}
+
+impl AggregateSite {
+    /// Derives the child site for one layout part.
+    fn child(
+        &self,
+        part_ty: omni_mir::Ty,
+        part: &PartLayout,
+        context: &str,
+    ) -> Result<Self, String> {
+        let offset = self
+            .offset
+            .checked_add(part.offset)
+            .ok_or_else(|| format!("Codegen error: {} overflows its aggregate offset", context))?;
+        Ok(Self { slot: self.slot, offset, ty: part_ty, layout: part.layout.clone() })
+    }
+}
+
+/// Converts a layout byte offset into a Cranelift stack offset.
+///
+/// Stack slots in Stage 4C are small compiler-managed locals, so an offset
+/// that does not fit is a symptom of a corrupt layout, not a large object.
+fn stack_offset(offset: u64, func_name: &str) -> Result<i32, String> {
+    i32::try_from(offset).map_err(|_| {
+        format!(
+            "Codegen error: aggregate offset {} in '{}' exceeds the stack-offset range",
+            offset, func_name
+        )
+    })
+}
+
+/// Resolves a place rooted at an aggregate local to its stack slot, byte
+/// offset and final layout by walking the projection chain.
+///
+/// `Field` covers struct fields by name and tuple positions by numeric name;
+/// `ConstantIndex` covers constant tuple/array positions. A runtime `Index`
+/// is rejected: address arithmetic alone would skip the bounds check, which
+/// is the Stage 4D milestone. `Deref` is rejected: references have no
+/// aggregate storage yet.
+fn aggregate_place_address(
+    storage: &HashMap<omni_mir::ir::Local, NativeStorage>,
+    place: &omni_mir::ir::Place,
+    context: &str,
+) -> Result<(StackSlot, u64, TypeLayout), String> {
+    let (slot, mut layout) = match storage.get(&place.local) {
+        Some(NativeStorage::Aggregate { slot, layout }) => (*slot, layout.clone()),
+        _ => {
+            return Err(format!(
+                "Codegen error: {} {} is not rooted at an aggregate local",
+                context, place
+            ));
+        }
+    };
+    let mut offset = 0u64;
+    for projection in &place.projections {
+        let part = match projection {
+            omni_mir::ir::Projection::Field(name) => layout
+                .parts
+                .iter()
+                .find(|p| p.name.as_deref() == Some(name.as_str()))
+                .or_else(|| name.parse::<usize>().ok().and_then(|i| layout.parts.get(i)))
+                .ok_or_else(|| {
+                    format!("Codegen error: {} {} has no field '{}'", context, place, name)
+                })?,
+            omni_mir::ir::Projection::ConstantIndex(index) => {
+                layout.parts.get(*index).ok_or_else(|| {
+                    format!(
+                        "Codegen error: {} {} indexes out of bounds at position {}",
+                        context, place, index
+                    )
+                })?
+            }
+            omni_mir::ir::Projection::Index(_) => {
+                return Err(format!(
+                    "Codegen error: {} {} uses a runtime index, which requires runtime bounds checks (Stage 4D); only constant indices are natively addressable",
+                    context, place
+                ));
+            }
+            omni_mir::ir::Projection::Deref => {
+                return Err(format!(
+                    "Codegen error: {} {} dereferences a reference, which has no aggregate storage",
+                    context, place
+                ));
+            }
+        };
+        offset = offset.checked_add(part.offset).ok_or_else(|| {
+            format!("Codegen error: {} {} overflows its aggregate offset", context, place)
+        })?;
+        layout = part.layout.clone();
+    }
+    Ok((slot, offset, layout))
+}
+
+/// Resolves the MIR type of one struct field after generic substitution.
+///
+/// This mirrors the lowering-time authority: the declaration supplies the
+/// field's `TypeSpec`, the concrete type arguments supply the substitution.
+fn struct_field_ty(
+    emitter: &mut PlaceEmitter,
+    struct_ty: omni_mir::Ty,
+    field: &str,
+) -> Result<omni_mir::Ty, String> {
+    match emitter.tcx.get(struct_ty).clone() {
+        omni_mir::TyKind::Struct(name, args) => {
+            let def = emitter.struct_defs.get(&name).cloned().ok_or_else(|| {
+                format!("Codegen error: unknown struct '{}' in '{}'", name, emitter.func_name)
+            })?;
+            let mut env = omni_mir::SubstEnv::new();
+            for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                env.insert(param.clone(), *arg);
+            }
+            let spec =
+                def.fields.iter().find(|f| f.name == field).map(|f| f.ty.clone()).ok_or_else(
+                    || {
+                        format!(
+                            "Codegen error: struct '{}' in '{}' has no field '{}'",
+                            name, emitter.func_name, field
+                        )
+                    },
+                )?;
+            Ok(emitter.layout_workspace.lower_type_spec(&spec, &env))
+        }
+        other => Err(format!(
+            "Codegen error: field projection in '{}' requires a struct, found {:?}",
+            emitter.func_name, other
+        )),
+    }
+}
+
+/// Resolves the type of a projected place by walking the chain from the root
+/// local's type. Same authority as MIR lowering, so a projection cannot be
+/// typed one way when read and another way when written.
+fn projected_ty(
+    emitter: &mut PlaceEmitter,
+    base_ty: omni_mir::Ty,
+    projections: &[omni_mir::ir::Projection],
+) -> Result<omni_mir::Ty, String> {
+    let mut current = base_ty;
+    for projection in projections {
+        current = match projection {
+            omni_mir::ir::Projection::Field(name) => match emitter.tcx.get(current).clone() {
+                omni_mir::TyKind::Struct(..) => struct_field_ty(emitter, current, name)?,
+                omni_mir::TyKind::Tuple(elements) => {
+                    let index: usize = name.parse().map_err(|_| {
+                        format!(
+                            "Codegen error: tuple field '{}' in '{}' is not a numeric index",
+                            name, emitter.func_name
+                        )
+                    })?;
+                    *elements.get(index).ok_or_else(|| {
+                        format!(
+                            "Codegen error: tuple field index {} in '{}' is out of bounds",
+                            index, emitter.func_name
+                        )
+                    })?
+                }
+                other => {
+                    return Err(format!(
+                        "Codegen error: field projection in '{}' requires a struct or tuple, found {:?}",
+                        emitter.func_name, other
+                    ));
+                }
+            },
+            omni_mir::ir::Projection::ConstantIndex(index) => {
+                match emitter.tcx.get(current).clone() {
+                    omni_mir::TyKind::Array(element, length) => {
+                        if *index >= length {
+                            return Err(format!(
+                                "Codegen error: array index {} in '{}' is out of bounds for length {}",
+                                index, emitter.func_name, length
+                            ));
+                        }
+                        element
+                    }
+                    omni_mir::TyKind::Tuple(elements) => {
+                        *elements.get(*index).ok_or_else(|| {
+                            format!(
+                                "Codegen error: tuple index {} in '{}' is out of bounds",
+                                index, emitter.func_name
+                            )
+                        })?
+                    }
+                    other => {
+                        return Err(format!(
+                            "Codegen error: constant index projection in '{}' requires an array or tuple, found {:?}",
+                            emitter.func_name, other
+                        ));
+                    }
+                }
+            }
+            // The element type is statically known; the address walk still
+            // rejects the access itself until Stage 4D bounds checks exist.
+            omni_mir::ir::Projection::Index(_) => match emitter.tcx.get(current).clone() {
+                omni_mir::TyKind::Array(element, _) => element,
+                other => {
+                    return Err(format!(
+                        "Codegen error: index projection in '{}' requires an array, found {:?}",
+                        emitter.func_name, other
+                    ));
+                }
+            },
+            omni_mir::ir::Projection::Deref => match emitter.tcx.get(current).clone() {
+                omni_mir::TyKind::Reference { inner, .. } => inner,
+                other => {
+                    return Err(format!(
+                        "Codegen error: deref projection in '{}' requires a reference, found {:?}",
+                        emitter.func_name, other
+                    ));
+                }
+            },
+        };
+    }
+    Ok(current)
+}
+
+/// Lists the `(name, type)` parts of an aggregate type in layout order.
+///
+/// Tuple and array parts are positional; struct parts follow declaration
+/// order with generic substitution applied, matching [`TargetLayout`].
+fn aggregate_part_tys(
+    emitter: &mut PlaceEmitter,
+    aggregate_ty: omni_mir::Ty,
+) -> Result<Vec<(Option<String>, omni_mir::Ty)>, String> {
+    match emitter.tcx.get(aggregate_ty).clone() {
+        omni_mir::TyKind::Tuple(elements) => {
+            Ok(elements.into_iter().map(|element| (None, element)).collect())
+        }
+        omni_mir::TyKind::Array(element, length) => Ok(vec![(None, element); length]),
+        omni_mir::TyKind::Struct(name, args) => {
+            let def = emitter.struct_defs.get(&name).cloned().ok_or_else(|| {
+                format!("Codegen error: unknown struct '{}' in '{}'", name, emitter.func_name)
+            })?;
+            let mut env = omni_mir::SubstEnv::new();
+            for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                env.insert(param.clone(), *arg);
+            }
+            let mut lowered = Vec::with_capacity(def.fields.len());
+            for f in &def.fields {
+                lowered.push((
+                    Some(f.name.clone()),
+                    emitter.layout_workspace.lower_type_spec(&f.ty, &env),
+                ));
+            }
+            Ok(lowered)
+        }
+        other => Err(format!(
+            "Codegen error: aggregate part types in '{}' require a tuple, array or struct, found {:?}",
+            emitter.func_name, other
+        )),
+    }
+}
+
+/// Loads a scalar value out of a projected place: address from the layout
+/// walk, Cranelift type from the projected MIR type.
+fn emit_projected_place_load(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    place: &omni_mir::ir::Place,
+) -> Result<cranelift_codegen::ir::Value, String> {
+    let context = format!("read of {}", place);
+    // The address walk runs first so runtime indexing and deref report their
+    // milestone errors rather than a downstream type error.
+    let (slot, offset, _) = aggregate_place_address(emitter.storage, place, &context)?;
+    let root_ty = emitter.body.local_decls[place.local].ty.ok_or_else(|| {
+        format!("Codegen error: local {:?} in '{}' has no type", place.local, emitter.func_name)
+    })?;
+    let ty = projected_ty(emitter, root_ty, &place.projections)?;
+    let clif_ty = emitter.layout.scalar_clif_type(emitter.tcx, ty).ok_or_else(|| {
+        format!(
+            "Codegen error: {} in '{}' is aggregate-typed and has no scalar SSA form; copy it into an aggregate destination instead",
+            context, emitter.func_name
+        )
+    })?;
+    Ok(builder.ins().stack_load(clif_ty, slot, stack_offset(offset, emitter.func_name)?))
+}
+
+/// Resolves an operand that must denote a whole or projected aggregate to its
+/// storage triple plus MIR type and layout. Scalar-typed projections are
+/// refused: they belong in scalar destinations, not aggregate copies.
+fn resolve_aggregate_operand(
+    emitter: &mut PlaceEmitter,
+    operand: &omni_mir::ir::Operand,
+    context: &str,
+) -> Result<AggregateSite, String> {
+    let place = match operand {
+        omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => place.clone(),
+        omni_mir::ir::Operand::Constant(_) => {
+            return Err(format!(
+                "Codegen error: {} requires an aggregate place, found a constant",
+                context
+            ));
+        }
+    };
+    if place.is_local() {
+        match emitter.storage.get(&place.local).cloned() {
+            Some(NativeStorage::Aggregate { slot, layout }) => {
+                let ty = emitter.body.local_decls[place.local].ty.ok_or_else(|| {
+                    format!(
+                        "Codegen error: aggregate local {:?} in '{}' has no type",
+                        place.local, emitter.func_name
+                    )
+                })?;
+                Ok(AggregateSite { slot, offset: 0, ty, layout })
+            }
+            _ => Err(format!(
+                "Codegen error: {} requires an aggregate local, found {:?} in '{}'",
+                context, place.local, emitter.func_name
+            )),
+        }
+    } else {
+        let (slot, offset, layout) = aggregate_place_address(emitter.storage, &place, context)?;
+        let root_ty = emitter.body.local_decls[place.local].ty.ok_or_else(|| {
+            format!("Codegen error: local {:?} in '{}' has no type", place.local, emitter.func_name)
+        })?;
+        let ty = projected_ty(emitter, root_ty, &place.projections)?;
+        if emitter.layout.scalar_clif_type(emitter.tcx, ty).is_some() {
+            return Err(format!(
+                "Codegen error: {} reads scalar-typed {}; use a scalar destination instead",
+                context, place
+            ));
+        }
+        Ok(AggregateSite { slot, offset, ty, layout })
+    }
+}
+
+/// Resolves an `Rvalue::Field`/`Rvalue::Index` that yields a whole aggregate
+/// (for example a nested-struct read) to its storage triple.
+fn resolve_projection_source(
+    emitter: &mut PlaceEmitter,
+    base: &omni_mir::ir::Operand,
+    projection: omni_mir::ir::Projection,
+    ty: omni_mir::Ty,
+    context: &str,
+) -> Result<AggregateSite, String> {
+    let base_place = match base {
+        omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => place.clone(),
+        omni_mir::ir::Operand::Constant(_) => {
+            return Err(format!(
+                "Codegen error: {} base must be a place, found a constant",
+                context
+            ));
+        }
+    };
+    let mut full = base_place;
+    full.projections.push(projection);
+    let root_ty = emitter.body.local_decls[full.local].ty.ok_or_else(|| {
+        format!("Codegen error: local {:?} in '{}' has no type", full.local, emitter.func_name)
+    })?;
+    let recomputed = projected_ty(emitter, root_ty, &full.projections)?;
+    if recomputed != ty {
+        return Err(format!(
+            "Codegen error: {} in '{}' declares type {:?} but the projection resolves to {:?}",
+            context,
+            emitter.func_name,
+            emitter.tcx.get(ty),
+            emitter.tcx.get(recomputed)
+        ));
+    }
+    let (slot, offset, layout) = aggregate_place_address(emitter.storage, &full, context)?;
+    Ok(AggregateSite { slot, offset, ty, layout })
+}
+
+/// Copies one aggregate value onto another, recursing through nested
+/// aggregates. Both sides share one concrete type, so their layouts must be
+/// identical; scalar leaves move through ordinary SSA loads and stores.
+fn copy_aggregate(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    dst: &AggregateSite,
+    src: &AggregateSite,
+    context: &str,
+) -> Result<(), String> {
+    if dst.ty != src.ty {
+        return Err(format!(
+            "Codegen error: {} copies {:?} into {:?}, which have different types",
+            context,
+            emitter.tcx.get(src.ty),
+            emitter.tcx.get(dst.ty)
+        ));
+    }
+    if dst.layout != src.layout {
+        return Err(format!("Codegen error: {} source and destination layouts disagree", context));
+    }
+    match emitter.tcx.get(dst.ty).clone() {
+        omni_mir::TyKind::Int
+        | omni_mir::TyKind::Bool
+        | omni_mir::TyKind::Byte
+        | omni_mir::TyKind::Char
+        | omni_mir::TyKind::Float => {
+            let clif_ty =
+                emitter.layout.scalar_clif_type(emitter.tcx, dst.ty).ok_or_else(|| {
+                    format!("Codegen error: {} has no scalar representation", context)
+                })?;
+            let value = builder.ins().stack_load(
+                clif_ty,
+                src.slot,
+                stack_offset(src.offset, emitter.func_name)?,
+            );
+            builder.ins().stack_store(
+                value,
+                dst.slot,
+                stack_offset(dst.offset, emitter.func_name)?,
+            );
+            Ok(())
+        }
+        omni_mir::TyKind::Tuple(_) | omni_mir::TyKind::Array(..) | omni_mir::TyKind::Struct(..) => {
+            let part_tys = aggregate_part_tys(emitter, dst.ty)?;
+            if part_tys.len() != dst.layout.parts.len() {
+                return Err(format!(
+                    "Codegen error: {} type and layout disagree on part count",
+                    context
+                ));
+            }
+            for (index, ((name, part_ty), part)) in
+                part_tys.into_iter().zip(dst.layout.parts.iter()).enumerate()
+            {
+                if part.name != name {
+                    return Err(format!(
+                        "Codegen error: {} part {} names {:?} but the layout names {:?}",
+                        context, index, name, part.name
+                    ));
+                }
+                copy_aggregate(
+                    builder,
+                    emitter,
+                    &dst.child(part_ty, part, context)?,
+                    &src.child(part_ty, part, context)?,
+                    context,
+                )?;
+            }
+            Ok(())
+        }
+        other => {
+            Err(format!("Codegen error: {} cannot copy unrepresentable type {:?}", context, other))
+        }
+    }
+}
+
+/// Stores one constructor operand into a single aggregate part.
+///
+/// Scalar parts lower the operand to an SSA value, gated against the part's
+/// MIR type so an `I64` can never silently land in an `F64` field. Nested
+/// aggregate parts recurse through [`copy_aggregate`]. Zero-sized parts
+/// (empty aggregates) occupy nothing and store nothing.
+fn emit_part_store(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    site: &AggregateSite,
+    operand: &omni_mir::ir::Operand,
+    context: &str,
+) -> Result<(), String> {
+    if site.layout.size == 0 && site.layout.parts.is_empty() {
+        return Ok(());
+    }
+    if let Some(clif_ty) = emitter.layout.scalar_clif_type(emitter.tcx, site.ty) {
+        if site.layout.size != u64::from(clif_ty.bytes()) {
+            return Err(format!(
+                "Codegen error: {} part layout size {} disagrees with its {:?} type",
+                context,
+                site.layout.size,
+                emitter.tcx.get(site.ty)
+            ));
+        }
+        let value = lower_operand_to_cl(builder, emitter, operand)?;
+        if builder.func.dfg.value_type(value) != clif_ty {
+            return Err(format!(
+                "Codegen error: {} part expects {:?} but the operand lowers to {:?}",
+                context,
+                clif_ty,
+                builder.func.dfg.value_type(value)
+            ));
+        }
+        builder.ins().stack_store(value, site.slot, stack_offset(site.offset, emitter.func_name)?);
+        Ok(())
+    } else {
+        match emitter.tcx.get(site.ty) {
+            omni_mir::TyKind::Tuple(_)
+            | omni_mir::TyKind::Array(..)
+            | omni_mir::TyKind::Struct(..) => {}
+            other => {
+                return Err(format!(
+                    "Codegen error: {} cannot store unrepresentable part type {:?}",
+                    context, other
+                ));
+            }
+        }
+        let src = resolve_aggregate_operand(emitter, operand, context)?;
+        copy_aggregate(builder, emitter, site, &src, context)
+    }
+}
+
+/// Reads the constant position out of an index operand.
+///
+/// Only literal subscripts are natively addressable. A computed subscript
+/// needs the Stage 4D bounds-check path, so it is rejected with that reason
+/// rather than being emitted as an unchecked access.
+fn constant_index_position(
+    index: &omni_mir::ir::Operand,
+    func_name: &str,
+) -> Result<usize, String> {
+    match index {
+        omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(omni_mir::ast::Lit::Int(n)))
+            if *n >= 0 =>
+        {
+            Ok(*n as usize)
+        }
+        _ => Err(format!(
+            "Codegen error: dynamic array indexing in '{}' requires runtime bounds checks (Stage 4D); only constant indices are natively addressable",
+            func_name
+        )),
+    }
+}
+
+/// Loads a scalar out of an `Rvalue::Field`/`Rvalue::Index`.
+///
+/// The MIR-declared result type is cross-checked against the recomputed
+/// projection type, and must be scalar: an aggregate-typed projection read
+/// belongs to [`emit_aggregate_store`], not to SSA value lowering.
+fn emit_projection_load(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    base: &omni_mir::ir::Operand,
+    projection: omni_mir::ir::Projection,
+    ty: omni_mir::Ty,
+    context: &str,
+) -> Result<cranelift_codegen::ir::Value, String> {
+    let (slot, offset, _) = resolve_projection_address(emitter, base, projection, ty, context)?;
+    let clif_ty = emitter.layout.scalar_clif_type(emitter.tcx, ty).ok_or_else(|| {
+        format!(
+            "Codegen error: {} in '{}' is aggregate-typed and has no scalar SSA form; store it into an aggregate destination instead",
+            context, emitter.func_name
+        )
+    })?;
+    Ok(builder.ins().stack_load(clif_ty, slot, stack_offset(offset, emitter.func_name)?))
+}
+
+/// Resolves an `Rvalue::Field`/`Rvalue::Index` to its storage address,
+/// checking the declared result type against the recomputed projection type.
+fn resolve_projection_address(
+    emitter: &mut PlaceEmitter,
+    base: &omni_mir::ir::Operand,
+    projection: omni_mir::ir::Projection,
+    ty: omni_mir::Ty,
+    context: &str,
+) -> Result<(StackSlot, u64, TypeLayout), String> {
+    let site = resolve_projection_source(emitter, base, projection, ty, context)?;
+    Ok((site.slot, site.offset, site.layout))
+}
+
+/// Stores an rvalue into a whole aggregate destination.
+///
+/// Constructors write each part through [`emit_part_store`], which recurses
+/// into nested aggregates. Whole-aggregate reads (`Use` of an aggregate
+/// place, or an aggregate-typed `Field`/`Index` such as a nested-struct
+/// read) copy through [`copy_aggregate`]. Scalar rvalues are rejected: they
+/// belong in scalar destinations.
+fn emit_aggregate_store(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    site: &AggregateSite,
+    rval: &omni_mir::ir::Rvalue,
+    context: &str,
+) -> Result<(), String> {
+    match rval {
+        omni_mir::ir::Rvalue::Struct { name, fields, ty } => {
+            if *ty != site.ty {
+                return Err(format!(
+                    "Codegen error: {} declares {:?} but the destination is {:?}",
+                    context,
+                    emitter.tcx.get(*ty),
+                    emitter.tcx.get(site.ty)
+                ));
+            }
+            match emitter.tcx.get(site.ty).clone() {
+                omni_mir::TyKind::Struct(def_name, _) if def_name == *name => {}
+                other => {
+                    return Err(format!(
+                        "Codegen error: {} constructs struct '{}' into {:?}",
+                        context, name, other
+                    ));
+                }
+            }
+            let part_tys = aggregate_part_tys(emitter, site.ty)?;
+            if fields.len() != site.layout.parts.len() || fields.len() != part_tys.len() {
+                return Err(format!(
+                    "Codegen error: {} constructs struct '{}' with {} fields but the layout has {}",
+                    context,
+                    name,
+                    fields.len(),
+                    site.layout.parts.len()
+                ));
+            }
+            for (field_name, operand) in fields {
+                let index = part_tys
+                    .iter()
+                    .position(|(part_name, _)| part_name.as_deref() == Some(field_name.as_str()))
+                    .ok_or_else(|| {
+                        format!(
+                            "Codegen error: {} constructs unknown field '{}.{}'",
+                            context, name, field_name
+                        )
+                    })?;
+                let part = &site.layout.parts[index];
+                emit_part_store(
+                    builder,
+                    emitter,
+                    &site.child(part_tys[index].1, part, context)?,
+                    operand,
+                    &format!("{} field '{}.{}'", context, name, field_name),
+                )?;
+            }
+            Ok(())
+        }
+        omni_mir::ir::Rvalue::Aggregate { kind, operands, ty } => {
+            if *ty != site.ty {
+                return Err(format!(
+                    "Codegen error: {} declares {:?} but the destination is {:?}",
+                    context,
+                    emitter.tcx.get(*ty),
+                    emitter.tcx.get(site.ty)
+                ));
+            }
+            let part_tys = match kind {
+                omni_mir::ir::AggregateKind::Tuple => match emitter.tcx.get(site.ty).clone() {
+                    omni_mir::TyKind::Tuple(elements) => elements
+                        .into_iter()
+                        .map(|element| (None::<String>, element))
+                        .collect::<Vec<_>>(),
+                    other => {
+                        return Err(format!(
+                            "Codegen error: {} builds a tuple into {:?}",
+                            context, other
+                        ));
+                    }
+                },
+                omni_mir::ir::AggregateKind::Array => match emitter.tcx.get(site.ty).clone() {
+                    omni_mir::TyKind::Array(element, length) => {
+                        if operands.len() != length {
+                            return Err(format!(
+                                "Codegen error: {} builds an array of {} elements into length {}",
+                                context,
+                                operands.len(),
+                                length
+                            ));
+                        }
+                        vec![(None, element); length]
+                    }
+                    other => {
+                        return Err(format!(
+                            "Codegen error: {} builds an array into {:?}",
+                            context, other
+                        ));
+                    }
+                },
+            };
+            if operands.len() != site.layout.parts.len() || operands.len() != part_tys.len() {
+                return Err(format!(
+                    "Codegen error: {} builds {} operands but the layout has {} parts",
+                    context,
+                    operands.len(),
+                    site.layout.parts.len()
+                ));
+            }
+            for (index, operand) in operands.iter().enumerate() {
+                let part = &site.layout.parts[index];
+                emit_part_store(
+                    builder,
+                    emitter,
+                    &site.child(part_tys[index].1, part, context)?,
+                    operand,
+                    &format!("{} part {}", context, index),
+                )?;
+            }
+            Ok(())
+        }
+        omni_mir::ir::Rvalue::Use(operand) => {
+            let src = resolve_aggregate_operand(emitter, operand, context)?;
+            copy_aggregate(builder, emitter, site, &src, context)
+        }
+        omni_mir::ir::Rvalue::Field { base, field, ty } => {
+            if *ty != site.ty {
+                return Err(format!(
+                    "Codegen error: {} declares {:?} but the destination is {:?}",
+                    context,
+                    emitter.tcx.get(*ty),
+                    emitter.tcx.get(site.ty)
+                ));
+            }
+            let src = resolve_projection_source(
+                emitter,
+                base,
+                omni_mir::ir::Projection::Field(field.clone()),
+                *ty,
+                context,
+            )?;
+            copy_aggregate(builder, emitter, site, &src, context)
+        }
+        omni_mir::ir::Rvalue::Index { base, index, ty } => {
+            if *ty != site.ty {
+                return Err(format!(
+                    "Codegen error: {} declares {:?} but the destination is {:?}",
+                    context,
+                    emitter.tcx.get(*ty),
+                    emitter.tcx.get(site.ty)
+                ));
+            }
+            let position = constant_index_position(index, emitter.func_name)?;
+            let src = resolve_projection_source(
+                emitter,
+                base,
+                omni_mir::ir::Projection::ConstantIndex(position),
+                *ty,
+                context,
+            )?;
+            copy_aggregate(builder, emitter, site, &src, context)
+        }
+        other => Err(format!(
+            "Codegen error: {} cannot be initialized from scalar rvalue {:?}; aggregates initialize from constructors and aggregate copies",
+            context, other
+        )),
+    }
+}
+
 fn lower_operand_to_cl(
     builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
     op: &omni_mir::ir::Operand,
-    variables: &std::collections::HashMap<omni_mir::ir::Local, Variable>,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match op {
         omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => {
-            let variable = *variables
-                .get(&place.local)
-                .ok_or_else(|| format!("Codegen error: unbound local {:?}", place.local))?;
-            Ok(builder.use_var(variable))
+            if place.is_local() {
+                match emitter.storage.get(&place.local).cloned() {
+                    Some(NativeStorage::Scalar(variable)) => Ok(builder.use_var(variable)),
+                    Some(NativeStorage::Aggregate { .. }) => Err(format!(
+                        "Codegen error: aggregate local {:?} in '{}' cannot be used as a scalar SSA value; copy it into an aggregate destination instead",
+                        place.local, emitter.func_name
+                    )),
+                    None => Err(format!(
+                        "Codegen error: unbound local {:?} in '{}'",
+                        place.local, emitter.func_name
+                    )),
+                }
+            } else {
+                emit_projected_place_load(builder, emitter, place)
+            }
         }
         omni_mir::ir::Operand::Constant(c) => match c {
             omni_mir::ir::Constant::Lit(lit) => match lit {
@@ -487,15 +1492,14 @@ fn lower_operand_to_cl(
 
 fn lower_rvalue_to_cl(
     builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
     rval: &omni_mir::ir::Rvalue,
-    variables: &std::collections::HashMap<omni_mir::ir::Local, Variable>,
-    tcx: &omni_mir::TyCtxt,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match rval {
-        omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, op, variables),
+        omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, emitter, op),
         omni_mir::ir::Rvalue::BinaryOp(op, lhs, rhs) => {
-            let l = lower_operand_to_cl(builder, lhs, variables)?;
-            let r = lower_operand_to_cl(builder, rhs, variables)?;
+            let l = lower_operand_to_cl(builder, emitter, lhs)?;
+            let r = lower_operand_to_cl(builder, emitter, rhs)?;
             let is_float = builder.func.dfg.value_type(l) == types::F64;
             match op {
                 omni_mir::ir::BinOp::Add if is_float => Ok(builder.ins().fadd(l, r)),
@@ -586,43 +1590,45 @@ fn lower_rvalue_to_cl(
                 omni_mir::ir::BinOp::Shr => Ok(builder.ins().sshr(l, r)),
             }
         }
-        omni_mir::ir::Rvalue::Aggregate { kind, .. } => {
-            return Err(format!(
-                "Codegen error: aggregate {:?} requires an explicit target layout/ABI contract",
-                kind
-            ));
-        }
-        omni_mir::ir::Rvalue::Field { field, .. } => {
-            return Err(format!(
-                "Codegen error: field projection '{}' requires aggregate layout metadata",
-                field
-            ));
-        }
-        omni_mir::ir::Rvalue::Struct { name, .. } => {
-            return Err(format!(
-                "Codegen error: struct constructor '{}' requires target aggregate layout metadata",
-                name
-            ));
-        }
-        omni_mir::ir::Rvalue::EnumVariant { enum_name, variant, .. } => {
-            return Err(format!(
-                "Codegen error: enum constructor '{}::{}' requires target tagged-layout metadata",
-                enum_name, variant
-            ));
-        }
-        omni_mir::ir::Rvalue::Range { .. } => {
-            return Err(
-                "Codegen error: range value representation requires target layout metadata".into(),
-            );
-        }
-        omni_mir::ir::Rvalue::Index { .. } => {
-            return Err("Codegen error: index projection requires aggregate layout metadata".into());
+        omni_mir::ir::Rvalue::Aggregate { kind, .. } => Err(format!(
+            "Codegen error: aggregate {:?} cannot initialize a scalar destination; store it into an aggregate local instead",
+            kind
+        )),
+        omni_mir::ir::Rvalue::Field { base, field, ty } => emit_projection_load(
+            builder,
+            emitter,
+            base,
+            omni_mir::ir::Projection::Field(field.clone()),
+            *ty,
+            "field projection",
+        ),
+        omni_mir::ir::Rvalue::Struct { name, .. } => Err(format!(
+            "Codegen error: struct constructor '{}' cannot initialize a scalar destination; store it into an aggregate local instead",
+            name
+        )),
+        omni_mir::ir::Rvalue::EnumVariant { enum_name, variant, .. } => Err(format!(
+            "Codegen error: enum constructor '{}::{}' requires target tagged-layout metadata",
+            enum_name, variant
+        )),
+        omni_mir::ir::Rvalue::Range { .. } => Err(
+            "Codegen error: range value representation requires target layout metadata".into(),
+        ),
+        omni_mir::ir::Rvalue::Index { base, index, ty } => {
+            let position = constant_index_position(index, emitter.func_name)?;
+            emit_projection_load(
+                builder,
+                emitter,
+                base,
+                omni_mir::ir::Projection::ConstantIndex(position),
+                *ty,
+                "index projection",
+            )
         }
 
         omni_mir::ir::Rvalue::Cast { operand, from, to } => {
-            let value = lower_operand_to_cl(builder, operand, variables)?;
-            let from_float = matches!(tcx.get(*from), omni_mir::TyKind::Float);
-            let to_float = matches!(tcx.get(*to), omni_mir::TyKind::Float);
+            let value = lower_operand_to_cl(builder, emitter, operand)?;
+            let from_float = matches!(emitter.tcx.get(*from), omni_mir::TyKind::Float);
+            let to_float = matches!(emitter.tcx.get(*to), omni_mir::TyKind::Float);
             match (from_float, to_float) {
                 (false, false) => Ok(value),
                 (false, true) => Ok(builder.ins().fcvt_from_sint(types::F64, value)),
@@ -631,7 +1637,7 @@ fn lower_rvalue_to_cl(
             }
         }
         omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
-            let val = lower_operand_to_cl(builder, operand, variables)?;
+            let val = lower_operand_to_cl(builder, emitter, operand)?;
             match op {
                 omni_mir::ir::UnOp::Neg => {
                     if builder.func.dfg.value_type(val) == types::F64 {
@@ -738,7 +1744,7 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
 
         let source = ast::GenericFnDef {
-            name: "main".to_string(),
+            name: "omni_main".to_string(),
             type_params: vec![],
             bounds: vec![],
             params: vec![],
@@ -795,7 +1801,7 @@ mod tests {
         let mir = omni_mir::ir::MirProgram {
             tcx,
             functions: vec![omni_mir::ir::MirFunction {
-                name: "main".to_string(),
+                name: "omni_main".to_string(),
                 params: vec![],
                 return_place: ret,
                 return_type: ast::TypeSpec::Int,
@@ -816,21 +1822,40 @@ mod tests {
         );
         let dir = std::env::temp_dir();
         let object_path = dir.join(format!("{stem}.o"));
-        let exe_path = dir.join(&stem);
+        let shim_path = dir.join(format!("{stem}_shim.rs"));
+        let exe_path = dir.join(format!("{stem}.exe"));
         fs::write(&object_path, object).expect("object write");
+        // Linked through `rustc` rather than `cc`: the toolchain running
+        // these tests always ships its own linker driver, so end-to-end
+        // execution does not depend on a separately installed C toolchain. A
+        // two-line shim supplies the entry point and calls `omni_main`.
+        fs::write(
+            &shim_path,
+            "unsafe extern \"C\" { fn omni_main() -> i64; }\nfn main() { std::process::exit(unsafe { omni_main() } as i32); }\n",
+        )
+        .expect("shim write");
 
-        let link = Command::new("cc")
-            .arg(&object_path)
+        let link = Command::new("rustc")
+            .arg("--edition=2021")
+            .arg(&shim_path)
             .arg("-o")
             .arg(&exe_path)
-            .status()
-            .expect("cc must be available");
-        assert!(link.success(), "link failed: {link}");
+            .arg("-C")
+            .arg(format!("link-arg={}", object_path.display()))
+            .output()
+            .expect("rustc must be available");
+        assert!(
+            link.status.success(),
+            "rustc link failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&link.stdout),
+            String::from_utf8_lossy(&link.stderr)
+        );
 
         let run = Command::new(&exe_path).status().expect("executable must run");
         assert_eq!(run.code(), Some(41));
 
         fs::remove_file(object_path).ok();
+        fs::remove_file(shim_path).ok();
         fs::remove_file(exe_path).ok();
     }
 

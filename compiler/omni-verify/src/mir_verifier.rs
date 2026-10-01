@@ -145,6 +145,23 @@ pub enum MirVerificationError {
         block: BasicBlock,
         place: String,
     },
+    /// An index local in a bounds check is not an Int type.
+    InvalidIndexType {
+        func: String,
+        local: Local,
+        actual_type: String,
+    },
+    /// A bounds check has an invalid length (must be positive).
+    InvalidBoundsCheckLength {
+        func: String,
+        length: usize,
+    },
+    /// A dynamic array access lacks a dominating bounds check.
+    MissingBoundsCheck {
+        func: String,
+        place: String,
+        index_local: Local,
+    },
 }
 
 impl std::fmt::Display for MirVerificationError {
@@ -285,6 +302,21 @@ impl std::fmt::Display for MirVerificationError {
                 f,
                 "MIR Verification Failure in '{}': projected place {} is read before its aggregate is initialized in block {:?}",
                 func, place, block
+            ),
+            Self::InvalidIndexType { func, local, actual_type } => write!(
+                f,
+                "MIR Verification Failure in '{}': bounds check index local {:?} must be Int, found {}",
+                func, local, actual_type
+            ),
+            Self::InvalidBoundsCheckLength { func, length } => write!(
+                f,
+                "MIR Verification Failure in '{}': bounds check length must be positive, got {}",
+                func, length
+            ),
+            Self::MissingBoundsCheck { func, place, index_local } => write!(
+                f,
+                "MIR Verification Failure in '{}': dynamic array access {} lacks dominating bounds check for index local {:?}",
+                func, place, index_local
             ),
         }
     }
@@ -444,6 +476,40 @@ impl MirVerifier {
                     }
                     Statement::Assume(_) => {}
                     Statement::Drop(place) => Self::check_place(fn_name, place, num_locals)?,
+                    Statement::BoundsCheck { index, length } => {
+                        // Check that the index local exists and is an Int type
+                        if index.index() >= num_locals {
+                            return Err(MirVerificationError::UndefinedLocal {
+                                func: fn_name.clone(),
+                                local: *index,
+                            });
+                        }
+                        
+                        // Check that the index is an Int type
+                        let local_decl = &func.body.local_decls[*index];
+                        if let Some(ty) = &local_decl.ty {
+                            if !matches!(prog.tcx.get(*ty), TyKind::Int) {
+                                return Err(MirVerificationError::InvalidIndexType {
+                                    func: fn_name.clone(),
+                                    local: *index,
+                                    actual_type: format!("{:?}", prog.tcx.get(*ty)),
+                                });
+                            }
+                        } else {
+                            return Err(MirVerificationError::UndefinedLocal {
+                                func: fn_name.clone(),
+                                local: *index,
+                            });
+                        }
+                        
+                        // Check that length is positive
+                        if *length == 0 {
+                            return Err(MirVerificationError::InvalidBoundsCheckLength {
+                                func: fn_name.clone(),
+                                length: *length,
+                            });
+                        }
+                    }
                 }
             }
 
@@ -482,6 +548,7 @@ impl MirVerifier {
         Self::check_calls(prog, func)?;
         Self::check_definite_assignment(prog, func)?;
         Self::check_projections(prog, func)?;
+        Self::check_bounds_check_dominance(prog, func)?;
         Ok(())
     }
 
@@ -586,6 +653,7 @@ impl MirVerifier {
                     Statement::Drop(place) => {
                         Self::require_assigned(func, block, place.local, &assigned)?;
                     }
+                    Statement::BoundsCheck { .. } => {}
                 }
                 // A write to a whole local initializes it. A write to a projection
                 // initializes only that subplace, so it must NOT mark the whole
@@ -755,6 +823,7 @@ impl MirVerifier {
                         Self::check_projection_chain(&mut tcx, defs, func, place)?;
                     }
                     Statement::Assume(_) => {}
+                    Statement::BoundsCheck { .. } => {}
                 }
             }
             if let Some(terminator) = &block.terminator {
@@ -775,6 +844,170 @@ impl MirVerifier {
             }
         }
         Ok(())
+    }
+
+    /// Verifies that every dynamic array access is dominated by a corresponding bounds check.
+    ///
+    /// This ensures that runtime array indexing is always safe by requiring an explicit
+    /// BoundsCheck statement before any Rvalue::Index that uses a dynamic index.
+    fn check_bounds_check_dominance(
+        prog: &MirProgram,
+        func: &MirFunction,
+    ) -> Result<(), MirVerificationError> {
+        let fn_name = &func.name;
+        let num_blocks = func.body.blocks.len();
+        
+        // Track which index locals have been bounds-checked in each block
+        let mut bounds_checked = vec![HashSet::new(); num_blocks];
+        
+        // First pass: collect all bounds checks
+        for (block_idx, block) in func.body.blocks.iter().enumerate() {
+            for statement in &block.statements {
+                if let Statement::BoundsCheck { index, length } = statement {
+                    // Validate the bounds check parameters (already done in main validation)
+                    if *length == 0 {
+                        return Err(MirVerificationError::InvalidBoundsCheckLength {
+                            func: fn_name.clone(),
+                            length: *length,
+                        });
+                    }
+                    
+                    // Mark this index as bounds-checked in this block
+                    bounds_checked[block_idx].insert(*index);
+                }
+            }
+        }
+        
+        // Second pass: verify dynamic array accesses have dominating bounds checks
+        for (block_idx, block) in func.body.blocks.iter().enumerate() {
+            for statement in &block.statements {
+                if let Statement::Assign(place, rval) = statement {
+                    // Check for dynamic array indexing
+                    if let Rvalue::Index { base, index, .. } = rval {
+                        // Check if this is a dynamic index (not a constant)
+                        match index {
+                            Operand::Copy(place) | Operand::Move(place) => {
+                                // This is a dynamic index - check if it's been bounds-checked
+                                let index_local = place.local;
+                                
+                                // Check if this index local has been bounds-checked in a dominating block
+                                if !Self::is_dominated_by_bounds_check(block_idx, index_local, &bounds_checked, func) {
+                                    return Err(MirVerificationError::MissingBoundsCheck {
+                                        func: fn_name.clone(),
+                                        place: place.to_string(),
+                                        index_local: index_local,
+                                    });
+                                }
+                            }
+                            Operand::Constant(_) => {
+                                // Constant index - no bounds check needed (already validated in lowering)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Checks if an index local has been bounds-checked in a dominating block.
+    fn is_dominated_by_bounds_check(
+        block_idx: usize,
+        index_local: Local,
+        bounds_checked: &[HashSet<Local>],
+        func: &MirFunction,
+    ) -> bool {
+        // For now, we'll do a simple check: if the index is bounds-checked in the same block
+        // or any predecessor block. In a more sophisticated implementation, we would
+        // perform proper dominance analysis.
+        if bounds_checked[block_idx].contains(&index_local) {
+            return true;
+        }
+        
+        // Check if any predecessor block has bounds-checked this index
+        // This is a simplified check - a full implementation would use dominance analysis
+        let reachable = Self::reachable_blocks(func, func.body.blocks.len());
+        let mut visited = HashSet::new();
+        let mut queue = Vec::new();
+        
+        // Find all predecessors of this block
+        for (pred_idx, block) in func.body.blocks.iter().enumerate() {
+            if reachable[pred_idx] {
+                if let Some(terminator) = &block.terminator {
+                    if let Terminator::Goto(target) = terminator {
+                        if target.index() == block_idx {
+                            queue.push(pred_idx);
+                        }
+                    } else if let Terminator::SwitchInt { targets, otherwise, .. } = terminator {
+                        for (_, target) in targets {
+                            if target.index() == block_idx {
+                                queue.push(pred_idx);
+                                break;
+                            }
+                        }
+                        if otherwise.index() == block_idx {
+                            queue.push(pred_idx);
+                        }
+                    } else if let Terminator::Call { target, cleanup, .. } = terminator {
+                        if target.index() == block_idx {
+                            queue.push(pred_idx);
+                        }
+                        if let Some(cleanup) = cleanup {
+                            if cleanup.index() == block_idx {
+                                queue.push(pred_idx);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // BFS through predecessors to find if any has bounds-checked this index
+        while let Some(current) = queue.pop() {
+            if visited.contains(&current) {
+                continue;
+            }
+            visited.insert(current);
+            
+            if bounds_checked[current].contains(&index_local) {
+                return true;
+            }
+            
+            // Add predecessors of current block to queue
+            for (pred_idx, block) in func.body.blocks.iter().enumerate() {
+                if reachable[pred_idx] {
+                    if let Some(terminator) = &block.terminator {
+                        if let Terminator::Goto(target) = terminator {
+                            if target.index() == current {
+                                queue.push(pred_idx);
+                            }
+                        } else if let Terminator::SwitchInt { targets, otherwise, .. } = terminator {
+                            for (_, target) in targets {
+                                if target.index() == current {
+                                    queue.push(pred_idx);
+                                    break;
+                                }
+                            }
+                            if otherwise.index() == current {
+                                queue.push(pred_idx);
+                            }
+                        } else if let Terminator::Call { target, cleanup, .. } = terminator {
+                            if target.index() == current {
+                                queue.push(pred_idx);
+                            }
+                            if let Some(cleanup) = cleanup {
+                                if cleanup.index() == current {
+                                    queue.push(pred_idx);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        false
     }
 
     /// Checks that an operand's place has been assigned before this point.
@@ -1042,7 +1275,7 @@ impl MirVerifier {
         rvalue: &Rvalue,
     ) -> Result<(), MirVerificationError> {
         let mut tcx = prog.tcx.clone();
-        let actual = Self::rvalue_type(&mut tcx, func, rvalue)?;
+        let actual = Self::rvalue_type(&mut tcx, &prog.struct_defs, func, rvalue)?;
         // The expected type is the type of the *whole* place, projection chain
         // included. Using the root local's type would reject every projected
         // assignment, because `x.y = 1` writes an int into a slot of a tuple or
@@ -1066,6 +1299,7 @@ impl MirVerifier {
 
     fn rvalue_type(
         tcx: &mut TyCtxt,
+        defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
         func: &MirFunction,
         rvalue: &Rvalue,
     ) -> Result<Ty, MirVerificationError> {
@@ -1262,17 +1496,35 @@ impl MirVerifier {
             Rvalue::Field { base, field, ty } => {
                 let base_ty = Self::operand_type(tcx, func, base)?;
                 let expected = match tcx.get(base_ty) {
-                    TyKind::Struct(name, _) => {
-                        // MIR currently retains only the semantic field name; the declaration
-                        // type is reconstructed by the frontend-owned type context.
-                        let _ = name;
-                        return Err(MirVerificationError::InvalidTypeSpec {
-                            func: func.name.clone(),
-                            context: format!(
-                                "field projection '{}' requires registered aggregate layout",
-                                field
-                            ),
-                        });
+                    TyKind::Struct(struct_name, args) => {
+                        // Same declaration lookup the place-chain check uses:
+                        // the program carries the definitions lowering used,
+                        // so the verifier resolves the field against those
+                        // rather than failing closed for lack of a layout.
+                        let def = defs.get(struct_name).ok_or_else(|| {
+                            MirVerificationError::AggregateTypeMismatch {
+                                func: func.name.clone(),
+                                context: format!(
+                                    "field projection '{}' names unknown struct '{}'",
+                                    field, struct_name
+                                ),
+                            }
+                        })?;
+                        let declared =
+                            def.fields.iter().find(|f| &f.name == field).ok_or_else(|| {
+                                MirVerificationError::AggregateTypeMismatch {
+                                    func: func.name.clone(),
+                                    context: format!(
+                                        "struct '{}' has no field '{}'",
+                                        struct_name, field
+                                    ),
+                                }
+                            })?;
+                        let mut field_env = SubstEnv::new();
+                        for (param, arg) in def.type_params.iter().zip(args.iter()) {
+                            field_env.insert(param.clone(), *arg);
+                        }
+                        tcx.lower_type_spec(&declared.ty, &field_env)
                     }
                     TyKind::Tuple(types) => {
                         let index = field.parse::<usize>().map_err(|_| {

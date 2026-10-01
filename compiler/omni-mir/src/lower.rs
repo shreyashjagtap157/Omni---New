@@ -1480,8 +1480,42 @@ impl<'a> FnMirBuilder<'a> {
                         index_ty
                     ));
                 }
-                let result_ty = match self.tcx.get(base_ty).clone() {
-                    TyKind::Array(elem, _) => elem,
+                let (result_ty, index_local_for_final) = match self.tcx.get(base_ty).clone() {
+                    TyKind::Array(elem, length) => {
+                        // Check if this is a constant or dynamic index
+                        let index_local = match index.as_ref() {
+                            omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n))
+                                if *n >= 0 =>
+                            {
+                                // Constant index: check bounds at compile time
+                                if *n >= length as i64 {
+                                    return Err(format!(
+                                        "MIR lowering error: array index {} out of bounds for length {}",
+                                        n, length
+                                    ));
+                                }
+                                None
+                            }
+                            _ => {
+                                // Dynamic index: insert runtime bounds check
+                                let index_local = self.new_temp(Some("_index_local".to_string()), index_ty);
+                                let block = self
+                                    .current_block
+                                    .ok_or_else(|| "MIR lowering error: index has no live block".to_string())?;
+                                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                                    crate::ir::Place::local(index_local),
+                                    crate::ir::Rvalue::Use(index_op.clone()),
+                                ));
+                                // Insert bounds check for dynamic index
+                                self.blocks[block].statements.push(crate::ir::Statement::BoundsCheck {
+                                    index: index_local,
+                                    length: length,
+                                });
+                                Some(index_local)
+                            }
+                        };
+                        (elem, index_local)
+                    }
                     TyKind::Tuple(types) => {
                         let position = match index.as_ref() {
                             omni_types::ast::Expr::Literal(omni_types::ast::Lit::Int(n))
@@ -1496,9 +1530,9 @@ impl<'a> FnMirBuilder<'a> {
                                 )
                             }
                         };
-                        *types.get(position).ok_or_else(|| {
+                        (*types.get(position).ok_or_else(|| {
                             format!("MIR lowering error: tuple index {} out of bounds", position)
-                        })?
+                        })?, None)
                     }
                     other => {
                         return Err(format!(
@@ -1512,9 +1546,22 @@ impl<'a> FnMirBuilder<'a> {
                     .ok_or_else(|| "MIR lowering error: index has no live block".to_string())?;
                 let local = self.new_temp(Some("_index_tmp".to_string()), result_ty);
                 let place = crate::ir::Place::local(local);
+                
+                // Use the index local if it was created for dynamic indexing, otherwise use the original operand
+                let final_index_op = match index_local_for_final {
+                    None => {
+                        // Constant index: use original operand
+                        index_op
+                    }
+                    Some(index_local) => {
+                        // Dynamic index: use the local that was assigned and bounds-checked
+                        crate::ir::Operand::Copy(crate::ir::Place::local(index_local))
+                    }
+                };
+                
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
                     place.clone(),
-                    crate::ir::Rvalue::Index { base, index: index_op, ty: result_ty },
+                    crate::ir::Rvalue::Index { base, index: final_index_op, ty: result_ty },
                 ));
                 Ok(Some((crate::ir::Operand::Copy(place.clone()), result_ty)))
             }

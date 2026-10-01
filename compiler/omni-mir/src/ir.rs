@@ -111,6 +111,11 @@ pub enum Statement {
     Assume(Assumption),
     /// Explicitly invalidates a place, running its destructor if necessary.
     Drop(Place),
+    /// Runtime bounds check for dynamic array indexing.
+    ///
+    /// Traps if `index >= 0 && index < length` is false. Otherwise continues execution.
+    /// This is a first-class safety operation, not a codegen convention.
+    BoundsCheck { index: Local, length: usize },
 }
 
 /// The branching instruction at the end of every basic block.
