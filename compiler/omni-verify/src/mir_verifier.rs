@@ -484,7 +484,7 @@ impl MirVerifier {
                                 local: *index,
                             });
                         }
-                        
+
                         // Check that the index is an Int type
                         let local_decl = &func.body.local_decls[*index];
                         if let Some(ty) = &local_decl.ty {
@@ -501,7 +501,7 @@ impl MirVerifier {
                                 local: *index,
                             });
                         }
-                        
+
                         // Length zero is valid: the generated check must trap
                         // for every index because no element can be in bounds.
                     }
@@ -958,8 +958,7 @@ impl MirVerifier {
 
                             let base_ty = match base {
                                 Operand::Copy(base_place) | Operand::Move(base_place) => {
-                                    let root_ty =
-                                        Self::local_ty(func, base_place.local, fn_name)?;
+                                    let root_ty = Self::local_ty(func, base_place.local, fn_name)?;
                                     if base_place.is_local() {
                                         root_ty
                                     } else {
@@ -975,9 +974,8 @@ impl MirVerifier {
                                 Operand::Constant(_) => {
                                     return Err(MirVerificationError::AggregateTypeMismatch {
                                         func: fn_name.clone(),
-                                        context:
-                                            "dynamic array indexing requires an array place"
-                                                .to_string(),
+                                        context: "dynamic array indexing requires an array place"
+                                            .to_string(),
                                     });
                                 }
                             };
