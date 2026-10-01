@@ -846,177 +846,183 @@ impl MirVerifier {
         Ok(())
     }
 
-    /// Verifies that every dynamic array access is dominated by a corresponding bounds check.
-    ///
-    /// This ensures that runtime array indexing is always safe by requiring an explicit
-    /// BoundsCheck statement before any Rvalue::Index that uses a dynamic index.
+    /// Verifies every dynamic array access against a forward dataflow fact
+    /// containing the exact (index local, array length) checked on every
+    /// reachable path to that access. A whole-local assignment kills a fact,
+    /// so checking a mutable local and then overwriting it cannot reuse the old
+    /// proof.
     fn check_bounds_check_dominance(
         prog: &MirProgram,
         func: &MirFunction,
     ) -> Result<(), MirVerificationError> {
         let fn_name = &func.name;
         let num_blocks = func.body.blocks.len();
-        
-        // Track which index locals have been bounds-checked in each block
-        let mut bounds_checked = vec![HashSet::new(); num_blocks];
-        
-        // First pass: collect all bounds checks
-        for (block_idx, block) in func.body.blocks.iter().enumerate() {
-            for statement in &block.statements {
-                if let Statement::BoundsCheck { index, length } = statement {
-                    // Validate the bounds check parameters (already done in main validation)
-                    if *length == 0 {
-                        return Err(MirVerificationError::InvalidBoundsCheckLength {
-                            func: fn_name.clone(),
-                            length: *length,
-                        });
-                    }
-                    
-                    // Mark this index as bounds-checked in this block
-                    bounds_checked[block_idx].insert(*index);
+        let reachable = Self::reachable_blocks(func, num_blocks);
+
+        let mut predecessors = vec![Vec::<usize>::new(); num_blocks];
+        for (pred_idx, block) in func.body.blocks.iter().enumerate() {
+            if !reachable[pred_idx] {
+                continue;
+            }
+            let Some(terminator) = &block.terminator else {
+                continue;
+            };
+            let mut add_pred = |target: BasicBlock| {
+                if reachable[target.index()] {
+                    predecessors[target.index()].push(pred_idx);
                 }
+            };
+            match terminator {
+                Terminator::Goto(target) => add_pred(*target),
+                Terminator::SwitchInt { targets, otherwise, .. } => {
+                    for (_, target) in targets {
+                        add_pred(*target);
+                    }
+                    add_pred(*otherwise);
+                }
+                Terminator::Call { target, cleanup, .. } => {
+                    add_pred(*target);
+                    if let Some(cleanup) = cleanup {
+                        add_pred(*cleanup);
+                    }
+                }
+                Terminator::Return | Terminator::Unreachable => {}
             }
         }
-        
-        // Second pass: verify dynamic array accesses have dominating bounds checks
-        for (block_idx, block) in func.body.blocks.iter().enumerate() {
+
+        type BoundsFact = (Local, usize);
+        let mut in_facts = vec![HashSet::<BoundsFact>::new(); num_blocks];
+        let mut out_facts = vec![HashSet::<BoundsFact>::new(); num_blocks];
+
+        loop {
+            let mut changed = false;
+            for block_idx in 0..num_blocks {
+                if !reachable[block_idx] {
+                    continue;
+                }
+
+                let new_in = if block_idx == 0 || predecessors[block_idx].is_empty() {
+                    HashSet::new()
+                } else {
+                    let mut iter = predecessors[block_idx].iter();
+                    let first = *iter.next().expect("non-empty predecessor list");
+                    let mut intersection = out_facts[first].clone();
+                    for pred in iter {
+                        intersection.retain(|fact| out_facts[*pred].contains(fact));
+                    }
+                    intersection
+                };
+
+                let mut new_out = new_in.clone();
+                let block = &func.body.blocks[BasicBlock::from_usize(block_idx)];
+                for statement in &block.statements {
+                    match statement {
+                        Statement::BoundsCheck { index, length } => {
+                            new_out.insert((*index, *length));
+                        }
+                        Statement::Assign(place, _) if place.is_local() => {
+                            new_out.retain(|(checked_local, _)| *checked_local != place.local);
+                        }
+                        _ => {}
+                    }
+                }
+
+                if new_in != in_facts[block_idx] {
+                    in_facts[block_idx] = new_in;
+                    changed = true;
+                }
+                if new_out != out_facts[block_idx] {
+                    out_facts[block_idx] = new_out;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        let mut tcx = prog.tcx.clone();
+        for block_idx in 0..num_blocks {
+            if !reachable[block_idx] {
+                continue;
+            }
+            let block = &func.body.blocks[BasicBlock::from_usize(block_idx)];
+            let mut facts = in_facts[block_idx].clone();
+
             for statement in &block.statements {
-                if let Statement::Assign(place, rval) = statement {
-                    // Check for dynamic array indexing
-                    if let Rvalue::Index { base, index, .. } = rval {
-                        // Check if this is a dynamic index (not a constant)
-                        match index {
-                            Operand::Copy(place) | Operand::Move(place) => {
-                                // This is a dynamic index - check if it's been bounds-checked
-                                let index_local = place.local;
-                                
-                                // Check if this index local has been bounds-checked in a dominating block
-                                if !Self::is_dominated_by_bounds_check(
-                                    block_idx,
-                                    index_local,
-                                    &bounds_checked,
-                                    func,
-                                ) {
-                                    return Err(MirVerificationError::MissingBoundsCheck {
+                match statement {
+                    Statement::Assign(_, Rvalue::Index { base, index, .. }) => {
+                        if let Operand::Copy(index_place) | Operand::Move(index_place) = index {
+                            if !index_place.is_local() {
+                                return Err(MirVerificationError::MissingBoundsCheck {
+                                    func: fn_name.clone(),
+                                    place: index_place.to_string(),
+                                    index_local: index_place.local,
+                                });
+                            }
+
+                            let base_ty = match base {
+                                Operand::Copy(base_place) | Operand::Move(base_place) => {
+                                    let root_ty =
+                                        Self::local_ty(func, base_place.local, fn_name)?;
+                                    if base_place.is_local() {
+                                        root_ty
+                                    } else {
+                                        Self::place_ty(
+                                            &mut tcx,
+                                            &prog.struct_defs,
+                                            func,
+                                            base_place,
+                                            root_ty,
+                                        )?
+                                    }
+                                }
+                                Operand::Constant(_) => {
+                                    return Err(MirVerificationError::AggregateTypeMismatch {
                                         func: fn_name.clone(),
-                                        place: place.to_string(),
-                                        index_local: index_local,
+                                        context:
+                                            "dynamic array indexing requires an array place"
+                                                .to_string(),
                                     });
                                 }
-                            }
-                            Operand::Constant(_) => {
-                                // Constant index - no bounds check needed (already validated in lowering)
+                            };
+
+                            let expected_length = match tcx.get(base_ty) {
+                                TyKind::Array(_, length) => *length,
+                                other => {
+                                    return Err(MirVerificationError::AggregateTypeMismatch {
+                                        func: fn_name.clone(),
+                                        context: format!(
+                                            "dynamic index base has non-array type {:?}",
+                                            other
+                                        ),
+                                    });
+                                }
+                            };
+
+                            if !facts.contains(&(index_place.local, expected_length)) {
+                                return Err(MirVerificationError::MissingBoundsCheck {
+                                    func: fn_name.clone(),
+                                    place: index_place.to_string(),
+                                    index_local: index_place.local,
+                                });
                             }
                         }
                     }
+                    Statement::BoundsCheck { index, length } => {
+                        facts.insert((*index, *length));
+                    }
+                    Statement::Assign(place, _) if place.is_local() => {
+                        facts.retain(|(checked_local, _)| *checked_local != place.local);
+                    }
+                    _ => {}
                 }
             }
         }
-        
+
         Ok(())
     }
 
-    /// Checks if an index local has been bounds-checked in a dominating block.
-    fn is_dominated_by_bounds_check(
-        block_idx: usize,
-        index_local: Local,
-        bounds_checked: &[HashSet<Local>],
-        func: &MirFunction,
-    ) -> bool {
-        // For now, we'll do a simple check: if the index is bounds-checked in the same block
-        // or any predecessor block. In a more sophisticated implementation, we would
-        // perform proper dominance analysis.
-        if bounds_checked[block_idx].contains(&index_local) {
-            return true;
-        }
-        
-        // Check if any predecessor block has bounds-checked this index
-        // This is a simplified check - a full implementation would use dominance analysis
-        let reachable = Self::reachable_blocks(func, func.body.blocks.len());
-        let mut visited = HashSet::new();
-        let mut queue = Vec::new();
-        
-        // Find all predecessors of this block
-        for (pred_idx, block) in func.body.blocks.iter().enumerate() {
-            if reachable[pred_idx] {
-                if let Some(terminator) = &block.terminator {
-                    if let Terminator::Goto(target) = terminator {
-                        if target.index() == block_idx {
-                            queue.push(pred_idx);
-                        }
-                    } else if let Terminator::SwitchInt { targets, otherwise, .. } = terminator {
-                        for (_, target) in targets {
-                            if target.index() == block_idx {
-                                queue.push(pred_idx);
-                                break;
-                            }
-                        }
-                        if otherwise.index() == block_idx {
-                            queue.push(pred_idx);
-                        }
-                    } else if let Terminator::Call { target, cleanup, .. } = terminator {
-                        if target.index() == block_idx {
-                            queue.push(pred_idx);
-                        }
-                        if let Some(cleanup) = cleanup {
-                            if cleanup.index() == block_idx {
-                                queue.push(pred_idx);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // BFS through predecessors to find if any has bounds-checked this index
-        while let Some(current) = queue.pop() {
-            if visited.contains(&current) {
-                continue;
-            }
-            visited.insert(current);
-            
-            if bounds_checked[current].contains(&index_local) {
-                return true;
-            }
-            
-            // Add predecessors of current block to queue
-            for (pred_idx, block) in func.body.blocks.iter().enumerate() {
-                if reachable[pred_idx] {
-                    if let Some(terminator) = &block.terminator {
-                        if let Terminator::Goto(target) = terminator {
-                            if target.index() == current {
-                                queue.push(pred_idx);
-                            }
-                        } else if let Terminator::SwitchInt { targets, otherwise, .. } = terminator
-                        {
-                            for (_, target) in targets {
-                                if target.index() == current {
-                                    queue.push(pred_idx);
-                                    break;
-                                }
-                            }
-                            if otherwise.index() == current {
-                                queue.push(pred_idx);
-                            }
-                        } else if let Terminator::Call { target, cleanup, .. } = terminator {
-                            if target.index() == current {
-                                queue.push(pred_idx);
-                            }
-                            if let Some(cleanup) = cleanup {
-                                if cleanup.index() == current {
-                                    queue.push(pred_idx);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        false
-    }
-
-    /// Checks that an operand's place has been assigned before this point.
     fn check_operand_initialized(
         func: &MirFunction,
         block: BasicBlock,
