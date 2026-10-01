@@ -2274,8 +2274,7 @@ fn lower_rvalue_to_cl(
             index,
             *ty,
             "index projection",
-        )
-
+        ),
         omni_mir::ir::Rvalue::Cast { operand, from, to } => {
             let value = lower_operand_to_cl(builder, emitter, operand)?;
             let from_float = matches!(emitter.tcx.get(*from), omni_mir::TyKind::Float);
