@@ -94,8 +94,7 @@ fn constant_index_out_of_bounds_high_rejected() {
     let body = Expr::Index { expr: Box::new(array), index: Box::new(index) };
 
     let program = int_main_with_locals(body);
-    let result = omni_mir::lower::LoweringContext::new()
-        .lower_monomorphized_program(&program);
+    let result = omni_mir::lower::LoweringContext::new().lower_monomorphized_program(&program);
 
     // Should fail with out-of-bounds error
     assert!(result.is_err(), "Constant out-of-bounds indexing should be rejected at compile time");
@@ -175,10 +174,7 @@ fn tuple_indexing_remains_compile_time() {
     ]);
     let index = Expr::Literal(Lit::Int(1)); // Constant index
 
-    let body = Expr::Index {
-        expr: Box::new(tuple),
-        index: Box::new(index),
-    };
+    let body = Expr::Index { expr: Box::new(tuple), index: Box::new(index) };
 
     let program = int_main_with_locals(body);
     let mir_function = omni_mir::lower::LoweringContext::new()
