@@ -1,11 +1,15 @@
-//! Stage 4C native aggregate tests: stack-slot locals with layout-driven
-//! field/element addressing.
+//! Stage 4C/4E native aggregate tests: stack-slot locals plus aggregate
+//! function-boundary calls using the backend-internal address ABI.
 //!
 //! Scalar locals keep SSA `Variable` storage; aggregate locals take
 //! `StackSlot` storage sized and aligned by `TargetLayout`, with struct
 //! fields, constant tuple positions and constant array positions addressed by
-//! layout offsets. Executable tests link and run, proving the projection
-//! chain is really executable rather than merely accepted.
+//! layout offsets. Stage 4E extends this representation across function
+//! boundaries: aggregate parameters are passed by address and aggregate
+//! returns use caller-provided result storage.
+//!
+//! Executable tests link and run, proving the representation is really
+//! executable rather than merely accepted.
 
 use omni_mir::ast::{Expr, GenericFnDef, Lit, Pattern, StructDef, StructFieldDef, TypeSpec};
 use std::collections::HashMap;
@@ -81,7 +85,7 @@ fn run_object(object: &[u8]) -> i32 {
 
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let stem =
-        format!("omni-codegen-4c-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::SeqCst));
+        format!("omni-codegen-4e-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::SeqCst));
     let dir = std::env::temp_dir();
     let object_path = dir.join(format!("{stem}.o"));
     let shim_path = dir.join(format!("{stem}_shim.rs"));
@@ -116,6 +120,37 @@ fn run_object(object: &[u8]) -> i32 {
     std::fs::remove_file(shim_path).ok();
     std::fs::remove_file(exe_path).ok();
     code
+}
+
+
+fn fn_def(
+    name: &str,
+    params: Vec<(String, TypeSpec)>,
+    return_type: TypeSpec,
+    body: Expr,
+) -> GenericFnDef {
+    GenericFnDef {
+        name: name.to_string(),
+        type_params: vec![],
+        bounds: vec![],
+        params,
+        return_type,
+        effects: omni_effects::EffectRow::pure(),
+        capabilities: vec![],
+        body,
+    }
+}
+
+fn call(name: &str, args: Vec<Expr>) -> Expr {
+    Expr::Call {
+        func: name.to_string(),
+        generic_args: vec![],
+        args,
+    }
+}
+
+fn program(functions: Vec<GenericFnDef>) -> omni_mir::MonomorphizedProgram {
+    omni_mir::MonomorphizedProgram { functions }
 }
 
 #[test]
@@ -248,8 +283,9 @@ fn aggregate_let_copy_executes() {
 }
 
 #[test]
-fn dynamic_array_index_is_rejected_without_bounds_checks() {
-    // a[i] with a runtime i must not become an unchecked native access.
+fn dynamic_array_index_executes_with_bounds_check() {
+    // a[i] with a dynamic i must execute through the explicit Stage 4D
+    // bounds-check path; this case is in bounds and returns the selected value.
     let body = let_in(
         "a",
         Expr::Array(vec![Expr::Literal(Lit::Int(5)), Expr::Literal(Lit::Int(6))]),
@@ -262,45 +298,169 @@ fn dynamic_array_index_is_rejected_without_bounds_checks() {
             }),
         ),
     );
-    let err = omni_codegen::compile_monomorphized_program(&int_main(body))
-        .expect_err("dynamic indexing must fail closed until Stage 4D");
-    assert!(err.contains("bounds"), "unexpected error: {err}");
+    let object = omni_codegen::compile_monomorphized_program(&int_main(body))
+        .expect("dynamic indexing with a bounds check must compile");
+    assert_eq!(run_object(&object), 6);
 }
 
 #[test]
-fn aggregate_parameter_is_rejected_at_the_abi_boundary() {
-    let prog = omni_mir::MonomorphizedProgram {
-        functions: vec![GenericFnDef {
-            name: "first".to_string(),
-            type_params: vec![],
-            bounds: vec![],
-            params: vec![("p".to_string(), TypeSpec::Struct("Pair".to_string(), vec![]))],
-            return_type: TypeSpec::Int,
-            effects: omni_effects::EffectRow::pure(),
-            capabilities: vec![],
-            body: return_of(field_of(Expr::Var("p".to_string()), "a")),
-        }],
-    };
-    let err = omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
-        .expect_err("aggregate parameters require an explicit ABI contract");
-    assert!(err.contains("ABI"), "unexpected error: {err}");
+fn aggregate_parameter_call_executes() {
+    // first(Pair { a: 10, b: 20 }) -> 10
+    let prog = program(vec![
+        fn_def(
+            "first",
+            vec![("p".to_string(), TypeSpec::Struct("Pair".to_string(), vec![]))],
+            TypeSpec::Int,
+            return_of(field_of(Expr::Var("p".to_string()), "a")),
+        ),
+        fn_def(
+            "omni_main",
+            vec![],
+            TypeSpec::Int,
+            return_of(call("first", vec![pair_value(10, 20)])),
+        ),
+    ]);
+    let object =
+        omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
+            .expect("aggregate parameter call must compile");
+    assert_eq!(run_object(&object), 10);
 }
 
 #[test]
-fn aggregate_return_is_rejected_at_the_abi_boundary() {
-    let prog = omni_mir::MonomorphizedProgram {
-        functions: vec![GenericFnDef {
-            name: "make".to_string(),
-            type_params: vec![],
-            bounds: vec![],
-            params: vec![],
-            return_type: TypeSpec::Struct("Pair".to_string(), vec![]),
-            effects: omni_effects::EffectRow::pure(),
-            capabilities: vec![],
-            body: pair_value(1, 2),
-        }],
-    };
-    let err = omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
-        .expect_err("aggregate returns require an explicit ABI contract");
-    assert!(err.contains("ABI"), "unexpected error: {err}");
+fn aggregate_return_call_executes() {
+    // make() -> Pair { a: 7, b: 9 }; caller receives it into aggregate storage.
+    let prog = program(vec![
+        fn_def(
+            "make",
+            vec![],
+            TypeSpec::Struct("Pair".to_string(), vec![]),
+            pair_value(7, 9),
+        ),
+        fn_def(
+            "omni_main",
+            vec![],
+            TypeSpec::Int,
+            let_in(
+                "p",
+                call("make", vec![]),
+                return_of(field_of(Expr::Var("p".to_string()), "b")),
+            ),
+        ),
+    ]);
+    let object =
+        omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
+            .expect("aggregate return call must compile");
+    assert_eq!(run_object(&object), 9);
+}
+
+#[test]
+fn aggregate_parameter_isolation_executes() {
+    // The callee mutates its private parameter copy; the caller remains unchanged.
+    let prog = program(vec![
+        fn_def(
+            "mutate",
+            vec![("p".to_string(), TypeSpec::Struct("Pair".to_string(), vec![]))],
+            TypeSpec::Int,
+            Expr::Block(vec![
+                Expr::Assign {
+                    target: Box::new(field_of(Expr::Var("p".to_string()), "a")),
+                    value: Box::new(Expr::Literal(Lit::Int(99))),
+                },
+                return_of(field_of(Expr::Var("p".to_string()), "a")),
+            ]),
+        ),
+        fn_def(
+            "omni_main",
+            vec![],
+            TypeSpec::Int,
+            let_in(
+                "p",
+                pair_value(10, 20),
+                Expr::Block(vec![
+                    call("mutate", vec![Expr::Var("p".to_string())]),
+                    return_of(field_of(Expr::Var("p".to_string()), "a")),
+                ]),
+            ),
+        ),
+    ]);
+    let object =
+        omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
+            .expect("aggregate parameter isolation must compile");
+    assert_eq!(run_object(&object), 10);
+}
+
+#[test]
+fn mixed_scalar_and_aggregate_parameters_execute() {
+    // offset(Pair { a: 7, b: 9 }, 5) -> 12
+    let prog = program(vec![
+        fn_def(
+            "offset",
+            vec![
+                ("p".to_string(), TypeSpec::Struct("Pair".to_string(), vec![])),
+                ("delta".to_string(), TypeSpec::Int),
+            ],
+            TypeSpec::Int,
+            Expr::Binary {
+                op: omni_mir::ast::BinOp::Add,
+                lhs: Box::new(field_of(Expr::Var("p".to_string()), "a")),
+                rhs: Box::new(Expr::Var("delta".to_string())),
+            },
+        ),
+        fn_def(
+            "omni_main",
+            vec![],
+            TypeSpec::Int,
+            return_of(call("offset", vec![pair_value(7, 9), Expr::Literal(Lit::Int(5))])),
+        ),
+    ]);
+    let object =
+        omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
+            .expect("mixed scalar and aggregate parameters must compile");
+    assert_eq!(run_object(&object), 12);
+}
+
+#[test]
+fn tuple_parameter_call_executes() {
+    // first_tuple((3, 8)) -> 8
+    let tuple_ty = TypeSpec::Tuple(vec![TypeSpec::Int, TypeSpec::Int]);
+    let tuple = Expr::Tuple(vec![Expr::Literal(Lit::Int(3)), Expr::Literal(Lit::Int(8))]);
+    let prog = program(vec![
+        fn_def(
+            "first_tuple",
+            vec![("t".to_string(), tuple_ty)],
+            TypeSpec::Int,
+            return_of(field_of(Expr::Var("t".to_string()), "1")),
+        ),
+        fn_def(
+            "omni_main",
+            vec![],
+            TypeSpec::Int,
+            return_of(call("first_tuple", vec![tuple])),
+        ),
+    ]);
+    let object = omni_codegen::compile_monomorphized_program(&prog)
+        .expect("tuple aggregate parameter call must compile");
+    assert_eq!(run_object(&object), 8);
+}
+
+#[test]
+fn array_return_call_executes() {
+    // make_array() -> [4, 6]; caller reads element 1.
+    let array_ty = TypeSpec::Array(Box::new(TypeSpec::Int), 2);
+    let array = Expr::Array(vec![Expr::Literal(Lit::Int(4)), Expr::Literal(Lit::Int(6))]);
+    let prog = program(vec![
+        fn_def("make_array", vec![], array_ty, array),
+        fn_def(
+            "omni_main",
+            vec![],
+            TypeSpec::Int,
+            return_of(Expr::Index {
+                expr: Box::new(call("make_array", vec![])),
+                index: Box::new(Expr::Literal(Lit::Int(1))),
+            }),
+        ),
+    ]);
+    let object = omni_codegen::compile_monomorphized_program(&prog)
+        .expect("array aggregate return call must compile");
+    assert_eq!(run_object(&object), 6);
 }
