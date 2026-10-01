@@ -1396,7 +1396,7 @@ fn copy_aggregate_to_pointer(
                 stack_offset(src.offset, emitter.func_name)?,
             );
             builder.ins().store(
-                cranelift_codegen::ir::MemFlagsData::new(),
+                cranelift_codegen::ir::MemFlags::new(),
                 value,
                 dst_ptr,
                 stack_offset(dst_offset, emitter.func_name)?,
