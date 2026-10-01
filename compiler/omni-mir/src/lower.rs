@@ -1555,7 +1555,7 @@ impl<'a> FnMirBuilder<'a> {
                     .ok_or_else(|| "MIR lowering error: index has no live block".to_string())?;
                 let local = self.new_temp(Some("_index_tmp".to_string()), result_ty);
                 let place = crate::ir::Place::local(local);
-                
+
                 // Use the index local if it was created for dynamic indexing, otherwise use the original operand
                 let final_index_op = match index_local_for_final {
                     None => {
@@ -1567,7 +1567,7 @@ impl<'a> FnMirBuilder<'a> {
                         crate::ir::Operand::Copy(crate::ir::Place::local(index_local))
                     }
                 };
-                
+
                 self.blocks[block].statements.push(crate::ir::Statement::Assign(
                     place.clone(),
                     crate::ir::Rvalue::Index { base, index: final_index_op, ty: result_ty },
