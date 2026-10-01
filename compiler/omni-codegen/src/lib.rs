@@ -913,11 +913,26 @@ fn emit_assign(
                     &format!("initialization of aggregate local {:?}", place.local),
                 )
             } else {
-                let (slot, offset, _) =
-                    aggregate_place_address(emitter.storage, place, "assignment target")?;
+                let (address, _) =
+                    resolve_place_address(builder, emitter, place, "assignment target")?;
                 let val = lower_rvalue_to_cl(builder, emitter, rval)?;
-                let offset = stack_offset(offset, emitter.func_name)?;
-                builder.ins().stack_store(val, slot, offset);
+                match address {
+                    NativeAddress::Stack { slot, offset } => {
+                        builder.ins().stack_store(
+                            val,
+                            slot,
+                            stack_offset(offset, emitter.func_name)?,
+                        );
+                    }
+                    NativeAddress::Pointer(ptr) => {
+                        builder.ins().store(
+                            cranelift_codegen::ir::MemFlags::new(),
+                            val,
+                            ptr,
+                            0,
+                        );
+                    }
+                }
                 Ok(())
             }
         }
@@ -1188,6 +1203,186 @@ fn aggregate_part_tys(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum NativeAddress {
+    Stack { slot: StackSlot, offset: u64 },
+    Pointer(cranelift_codegen::ir::Value),
+}
+
+/// Resolves an aggregate-rooted place to either a stack-slot offset or a
+/// computed pointer. Static field/constant projections remain stack-relative;
+/// the first dynamic array projection switches to pointer arithmetic and all
+/// following projections extend that pointer. The MIR verifier guarantees that
+/// every dynamic index reaches this code only after its corresponding
+/// BoundsCheck.
+fn resolve_place_address(
+    builder: &mut FunctionBuilder,
+    emitter: &mut PlaceEmitter,
+    place: &omni_mir::ir::Place,
+    context: &str,
+) -> Result<(NativeAddress, TypeLayout), String> {
+    let (slot, root_layout) = match emitter.storage.get(&place.local) {
+        Some(NativeStorage::Aggregate { slot, layout }) => (*slot, layout.clone()),
+        _ => {
+            return Err(format!(
+                "Codegen error: {} {} is not rooted at an aggregate local",
+                context, place
+            ));
+        }
+    };
+    let root_ty = emitter.body.local_decls[place.local].ty.ok_or_else(|| {
+        format!(
+            "Codegen error: local {:?} in '{}' has no type",
+            place.local, emitter.func_name
+        )
+    })?;
+
+    let mut current_ty = root_ty;
+    let mut layout = root_layout;
+    let mut static_offset = 0u64;
+    let mut pointer = None;
+
+    for (projection_index, projection) in place.projections.iter().enumerate() {
+        let part = match projection {
+            omni_mir::ir::Projection::Field(name) => layout
+                .parts
+                .iter()
+                .find(|p| p.name.as_deref() == Some(name.as_str()))
+                .or_else(|| name.parse::<usize>().ok().and_then(|i| layout.parts.get(i)))
+                .ok_or_else(|| {
+                    format!("Codegen error: {} {} has no field '{}'", context, place, name)
+                })?
+                .clone(),
+            omni_mir::ir::Projection::ConstantIndex(index) => {
+                layout.parts.get(*index).cloned().ok_or_else(|| {
+                    format!(
+                        "Codegen error: {} {} indexes out of bounds at position {}",
+                        context, place, index
+                    )
+                })?
+            }
+            omni_mir::ir::Projection::Index(index_local) => {
+                let array_len = match emitter.tcx.get(current_ty).clone() {
+                    omni_mir::TyKind::Array(_, length) => length,
+                    other => {
+                        return Err(format!(
+                            "Codegen error: {} dynamic index requires an array, found {:?}",
+                            context, other
+                        ));
+                    }
+                };
+                if layout.parts.len() != array_len || array_len == 0 {
+                    return Err(format!(
+                        "Codegen error: {} cannot compute a dynamic stride for array length {}",
+                        context, array_len
+                    ));
+                }
+                let stride = if array_len == 1 {
+                    layout.size
+                } else {
+                    layout.parts[1]
+                        .offset
+                        .checked_sub(layout.parts[0].offset)
+                        .ok_or_else(|| {
+                            format!(
+                                "Codegen error: {} array element offsets are not monotonic",
+                                context
+                            )
+                        })?
+                };
+
+                let index_value = match emitter.storage.get(index_local) {
+                    Some(NativeStorage::Scalar(variable)) => builder.use_var(*variable),
+                    _ => {
+                        return Err(format!(
+                            "Codegen error: {} dynamic index local {:?} has no scalar storage",
+                            context, index_local
+                        ));
+                    }
+                };
+                let index_pointer = if emitter.pointer_type == cranelift_codegen::ir::types::I64 {
+                    index_value
+                } else if emitter.pointer_type == cranelift_codegen::ir::types::I32 {
+                    builder.ins().ireduce(cranelift_codegen::ir::types::I32, index_value)
+                } else {
+                    return Err(format!(
+                        "Codegen error: {} target pointer type {:?} is unsupported for array addressing",
+                        context, emitter.pointer_type
+                    ));
+                };
+                let stride_value = builder.ins().iconst(
+                    emitter.pointer_type,
+                    i64::try_from(stride).map_err(|_| {
+                        format!(
+                            "Codegen error: {} array stride {} exceeds pointer immediate range",
+                            context, stride
+                        )
+                    })?,
+                );
+                let byte_offset = builder.ins().imul(index_pointer, stride_value);
+
+                let base_pointer = match pointer {
+                    Some(ptr) => ptr,
+                    None => builder.ins().stack_addr(
+                        emitter.pointer_type,
+                        slot,
+                        stack_offset(static_offset, emitter.func_name)?,
+                    ),
+                };
+                let ptr = builder.ins().iadd(base_pointer, byte_offset);
+                pointer = Some(ptr);
+                static_offset = 0;
+                let prefix_end = projection_index + 1;
+                current_ty = projected_ty(emitter, root_ty, &place.projections[..prefix_end])?;
+                layout = emitter.layout.aggregate_layout(
+                    emitter.layout_workspace,
+                    current_ty,
+                ).map_err(|e| {
+                    format!(
+                        "Codegen error: {} cannot lay out dynamic array element: {}",
+                        context, e
+                    )
+                })?;
+                continue;
+            }
+            omni_mir::ir::Projection::Deref => {
+                return Err(format!(
+                    "Codegen error: {} {} dereferences a reference, which has no aggregate storage",
+                    context, place
+                ));
+            }
+        };
+
+        static_offset = static_offset.checked_add(part.offset).ok_or_else(|| {
+            format!("Codegen error: {} {} overflows its aggregate offset", context, place)
+        })?;
+        if let Some(ptr) = pointer {
+            let delta = builder.ins().iconst(
+                emitter.pointer_type,
+                i64::try_from(part.offset).map_err(|_| {
+                    format!(
+                        "Codegen error: {} projection offset {} exceeds pointer immediate range",
+                        context, part.offset
+                    )
+                })?,
+            );
+            pointer = Some(builder.ins().iadd(ptr, delta));
+        }
+        let prefix_end = projection_index + 1;
+        current_ty = projected_ty(emitter, root_ty, &place.projections[..prefix_end])?;
+        layout = part.layout;
+    }
+
+    let final_layout = layout;
+    let address = match pointer {
+        Some(ptr) => NativeAddress::Pointer(ptr),
+        None => NativeAddress::Stack { slot, offset: static_offset },
+    };
+    Ok((address, final_layout))
+}
+
+/// Loads a scalar value out of a projected place: address from the layout
+/// walk, Cranelift type from the projected MIR type.
 /// Loads a scalar value out of a projected place: address from the layout
 /// walk, Cranelift type from the projected MIR type.
 fn emit_projected_place_load(
@@ -1196,9 +1391,6 @@ fn emit_projected_place_load(
     place: &omni_mir::ir::Place,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     let context = format!("read of {}", place);
-    // The address walk runs first so runtime indexing and deref report their
-    // milestone errors rather than a downstream type error.
-    let (slot, offset, _) = aggregate_place_address(emitter.storage, place, &context)?;
     let root_ty = emitter.body.local_decls[place.local].ty.ok_or_else(|| {
         format!("Codegen error: local {:?} in '{}' has no type", place.local, emitter.func_name)
     })?;
@@ -1209,7 +1401,15 @@ fn emit_projected_place_load(
             context, emitter.func_name
         )
     })?;
-    Ok(builder.ins().stack_load(clif_ty, slot, stack_offset(offset, emitter.func_name)?))
+    let (address, _) = resolve_place_address(builder, emitter, place, &context)?;
+    Ok(match address {
+        NativeAddress::Stack { slot, offset } => {
+            builder.ins().stack_load(clif_ty, slot, stack_offset(offset, emitter.func_name)?)
+        }
+        NativeAddress::Pointer(ptr) => {
+            builder.ins().load(clif_ty, cranelift_codegen::ir::MemFlags::new(), ptr, 0)
+        }
+    })
 }
 
 /// Resolves an operand that must denote a whole or projected aggregate to its
@@ -1601,18 +1801,63 @@ fn emit_projection_load(
     builder: &mut FunctionBuilder,
     emitter: &mut PlaceEmitter,
     base: &omni_mir::ir::Operand,
-    projection: omni_mir::ir::Projection,
+    projection_operand: &omni_mir::ir::Operand,
     ty: omni_mir::Ty,
     context: &str,
 ) -> Result<cranelift_codegen::ir::Value, String> {
-    let (slot, offset, _) = resolve_projection_address(emitter, base, projection, ty, context)?;
+    let base_place = match base {
+        omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => place.clone(),
+        omni_mir::ir::Operand::Constant(_) => {
+            return Err(format!(
+                "Codegen error: {} base must be a place, found a constant",
+                context
+            ));
+        }
+    };
+    let projection = match projection_operand {
+        omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(
+            omni_mir::ast::Lit::Int(n),
+        )) if *n >= 0 => omni_mir::ir::Projection::ConstantIndex(*n as usize),
+        omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => {
+            omni_mir::ir::Projection::Index(place.local)
+        }
+        _ => {
+            return Err(format!(
+                "Codegen error: {} has an unsupported dynamic index operand",
+                context
+            ));
+        }
+    };
+    let mut full = base_place;
+    full.projections.push(projection);
+    let root_ty = emitter.body.local_decls[full.local].ty.ok_or_else(|| {
+        format!("Codegen error: local {:?} in '{}' has no type", full.local, emitter.func_name)
+    })?;
+    let projected = projected_ty(emitter, root_ty, &full.projections)?;
+    if projected != ty {
+        return Err(format!(
+            "Codegen error: {} in '{}' declares type {:?} but projection resolves to {:?}",
+            context,
+            emitter.func_name,
+            emitter.tcx.get(ty),
+            emitter.tcx.get(projected)
+        ));
+    }
     let clif_ty = emitter.layout.scalar_clif_type(emitter.tcx, ty).ok_or_else(|| {
         format!(
             "Codegen error: {} in '{}' is aggregate-typed and has no scalar SSA form; store it into an aggregate destination instead",
             context, emitter.func_name
         )
     })?;
-    Ok(builder.ins().stack_load(clif_ty, slot, stack_offset(offset, emitter.func_name)?))
+    let (address, _) = resolve_place_address(builder, emitter, &full, context)?;
+    Ok(match address {
+        NativeAddress::Stack { slot, offset } => {
+            builder.ins().stack_load(clif_ty, slot, stack_offset(offset, emitter.func_name)?)
+        }
+        NativeAddress::Pointer(ptr) => {
+            builder.ins().load(clif_ty, cranelift_codegen::ir::MemFlags::new(), ptr, 0)
+        }
+    })
 }
 
 /// Resolves an `Rvalue::Field`/`Rvalue::Index` to its storage address,
@@ -1969,17 +2214,14 @@ fn lower_rvalue_to_cl(
         omni_mir::ir::Rvalue::Range { .. } => Err(
             "Codegen error: range value representation requires target layout metadata".into(),
         ),
-        omni_mir::ir::Rvalue::Index { base, index, ty } => {
-            let position = constant_index_position(index, emitter.func_name)?;
-            emit_projection_load(
-                builder,
-                emitter,
-                base,
-                omni_mir::ir::Projection::ConstantIndex(position),
-                *ty,
-                "index projection",
-            )
-        }
+        omni_mir::ir::Rvalue::Index { base, index, ty } => emit_projection_load(
+            builder,
+            emitter,
+            base,
+            index,
+            *ty,
+            "index projection",
+        )
 
         omni_mir::ir::Rvalue::Cast { operand, from, to } => {
             let value = lower_operand_to_cl(builder, emitter, operand)?;
