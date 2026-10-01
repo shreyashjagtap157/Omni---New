@@ -65,10 +65,7 @@ enum StorageClass {
 /// Aggregate function parameters and returns use the Stage 4E address-based
 /// convention after local storage classification; the representation is
 /// therefore still derived from the same concrete TargetLayout.
-///
-/// (parameters and returns crossing function
-/// boundaries) is deliberately not classified here; the ABI gates below keep
-/// rejecting it until that milestone is specified.
+
 fn classify_local_storage(
     tcx: &omni_mir::TyCtxt,
     ty: omni_mir::Ty,
@@ -601,7 +598,9 @@ fn compile_mir_program(
 
             match term {
                 omni_mir::ir::Terminator::Return => match abi.return_abi {
-                    NativeReturnAbi::Unit => builder.ins().return_(&[]),
+                    NativeReturnAbi::Unit => {
+                        builder.ins().return_(&[]);
+                    }
                     NativeReturnAbi::Direct(_) => {
                         let variable = match emitter.storage.get(&mir_func.return_place) {
                             Some(NativeStorage::Scalar(variable)) => *variable,
@@ -1322,7 +1321,7 @@ fn copy_aggregate_from_pointer(
             }
             let value = builder.ins().load(
                 clif_ty,
-                cranelift_codegen::ir::MemFlagsData::new(),
+                cranelift_codegen::ir::MemFlags::new(),
                 src_ptr,
                 stack_offset(src_offset, emitter.func_name)?,
             );
