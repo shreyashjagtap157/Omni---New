@@ -1334,15 +1334,17 @@ fn resolve_place_address(
                 static_offset = 0;
                 let prefix_end = projection_index + 1;
                 current_ty = projected_ty(emitter, root_ty, &place.projections[..prefix_end])?;
-                layout = emitter.layout.aggregate_layout(
-                    emitter.layout_workspace,
-                    current_ty,
-                ).map_err(|e| {
-                    format!(
-                        "Codegen error: {} cannot lay out dynamic array element: {}",
-                        context, e
-                    )
-                })?;
+                if projection_index + 1 < place.projections.len() {
+                    layout = emitter.layout.aggregate_layout(
+                        emitter.layout_workspace,
+                        current_ty,
+                    ).map_err(|e| {
+                        format!(
+                            "Codegen error: {} cannot lay out dynamic array element: {}",
+                            context, e
+                        )
+                    })?;
+                }
                 continue;
             }
             omni_mir::ir::Projection::Deref => {
