@@ -62,7 +62,11 @@ enum StorageClass {
 /// are aggregate. `Unit` has no storage (`None`). Any type without a defined
 /// native representation is rejected rather than given an invented one.
 ///
-/// Aggregate *function* ABI (parameters and returns crossing function
+/// Aggregate function parameters and returns use the Stage 4E address-based
+/// convention after local storage classification; the representation is
+/// therefore still derived from the same concrete TargetLayout.
+///
+/// (parameters and returns crossing function
 /// boundaries) is deliberately not classified here; the ABI gates below keep
 /// rejecting it until that milestone is specified.
 fn classify_local_storage(
@@ -1318,12 +1322,11 @@ fn copy_aggregate_from_pointer(
             }
             let value = builder.ins().load(
                 clif_ty,
-                cranelift_codegen::ir::MemFlagsData::new().with_aligned(),
+                cranelift_codegen::ir::MemFlagsData::new(),
                 src_ptr,
                 stack_offset(src_offset, emitter.func_name)?,
             );
             builder.ins().stack_store(
-                emitter.pointer_type,
                 value,
                 dst.slot,
                 stack_offset(dst.offset, emitter.func_name)?,
@@ -1389,13 +1392,12 @@ fn copy_aggregate_to_pointer(
                 ));
             }
             let value = builder.ins().stack_load(
-                emitter.pointer_type,
                 clif_ty,
                 src.slot,
                 stack_offset(src.offset, emitter.func_name)?,
             );
             builder.ins().store(
-                cranelift_codegen::ir::MemFlagsData::new().with_aligned(),
+                cranelift_codegen::ir::MemFlagsData::new(),
                 value,
                 dst_ptr,
                 stack_offset(dst_offset, emitter.func_name)?,
