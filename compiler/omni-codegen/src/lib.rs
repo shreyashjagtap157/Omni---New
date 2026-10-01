@@ -1271,16 +1271,18 @@ fn resolve_place_address(
                         ));
                     }
                 };
-                if layout.parts.len() != array_len || array_len == 0 {
+                if layout.parts.len() != array_len {
                     return Err(format!(
-                        "Codegen error: {} cannot compute a dynamic stride for array length {}",
-                        context, array_len
+                        "Codegen error: {} array layout has {} parts for length {}",
+                        context,
+                        layout.parts.len(),
+                        array_len
                     ));
                 }
-                let stride = if array_len == 1 {
-                    layout.size
-                } else {
-                    layout.parts[1]
+                let stride = match array_len {
+                    0 => 0,
+                    1 => layout.size,
+                    _ => layout.parts[1]
                         .offset
                         .checked_sub(layout.parts[0].offset)
                         .ok_or_else(|| {
