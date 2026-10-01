@@ -122,7 +122,6 @@ fn run_object(object: &[u8]) -> i32 {
     code
 }
 
-
 fn fn_def(
     name: &str,
     params: Vec<(String, TypeSpec)>,
@@ -142,11 +141,7 @@ fn fn_def(
 }
 
 fn call(name: &str, args: Vec<Expr>) -> Expr {
-    Expr::Call {
-        func: name.to_string(),
-        generic_args: vec![],
-        args,
-    }
+    Expr::Call { func: name.to_string(), generic_args: vec![], args }
 }
 
 fn program(functions: Vec<GenericFnDef>) -> omni_mir::MonomorphizedProgram {
@@ -320,9 +315,8 @@ fn aggregate_parameter_call_executes() {
             return_of(call("first", vec![pair_value(10, 20)])),
         ),
     ]);
-    let object =
-        omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
-            .expect("aggregate parameter call must compile");
+    let object = omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
+        .expect("aggregate parameter call must compile");
     assert_eq!(run_object(&object), 10);
 }
 
@@ -330,26 +324,16 @@ fn aggregate_parameter_call_executes() {
 fn aggregate_return_call_executes() {
     // make() -> Pair { a: 7, b: 9 }; caller receives it into aggregate storage.
     let prog = program(vec![
-        fn_def(
-            "make",
-            vec![],
-            TypeSpec::Struct("Pair".to_string(), vec![]),
-            pair_value(7, 9),
-        ),
+        fn_def("make", vec![], TypeSpec::Struct("Pair".to_string(), vec![]), pair_value(7, 9)),
         fn_def(
             "omni_main",
             vec![],
             TypeSpec::Int,
-            let_in(
-                "p",
-                call("make", vec![]),
-                return_of(field_of(Expr::Var("p".to_string()), "b")),
-            ),
+            let_in("p", call("make", vec![]), return_of(field_of(Expr::Var("p".to_string()), "b"))),
         ),
     ]);
-    let object =
-        omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
-            .expect("aggregate return call must compile");
+    let object = omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
+        .expect("aggregate return call must compile");
     assert_eq!(run_object(&object), 9);
 }
 
@@ -383,9 +367,8 @@ fn aggregate_parameter_isolation_executes() {
             ),
         ),
     ]);
-    let object =
-        omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
-            .expect("aggregate parameter isolation must compile");
+    let object = omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
+        .expect("aggregate parameter isolation must compile");
     assert_eq!(run_object(&object), 10);
 }
 
@@ -413,9 +396,8 @@ fn mixed_scalar_and_aggregate_parameters_execute() {
             return_of(call("offset", vec![pair_value(7, 9), Expr::Literal(Lit::Int(5))])),
         ),
     ]);
-    let object =
-        omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
-            .expect("mixed scalar and aggregate parameters must compile");
+    let object = omni_codegen::compile_monomorphized_program_with_structs(&prog, pair_defs())
+        .expect("mixed scalar and aggregate parameters must compile");
     assert_eq!(run_object(&object), 12);
 }
 
@@ -431,12 +413,7 @@ fn tuple_parameter_call_executes() {
             TypeSpec::Int,
             return_of(field_of(Expr::Var("t".to_string()), "1")),
         ),
-        fn_def(
-            "omni_main",
-            vec![],
-            TypeSpec::Int,
-            return_of(call("first_tuple", vec![tuple])),
-        ),
+        fn_def("omni_main", vec![], TypeSpec::Int, return_of(call("first_tuple", vec![tuple]))),
     ]);
     let object = omni_codegen::compile_monomorphized_program(&prog)
         .expect("tuple aggregate parameter call must compile");
