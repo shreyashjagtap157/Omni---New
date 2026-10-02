@@ -1,23 +1,39 @@
 # GitIgnore for Omni Rust workspace
-# Compiled binary files
+
+# Compiled binary files and build artifacts
 /target/
 /CACHE.DIR.TAG
 *.db
 *.tfm
 *.lot
+
 # Cargo and Rust
 /target/**
-tests/fuzz/target/
 /.cargo/
+
 # IDE and tooling
 /.idea/
-/*.History/
-/*.settings/
-/*.classpath
+/.vscode/
+/.History/
+/.settings/
+/.classpath
 /.project
+
+# Binary and temp directories
 /bin/
-# Windows-specific
+/TMPDIR
+
+# Platform-specific
+# Windows
 /TMPDIR
 
 # Local scratch for the Unicode table generator (UCD downloads are not committed).
 /.work/
+
+# Fuzz testing and corpus data (not committed by default)
+/tests/fuzz/
+/tests/corpus/
+
+# Generated/derived files
+*.hex
+*.wasm
