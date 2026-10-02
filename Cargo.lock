@@ -487,7 +487,9 @@ dependencies = [
 name = "omni-machine"
 version = "0.0.0"
 dependencies = [
+ "omni-effects",
  "omni-mir",
+ "omni-types",
 ]
 
 [[package]]

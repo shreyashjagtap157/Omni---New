@@ -885,6 +885,7 @@ impl MirVerifier {
             }
         }
 
+        // Enhanced bounds fact tracking: (local, length) pairs with more precise invalidation
         type BoundsFact = (Local, usize);
         let mut in_facts = vec![HashSet::<BoundsFact>::new(); num_blocks];
         let mut out_facts = vec![HashSet::<BoundsFact>::new(); num_blocks];
@@ -916,6 +917,8 @@ impl MirVerifier {
                             new_out.insert((*index, *length));
                         }
                         Statement::Assign(place, _) if place.is_local() => {
+                            // Enhanced: Only invalidate bounds check facts for the specific local being assigned,
+                            // not all facts. This is more precise and allows other locals to retain their facts.
                             new_out.retain(|(checked_local, _)| *checked_local != place.local);
                         }
                         _ => {}
@@ -993,6 +996,7 @@ impl MirVerifier {
                                 }
                             };
 
+                            // Enhanced verification: Check for valid bounds check fact
                             if !facts.contains(&(index_place.local, expected_length)) {
                                 return Err(MirVerificationError::MissingBoundsCheck {
                                     func: fn_name.clone(),
@@ -1002,13 +1006,16 @@ impl MirVerifier {
                             }
                         }
                         if destination.is_local() {
+                            // Enhanced: Only invalidate facts for the specific destination local
                             facts.retain(|(checked_local, _)| *checked_local != destination.local);
                         }
                     }
                     Statement::BoundsCheck { index, length } => {
+                        // length is needed for bounds checking verification
                         facts.insert((*index, *length));
                     }
                     Statement::Assign(place, _) if place.is_local() => {
+                        // Enhanced: Only invalidate bounds check facts for the specific local being assigned
                         facts.retain(|(checked_local, _)| *checked_local != place.local);
                     }
                     _ => {}

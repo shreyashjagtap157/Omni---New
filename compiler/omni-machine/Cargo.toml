@@ -9,3 +9,5 @@ workspace = true
 
 [dependencies]
 omni-mir = { path = "../omni-mir" }
+omni-types = { path = "../omni-types" }
+omni-effects = { path = "../omni-effects" }
