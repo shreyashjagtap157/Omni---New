@@ -941,7 +941,7 @@ The active Rust implementation now carries the parser surface through a structur
 - struct literals and enum-variant constructors at the semantic layer;
 - definition-directed field/index typing and binding-consistent or-patterns.
 
-The MIR/native boundary is intentionally fail-closed where the current IR has no storage/projection contract: aggregate struct/enum construction, aggregate destructuring, and guarded or aggregate-pattern match lowering are rejected explicitly rather than reinterpreted. This is an implementation boundary, not a new language semantic rule.
+The MIR/native boundary is implemented incrementally and remains fail-closed where the current IR has no storage/representation contract. Aggregate tuples, arrays, and structs now have deterministic target-aware layout and memory-backed local storage; constant projections are natively lowered; dynamic array indexing is lowered only behind an explicit MIR BoundsCheck and runtime trap path; and Stage 4E crosses function boundaries through an internal address-based convention in which aggregate parameters use storage pointers and aggregate returns use a hidden caller-provided result pointer. This backend convention is not a declaration of the stable external Omni ABI. Aggregate enums, references/dereferences, closures, trait objects, and other representations without a normative storage/ABI contract remain explicitly rejected rather than reinterpreted.
 
 Qualification status for this convergence remains evidence-driven: repository code and focused tests are present, but a full clean-room checkout build has not been established in the current environment, and GitHub reports no associated pull-request workflow run for the current mainline commits.
 
