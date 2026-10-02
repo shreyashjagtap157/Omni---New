@@ -105,6 +105,14 @@ enum representation               (discriminant + payload, a separate problem)
 **A recorded observation, deliberately not acted on.** The current codegen maps `Int`, `Bool`, `Byte`, and `Char` all to `I64` and `Float` to `F64`. That is a convenient uniformity choice, not a target-derived fact: a `Bool` occupying eight bytes is a consequence of reusing the integer type, not of the target. The layout layer therefore takes scalar size and alignment from the *selected Cranelift type* for each Omni scalar, and does not assume these are natural sizes. Narrowing them is a separate, later decision that would change generated code for already-passing tests, so it is explicitly out of scope here.
 
 
+#### Stage 4D/4E native aggregate progression
+
+- **Stage 4D semantic correction:** constant array indices that are provably outside the declared length are rejected during MIR lowering; dynamic array indices remain runtime-checked through an explicit BoundsCheck MIR statement.
+- **Stage 4D safety proof:** the verifier now treats bounds facts as path-sensitive (index local, length) facts, intersects them at control-flow joins, and invalidates them when the checked local is reassigned. Zero-length arrays remain representable; a dynamic access to one reaches the normal runtime trap path.
+- **Stage 4E backend aggregate boundary:** concrete tuple/array/struct parameters are represented as pointers to aggregate storage at the native function boundary. Aggregate returns use a hidden caller-provided result pointer rather than a direct Cranelift aggregate return. Scalar/unit ABI paths remain unchanged.
+- **Aggregate copies reuse the established target layout:** caller-to-callee parameter copies and callee-to-caller return copies recurse through TargetLayout, so function-boundary representation does not introduce a second field-offset or size authority.
+- **Scope remains intentionally bounded:** this is a backend-internal implementation convention, not a final published Omni external ABI. Enums, references/dereferences, closures, trait objects, async/runtime objects, and FFI ABI remain outside Stage 4E.
+
 #### Workspace repair and labelled-loop/control-flow closure
 
 `main` did not compile: `omni-types` failed with 9 errors, and because the build stops at the first failing crate, roughly 450 further errors across `omni-mir`, `omni-verify`, `omni-parse`, `omni-own`, and `omni-driver` were masked behind it. The whole workspace now builds, and the test suite compiles and runs.
