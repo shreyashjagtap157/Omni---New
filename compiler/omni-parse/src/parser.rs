@@ -47,7 +47,7 @@ use omni_lex::{Scanner, Span, Token, TokenKind};
 use omni_syntax::{SyntaxKind, SyntaxNode};
 use rowan::GreenNodeBuilder;
 
-use crate::precedence::{matching_close, matching_open};
+use crate::precedence::matching_close;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -435,12 +435,9 @@ impl<'a> Parser<'a> {
                 }
                 if self.at_punct(Punct::Colon) {
                     n.children.push(self.bump_child());
-                    let bound = if kind == SyntaxKind::EffectParam {
-                        self.parse_path()
-                    } else {
-                        self.parse_path()
-                    };
-                    n.children.push(Child::Node(bound));
+                    // Effect and capability bounds are parsed as paths, so both
+                    // kinds produce the same child shape here.
+                    n.children.push(Child::Node(self.parse_path()));
                 }
             }
             _ => {
@@ -727,7 +724,8 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Keyword(Kw::Dyn)) => {
                 n.children.push(Child::Node(self.parse_trait_ref()));
             }
-            Some(TokenKind::Ident | TokenKind::Keyword(Kw::SelfKw | Kw::SelfRef)) => {
+            // `Self`/`SelfRef` are already consumed by the keyword arm above.
+            Some(TokenKind::Ident) => {
                 n.children.push(Child::Node(self.parse_path_type()));
             }
             _ => n.children.push(Child::Node(self.error_node("expected type"))),
@@ -1147,9 +1145,9 @@ impl<'a> Parser<'a> {
         while !self.eof() && !self.at_punct(Punct::RBrace) {
             if self.at_kw(Kw::Let) {
                 n.children.push(Child::Node(self.parse_let()));
-            } else if self.starts_item() {
-                n.children.push(Child::Node(self.parse_item_stmt()));
-            } else if self.at_punct(Punct::Hash) {
+            } else if self.starts_item() || self.at_punct(Punct::Hash) {
+                // Attribute-introduced items parse through the same path as
+                // bare items; the leading `#` is consumed by the item parser.
                 n.children.push(Child::Node(self.parse_item_stmt()));
             } else {
                 let expr = self.parse_expression();
@@ -1384,7 +1382,7 @@ impl<'a> Parser<'a> {
                     Child::Token(i) => self.tokens.get(*i).map(|t| t.kind),
                     _ => None,
                 });
-                if last.is_some_and(|k| crate::precedence::is_comparison_operator(k)) {
+                if last.is_some_and(crate::precedence::is_comparison_operator) {
                     self.diagnostic("comparison operators cannot be chained");
                 }
             }
@@ -2179,6 +2177,7 @@ impl<'a> Parser<'a> {
     /// callers that need both the kind and the span of a lookahead token can
     /// read them at the same offset rather than mixing the cursor token with a
     /// lookahead kind.
+    #[cfg(test)]
     fn peek_token(&self, offset: usize) -> Option<&Token> {
         if self.split_token.is_some() {
             return None;
@@ -2316,8 +2315,9 @@ impl<'a> Parser<'a> {
     }
 
     /// Inverse delimiter check used by later delimiter-aware recovery.
+    #[cfg(test)]
     fn is_matching_close(&self, close: Punct, open: Punct) -> bool {
-        matching_open(close) == Some(open)
+        crate::precedence::matching_open(close) == Some(open)
     }
 
     fn logical_current_kind(&self) -> Option<TokenKind> {
@@ -2396,7 +2396,7 @@ mod tests {
 
     #[test]
     fn generic_closer_infrastructure_preserves_token_trivia_boundaries() {
-        let mut p = Parser::from_source("T /*before*/ >>= /*after*/ U");
+        let p = Parser::from_source("T /*before*/ >>= /*after*/ U");
         assert_eq!(p.peek_kind(0), Some(TokenKind::Ident));
         assert_eq!(p.peek_kind(1), Some(TokenKind::Punct(Punct::ShrEq)));
         let token = p.peek_token(1).expect("shift-assignment token");
@@ -2431,7 +2431,7 @@ mod tests {
         // token it follows, so the trivia around `>>=` is owned by its
         // neighbours. The losslessness invariant is that it is carried exactly
         // once in total, not that any particular token owns it.
-        let mut p = Parser::from_source(src);
+        let p = Parser::from_source(src);
         let span = p.peek_token(1).expect("shift-assignment token").span;
         let trivia_total: usize =
             p.tokens.iter().map(|t| t.leading_trivia.len() + t.trailing_trivia.len()).sum();

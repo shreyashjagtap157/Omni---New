@@ -102,8 +102,6 @@ pub fn is_comparison_operator(kind: TokenKind) -> bool {
     )
 }
 
-/// Whether `kind` is an assignment operator.
-
 /// A logical token part produced when an operator token is consumed as one or
 /// more generic closers. The part refers to a byte range inside the original
 /// lexer token; it never owns or duplicates source bytes.
@@ -137,6 +135,7 @@ pub const fn split_generic_closer(kind: Punct) -> Option<[Option<GenericCloserPa
     }
 }
 
+/// Whether `kind` is an assignment operator.
 pub fn is_assignment_operator(kind: TokenKind) -> bool {
     matches!(
         kind,

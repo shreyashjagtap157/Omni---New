@@ -212,15 +212,15 @@ impl<'a> TargetLayout<'a> {
                 Ok(finish_parts(parts))
             }
             TyKind::Array(elem, length) => {
-                let parts = self.layout_parts(tcx, std::iter::repeat((None, elem)).take(length))?;
+                let parts = self.layout_parts(tcx, std::iter::repeat_n((None, elem), length))?;
                 Ok(finish_parts(parts))
             }
             TyKind::Struct(struct_name, args) => {
-                let def = self
-                    .struct_defs
-                    .get(&struct_name)
-                    .cloned()
-                    .ok_or_else(|| LayoutError::Unrepresentable { ty: name })?;
+                // A struct with no declaration has no defined native
+                // representation, so it is rejected rather than given an
+                // invented layout.
+                let missing = LayoutError::Unrepresentable { ty: name };
+                let def = self.struct_defs.get(&struct_name).cloned().ok_or(missing)?;
                 let mut subst = SubstEnv::new();
                 for (param, arg) in def.type_params.iter().zip(args.iter()) {
                     subst.insert(param.clone(), *arg);

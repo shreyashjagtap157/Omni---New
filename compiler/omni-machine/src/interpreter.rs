@@ -3,12 +3,12 @@
 //! This is the reference abstract machine for Omni that executes MIR (Mid-Level IR)
 //! with proper operand evaluation, statement interpretation, and control flow.
 
+use omni_mir::ast::Lit;
+use omni_mir::ir::*;
+use omni_mir::Ty;
+use omni_mir::{CapabilityContext, Effect, EffectRow};
 use std::collections::HashMap;
 use std::rc::Rc;
-use omni_mir::ir::*;
-use omni_types::ast::Lit;
-use omni_types::intern::Ty;
-use omni_effects::{EffectRow, CapabilityContext, Effect};
 
 /// The main abstract machine interpreter that executes MIR programs.
 pub struct Interpreter {
@@ -164,7 +164,11 @@ impl std::fmt::Display for ExecutionError {
                 write!(f, "Effect violation: {} not allowed in function {}", effect, function)
             }
             ExecutionError::CapabilityViolation { capability, function } => {
-                write!(f, "Capability violation: {} not available in function {}", capability, function)
+                write!(
+                    f,
+                    "Capability violation: {} not available in function {}",
+                    capability, function
+                )
             }
             ExecutionError::UnreachableCode => {
                 write!(f, "Reached unreachable code")
@@ -210,72 +214,84 @@ impl Interpreter {
     }
 
     /// Execute a MIR function by name
-    pub fn execute_function(&mut self, function_name: &str, args: Vec<Value>) -> Result<Value, ExecutionError> {
+    pub fn execute_function(
+        &mut self,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> Result<Value, ExecutionError> {
         // Find the function in the program
-        let function = self.program.functions
-            .iter()
-            .find(|f| f.name == function_name)
-            .ok_or_else(|| ExecutionError::InvalidFunctionCall {
-                function: function_name.to_string(),
-                message: "Function not found".to_string(),
+        let function =
+            self.program.functions.iter().find(|f| f.name == function_name).ok_or_else(|| {
+                ExecutionError::InvalidFunctionCall {
+                    function: function_name.to_string(),
+                    message: "Function not found".to_string(),
+                }
             })?;
-        
+
         // Create a copy of the function for execution
         let function_rc = Rc::new(function.clone());
         self.current_function = Some(function_rc.clone());
-        
+
         // Initialize locals with arguments
         self.locals.clear();
         for (i, arg) in args.into_iter().enumerate() {
-            let local = function.params.get(i).ok_or_else(|| ExecutionError::InvalidFunctionCall {
-                function: function_name.to_string(),
-                message: format!("Argument count mismatch: expected {}, got {}", function.params.len(), i + 1),
-            })?;
+            let local =
+                function.params.get(i).ok_or_else(|| ExecutionError::InvalidFunctionCall {
+                    function: function_name.to_string(),
+                    message: format!(
+                        "Argument count mismatch: expected {}, got {}",
+                        function.params.len(),
+                        i + 1
+                    ),
+                })?;
             self.locals.insert(*local, arg);
         }
-        
+
         // Initialize return place
         self.locals.insert(function.return_place, Value::Uninit);
-        
+
         // Start execution from the first basic block
         if function.body.blocks.is_empty() {
             return Err(ExecutionError::ControlFlowError {
                 message: "Function has no basic blocks".to_string(),
             });
         }
-        
+
         self.current_block = Some(BasicBlock::from(0));
-        
+
         // Execute the function
         let result = self.execute_function_body(function_rc);
-        
+
         // Clean up
         self.current_function = None;
         self.current_block = None;
         self.locals.clear();
-        
+
         result
     }
 
     /// Execute the body of a function
-    fn execute_function_body(&mut self, function: Rc<MirFunction>) -> Result<Value, ExecutionError> {
-        let mut current_block = self.current_block.ok_or_else(|| ExecutionError::ControlFlowError {
-            message: "No current block".to_string(),
+    fn execute_function_body(
+        &mut self,
+        function: Rc<MirFunction>,
+    ) -> Result<Value, ExecutionError> {
+        let mut current_block = self.current_block.ok_or_else(|| {
+            ExecutionError::ControlFlowError { message: "No current block".to_string() }
         })?;
-        
+
         loop {
             let block_data = &function.body.blocks[current_block];
-            
+
             // Execute statements in the block
             for (stmt_index, statement) in block_data.statements.iter().enumerate() {
                 self.execute_statement(statement, function.clone(), current_block, stmt_index)?;
             }
-            
+
             // Execute terminator
-            let terminator = block_data.terminator.as_ref().ok_or_else(|| ExecutionError::ControlFlowError {
-                message: "Block missing terminator".to_string(),
+            let terminator = block_data.terminator.as_ref().ok_or_else(|| {
+                ExecutionError::ControlFlowError { message: "Block missing terminator".to_string() }
             })?;
-            
+
             match self.execute_terminator(terminator, function.clone(), current_block)? {
                 ControlFlow::Next(next_block) => {
                     current_block = next_block;
@@ -293,11 +309,11 @@ impl Interpreter {
 
     /// Execute a statement
     fn execute_statement(
-        &mut self, 
-        statement: &Statement, 
-        function: Rc<MirFunction>, 
-        _block: BasicBlock, 
-        _stmt_index: usize
+        &mut self,
+        statement: &Statement,
+        function: Rc<MirFunction>,
+        _block: BasicBlock,
+        _stmt_index: usize,
     ) -> Result<(), ExecutionError> {
         match statement {
             Statement::Assign(place, rvalue) => {
@@ -310,8 +326,8 @@ impl Interpreter {
             Statement::BoundsCheck { index, length } => {
                 self.execute_bounds_check(*index, *length, function.clone())?;
             }
-            _ => {
-                // Handle other statement types or ignore for now
+            Statement::Assume(assumption) => {
+                self.execute_assumption(assumption, function.clone())?;
             }
         }
         Ok(())
@@ -319,112 +335,108 @@ impl Interpreter {
 
     /// Execute a terminator
     fn execute_terminator(
-        &mut self, 
-        terminator: &Terminator, 
-        function: Rc<MirFunction>, 
-        _block: BasicBlock
+        &mut self,
+        terminator: &Terminator,
+        function: Rc<MirFunction>,
+        _block: BasicBlock,
     ) -> Result<ControlFlow, ExecutionError> {
         match terminator {
-            Terminator::Goto(target) => {
-                Ok(ControlFlow::Next(*target))
-            }
+            Terminator::Goto(target) => Ok(ControlFlow::Next(*target)),
             Terminator::SwitchInt { discr, targets, otherwise } => {
                 let value = self.evaluate_operand(discr, function.clone())?;
                 let discriminant = match value {
                     Value::Int(i) => i as u64,
                     Value::Bool(b) => b as u64,
-                    _ => return Err(ExecutionError::InvalidOperand {
-                        operand: discr.clone(),
-                        message: "Switch discriminant must be integer or boolean".to_string(),
-                    }),
+                    _ => {
+                        return Err(ExecutionError::InvalidOperand {
+                            operand: discr.clone(),
+                            message: "Switch discriminant must be integer or boolean".to_string(),
+                        })
+                    }
                 };
-                
+
                 // Find the matching target
                 for (val, target) in targets {
                     if *val == discriminant {
                         return Ok(ControlFlow::Next(*target));
                     }
                 }
-                
+
                 // Otherwise go to the default target
                 Ok(ControlFlow::Next(*otherwise))
             }
             Terminator::Call { func, args, destination, target, cleanup: _ } => {
                 let func_value = self.evaluate_operand(func, function.clone())?;
-                let arg_values: Vec<Value> = args.iter()
+                let arg_values: Vec<Value> = args
+                    .iter()
                     .map(|arg| self.evaluate_operand(arg, function.clone()))
                     .collect::<Result<_, _>>()?;
-                
+
                 let result = self.execute_call(&func_value, &arg_values, function.clone())?;
-                
+
                 // Store result in destination if provided
                 if let Some(place) = destination {
                     self.assign_place(place, result)?;
                 }
-                
+
                 // Go to the target block
                 Ok(ControlFlow::Next(*target))
             }
             Terminator::Return => {
-                // Get the return value
+                // Read the return value through the same place path as any
+                // other read, so returning without producing a value is
+                // reported instead of yielding `Uninit`.
                 let return_place = function.return_place;
-                let return_value = self.locals.get(&return_place)
-                    .ok_or_else(|| ExecutionError::ControlFlowError {
-                        message: "Return place not found".to_string(),
-                    })?
-                    .clone();
-                
+                let return_value =
+                    self.get_place_value(&Place::local(return_place), function.clone())?;
+
                 Ok(ControlFlow::Return(return_value))
             }
-            Terminator::Unreachable => {
-                Ok(ControlFlow::Unreachable)
-            }
+            Terminator::Unreachable => Ok(ControlFlow::Unreachable),
         }
     }
 
     /// Evaluate an operand to a value
-    fn evaluate_operand(&mut self, operand: &Operand, function: Rc<MirFunction>) -> Result<Value, ExecutionError> {
+    fn evaluate_operand(
+        &mut self,
+        operand: &Operand,
+        function: Rc<MirFunction>,
+    ) -> Result<Value, ExecutionError> {
         match operand {
-            Operand::Copy(place) => {
-                self.get_place_value(place, function)
-            }
+            Operand::Copy(place) => self.get_place_value(place, function),
             Operand::Move(place) => {
                 let value = self.get_place_value(place, function)?;
                 // Mark the place as moved (invalidated)
                 self.invalidate_place(place);
                 Ok(value)
             }
-            Operand::Constant(constant) => {
-                self.evaluate_constant(constant)
-            }
+            Operand::Constant(constant) => self.evaluate_constant(constant),
         }
     }
 
     /// Evaluate a constant to a value
     fn evaluate_constant(&self, constant: &Constant) -> Result<Value, ExecutionError> {
         match constant {
-            Constant::Lit(lit) => {
-                match lit {
-                    Lit::Int(i) => Ok(Value::Int(*i)),
-                    Lit::Float(f) => Ok(Value::Float(*f as f64)),
-                    Lit::Bool(b) => Ok(Value::Bool(*b)),
-                    Lit::Char(c) => Ok(Value::Char(*c)),
-                    Lit::Byte(b) => Ok(Value::Byte(*b)),
-                    Lit::String(s) => Ok(Value::String(s.clone())),
-                }
-            }
-            Constant::FnRef(name) => {
-                Ok(Value::FunctionRef(name.clone()))
-            }
+            Constant::Lit(lit) => match lit {
+                Lit::Int(i) => Ok(Value::Int(*i)),
+                Lit::Float(f) => Ok(Value::Float(*f as f64)),
+                Lit::Bool(b) => Ok(Value::Bool(*b)),
+                Lit::Char(c) => Ok(Value::Char(*c)),
+                Lit::Byte(b) => Ok(Value::Byte(*b)),
+                Lit::String(s) => Ok(Value::String(s.clone())),
+            },
+            Constant::FnRef(name) => Ok(Value::FunctionRef(name.clone())),
         }
     }
 
     /// Evaluate an rvalue to a value
-    fn evaluate_rvalue(&mut self, rvalue: &Rvalue, function: Rc<MirFunction>) -> Result<Value, ExecutionError> {
+    fn evaluate_rvalue(
+        &mut self,
+        rvalue: &Rvalue,
+        function: Rc<MirFunction>,
+    ) -> Result<Value, ExecutionError> {
         match rvalue {
-            Rvalue::Use(operand) => {
-                self.evaluate_operand(operand, function)
-            }
+            Rvalue::Use(operand) => self.evaluate_operand(operand, function),
             Rvalue::BinaryOp(op, left, right) => {
                 let left_val = self.evaluate_operand(left, function.clone())?;
                 let right_val = self.evaluate_operand(right, function)?;
@@ -439,7 +451,8 @@ impl Interpreter {
                 self.execute_cast(val, from, to)
             }
             Rvalue::Aggregate { kind, operands, ty } => {
-                let values: Vec<Value> = operands.iter()
+                let values: Vec<Value> = operands
+                    .iter()
                     .map(|op| self.evaluate_operand(op, function.clone()))
                     .collect::<Result<_, _>>()?;
                 self.execute_aggregate(*kind, values, ty)
@@ -450,13 +463,11 @@ impl Interpreter {
                     let value = self.evaluate_operand(operand, function.clone())?;
                     field_map.insert(field_name.clone(), value);
                 }
-                Ok(Value::Struct {
-                    name: name.clone(),
-                    fields: field_map,
-                })
+                Ok(Value::Struct { name: name.clone(), fields: field_map })
             }
-            Rvalue::EnumVariant { enum_name, variant, operands, ty } => {
-                let values: Vec<Value> = operands.iter()
+            Rvalue::EnumVariant { enum_name, variant, operands, ty: _ } => {
+                let values: Vec<Value> = operands
+                    .iter()
                     .map(|op| self.evaluate_operand(op, function.clone()))
                     .collect::<Result<_, _>>()?;
                 Ok(Value::EnumVariant {
@@ -470,20 +481,25 @@ impl Interpreter {
                 let end_val = self.evaluate_operand(end, function)?;
                 self.execute_range(start_val, end_val, *inclusive, ty)
             }
-            Rvalue::Field { base, field, ty } => {
+            Rvalue::Field { base, field, ty: _ } => {
                 let base_val = self.evaluate_operand(base, function.clone())?;
-                self.execute_field_projection(base_val, field, ty)
+                self.execute_field_projection(base_val, field)
             }
-            Rvalue::Index { base, index, ty } => {
+            Rvalue::Index { base, index, ty: _ } => {
                 let base_val = self.evaluate_operand(base, function.clone())?;
                 let index_val = self.evaluate_operand(index, function)?;
-                self.execute_index_projection(base_val, index_val, ty)
+                self.execute_index_projection(base_val, index_val)
             }
         }
     }
 
     /// Execute a binary operation
-    fn execute_binary_op(&self, op: BinOp, left: Value, right: Value) -> Result<Value, ExecutionError> {
+    fn execute_binary_op(
+        &self,
+        op: BinOp,
+        left: Value,
+        right: Value,
+    ) -> Result<Value, ExecutionError> {
         match (op, left, right) {
             (BinOp::Add, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l + r)),
             (BinOp::Sub, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l - r)),
@@ -517,7 +533,11 @@ impl Interpreter {
             (BinOp::Ne, Value::Bool(l), Value::Bool(r)) => Ok(Value::Bool(l != r)),
             (BinOp::Eq, Value::String(l), Value::String(r)) => Ok(Value::Bool(l == r)),
             _ => Err(ExecutionError::InvalidRvalue {
-                rvalue: Rvalue::BinaryOp(op, Operand::Constant(Constant::Lit(Lit::Int(0))), Operand::Constant(Constant::Lit(Lit::Int(0)))),
+                rvalue: Rvalue::BinaryOp(
+                    op,
+                    Operand::Constant(Constant::Lit(Lit::Int(0))),
+                    Operand::Constant(Constant::Lit(Lit::Int(0))),
+                ),
                 message: "Invalid binary operation operands".to_string(),
             }),
         }
@@ -544,7 +564,12 @@ impl Interpreter {
     }
 
     /// Execute an aggregate construction
-    fn execute_aggregate(&self, kind: AggregateKind, values: Vec<Value>, _ty: &Ty) -> Result<Value, ExecutionError> {
+    fn execute_aggregate(
+        &self,
+        kind: AggregateKind,
+        values: Vec<Value>,
+        _ty: &Ty,
+    ) -> Result<Value, ExecutionError> {
         match kind {
             AggregateKind::Tuple => Ok(Value::Tuple(values)),
             AggregateKind::Array => Ok(Value::Array(values)),
@@ -552,9 +577,15 @@ impl Interpreter {
     }
 
     /// Execute a range construction
-    fn execute_range(&self, start: Value, end: Value, inclusive: bool, _ty: &Ty) -> Result<Value, ExecutionError> {
+    fn execute_range(
+        &self,
+        start: Value,
+        end: Value,
+        inclusive: bool,
+        _ty: &Ty,
+    ) -> Result<Value, ExecutionError> {
         // For now, just return a tuple representing the range
-        let values = vec![start, end];
+        let values = [start, end];
         let range_value = if inclusive {
             Value::String(format!("[{:?}..{:?}]", values[0], values[1]))
         } else {
@@ -564,30 +595,36 @@ impl Interpreter {
     }
 
     /// Execute a field projection
-    fn execute_field_projection(&self, base: Value, field: &str, _ty: &TypeSpec) -> Result<Value, ExecutionError> {
+    ///
+    /// The MIR `Rvalue::Field` carries a `Ty` for the projected result, but projection
+    /// here is resolved structurally against the runtime `Value` shape, so no type
+    /// parameter is required.
+    fn execute_field_projection(&self, base: Value, field: &str) -> Result<Value, ExecutionError> {
         match base {
             Value::Struct { name, fields } => {
-                fields.get(field)
-                    .cloned()
-                    .ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
-                        message: format!("Field '{}' not found in struct '{}'", field, name),
-                    })
+                fields.get(field).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
+                    place: Place::local(Local::from(0)), // Placeholder
+                    message: format!("Field '{}' not found in struct '{}'", field, name),
+                })
             }
-            Value::EnumVariant { enum_name, variant, fields } => {
+            Value::EnumVariant { enum_name: _, variant, fields } => {
                 // For enum variants, we assume the field index corresponds to the operand position
                 // This is a simplification; a full implementation would need proper enum layout
-                let field_index = field.parse::<usize>()
-                    .map_err(|_| ExecutionError::InvalidProjection {
+                let field_index =
+                    field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
                         place: Place::local(Local::from(0)), // Placeholder
-                        message: format!("Invalid field index '{}' in enum variant '{}'", field, variant),
+                        message: format!(
+                            "Invalid field index '{}' in enum variant '{}'",
+                            field, variant
+                        ),
                     })?;
-                fields.get(field_index)
-                    .cloned()
-                    .ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
-                        message: format!("Field index {} out of range in enum variant '{}'", field_index, variant),
-                    })
+                fields.get(field_index).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
+                    place: Place::local(Local::from(0)), // Placeholder
+                    message: format!(
+                        "Field index {} out of range in enum variant '{}'",
+                        field_index, variant
+                    ),
+                })
             }
             _ => Err(ExecutionError::InvalidProjection {
                 place: Place::local(Local::from(0)), // Placeholder
@@ -597,56 +634,75 @@ impl Interpreter {
     }
 
     /// Execute an index projection
-    fn execute_index_projection(&self, base: Value, index: Value, _ty: &TypeSpec) -> Result<Value, ExecutionError> {
+    ///
+    /// Index and constant-index projections are bounds-checked against the runtime
+    /// container, not against a static type, so no type parameter is required.
+    ///
+    /// The MIR index is a signed integer. A negative index must be rejected as
+    /// out of range in its own right rather than being cast to `usize` first,
+    /// which would wrap to a huge offset and report a nonsensical bound.
+    fn execute_index_projection(&self, base: Value, index: Value) -> Result<Value, ExecutionError> {
         match (base, index) {
             (Value::Tuple(elements), Value::Int(idx)) => {
-                let idx = idx as usize;
-                elements.get(idx)
-                    .cloned()
-                    .ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
-                        message: format!("Tuple index {} out of range", idx),
-                    })
+                let len = elements.len();
+                let slot = usize::try_from(idx).ok().and_then(|i| elements.get(i));
+                slot.cloned().ok_or_else(|| ExecutionError::InvalidProjection {
+                    place: Place::local(Local::from(0)), // Placeholder
+                    message: format!("Tuple index {} out of range for length {}", idx, len),
+                })
             }
             (Value::Array(elements), Value::Int(idx)) => {
-                let idx = idx as usize;
-                elements.get(idx)
-                    .cloned()
-                    .ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
-                        message: format!("Array index {} out of range", idx),
-                    })
+                let len = elements.len();
+                let slot = usize::try_from(idx).ok().and_then(|i| elements.get(i));
+                slot.cloned().ok_or_else(|| ExecutionError::InvalidProjection {
+                    place: Place::local(Local::from(0)), // Placeholder
+                    message: format!("Array index {} out of range for length {}", idx, len),
+                })
             }
             (Value::String(s), Value::Int(idx)) => {
-                let idx = idx as usize;
-                s.chars().nth(idx)
-                    .map(Value::Char)
-                    .ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
-                        message: format!("String index {} out of range", idx),
-                    })
+                let len = s.chars().count();
+                let ch = usize::try_from(idx).ok().and_then(|i| s.chars().nth(i));
+                ch.map(Value::Char).ok_or_else(|| ExecutionError::InvalidProjection {
+                    place: Place::local(Local::from(0)), // Placeholder
+                    message: format!("String index {} out of range for length {}", idx, len),
+                })
             }
             _ => Err(ExecutionError::InvalidProjection {
-place: Place::local(Local::from(0)), // Placeholder
-                        message: "Cannot index non-array/tuple/string value".to_string(),
+                place: Place::local(Local::from(0)), // Placeholder
+                message: "Cannot index non-array/tuple/string value".to_string(),
             }),
         }
     }
 
     /// Get the value at a place
-    fn get_place_value(&self, place: &Place, function: Rc<MirFunction>) -> Result<Value, ExecutionError> {
+    fn get_place_value(
+        &self,
+        place: &Place,
+        function: Rc<MirFunction>,
+    ) -> Result<Value, ExecutionError> {
         // Start with the root local
-        let mut current_value = self.locals.get(&place.local)
+        let mut current_value = self
+            .locals
+            .get(&place.local)
             .ok_or_else(|| ExecutionError::MemoryAccessError {
                 message: format!("Local {:?} not found", place.local),
             })?
             .clone();
-        
-        // Apply each projection in order
+
+        // Applying each projection in order
         for projection in &place.projections {
             current_value = self.apply_projection(current_value, projection, function.clone())?;
         }
-        
+
+        // A place that was dropped, moved out of, or never initialized still
+        // holds `Uninit`. Reading it is a use of a dead place, so it must be
+        // reported rather than propagating a sentinel value into the result.
+        if current_value == Value::Uninit {
+            return Err(ExecutionError::MemoryAccessError {
+                message: format!("read of uninitialized place {}", place),
+            });
+        }
+
         Ok(current_value)
     }
 
@@ -657,27 +713,35 @@ place: Place::local(Local::from(0)), // Placeholder
         self.locals.insert(place.local, value);
         Ok(())
     }
-    
+
     /// Apply a projection to a value
-    fn apply_projection(&self, base: Value, projection: &Projection, function: Rc<MirFunction>) -> Result<Value, ExecutionError> {
+    fn apply_projection(
+        &self,
+        base: Value,
+        projection: &Projection,
+        function: Rc<MirFunction>,
+    ) -> Result<Value, ExecutionError> {
         match projection {
             Projection::Field(field_name) => {
-                self.execute_field_projection(base, field_name, &function.return_type)
+                let _ = &function;
+                self.execute_field_projection(base, field_name)
             }
             Projection::ConstantIndex(index) => {
                 self.execute_constant_index_projection(base, *index)
             }
             Projection::Index(index_local) => {
-                let index_value = self.locals.get(&index_local)
+                let index_value = self
+                    .locals
+                    .get(index_local)
                     .ok_or_else(|| ExecutionError::MemoryAccessError {
                         message: format!("Index local {:?} not found", index_local),
                     })?
                     .clone();
-                self.execute_index_projection(base, index_value, &function.return_type)
+                self.execute_index_projection(base, index_value)
             }
             Projection::Deref => {
                 match base {
-                    Value::Reference(place_value) => {
+                    Value::Reference(_place_value) => {
                         // Dereference the place value
                         // For now, return a placeholder value
                         // In a full implementation, this would read from memory
@@ -691,37 +755,40 @@ place: Place::local(Local::from(0)), // Placeholder
             }
         }
     }
-    
+
     /// Execute a constant index projection
-    fn execute_constant_index_projection(&self, base: Value, index: usize) -> Result<Value, ExecutionError> {
+    fn execute_constant_index_projection(
+        &self,
+        base: Value,
+        index: usize,
+    ) -> Result<Value, ExecutionError> {
         match base {
             Value::Tuple(elements) => {
-                elements.get(index)
-                    .cloned()
-                    .ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
-                        message: format!("Tuple index {} out of range", index),
-                    })
+                elements.get(index).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
+                    place: Place::local(Local::from(0)), // Placeholder
+                    message: format!("Tuple index {} out of range", index),
+                })
             }
             Value::Array(elements) => {
-                elements.get(index)
-                    .cloned()
-                    .ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
-                        message: format!("Array index {} out of range", index),
-                    })
+                elements.get(index).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
+                    place: Place::local(Local::from(0)), // Placeholder
+                    message: format!("Array index {} out of range", index),
+                })
             }
             Value::String(s) => {
-                s.chars().nth(index)
-                    .map(Value::Char)
-                    .ok_or_else(|| ExecutionError::InvalidProjection {
+                s.chars().nth(index).map(Value::Char).ok_or_else(|| {
+                    ExecutionError::InvalidProjection {
                         place: Place::local(Local::from(0)), // Placeholder
                         message: format!("String index {} out of range", index),
-                    })
+                    }
+                })
             }
             _ => Err(ExecutionError::InvalidProjection {
                 place: Place::local(Local::from(0)), // Placeholder
-                message: format!("Cannot apply constant index to non-array/tuple/string value: {:?}", base),
+                message: format!(
+                    "Cannot apply constant index to non-array/tuple/string value: {:?}",
+                    base
+                ),
             }),
         }
     }
@@ -732,30 +799,34 @@ place: Place::local(Local::from(0)), // Placeholder
     }
 
     /// Execute an assumption
-    fn execute_assumption(&mut self, assumption: &Assumption, _function: Rc<MirFunction>) -> Result<(), ExecutionError> {
-        match assumption {
-            // Handle different types of assumptions
-            // For now, we'll add diagnostic information but not actually enforce assumptions
-            _ => {
-                // Add a diagnostic note about the assumption
-                self.diagnostics.push(Diagnostic {
-                    level: DiagnosticLevel::Note,
-                    message: "Verifier assumption encountered".to_string(),
-                    location: Some(SourceLocation {
-                        block: self.current_block.unwrap_or(BasicBlock::from(0)),
-                        statement_index: None,
-                    }),
-                });
-                Ok(())
-            }
-        }
+    fn execute_assumption(
+        &mut self,
+        _assumption: &Assumption,
+        _function: Rc<MirFunction>,
+    ) -> Result<(), ExecutionError> {
+        // `Assumption` currently carries no payload. Recording that one was
+        // reached keeps the statement observable in the diagnostic log instead
+        // of being absorbed by a silent catch-all.
+        self.diagnostics.push(Diagnostic {
+            level: DiagnosticLevel::Note,
+            message: "Verifier assumption encountered".to_string(),
+            location: Some(SourceLocation {
+                block: self.current_block.unwrap_or(BasicBlock::from(0)),
+                statement_index: None,
+            }),
+        });
+        Ok(())
     }
 
     /// Execute a drop operation
-    fn execute_drop(&mut self, place: &Place, function: Rc<MirFunction>) -> Result<(), ExecutionError> {
+    fn execute_drop(
+        &mut self,
+        place: &Place,
+        function: Rc<MirFunction>,
+    ) -> Result<(), ExecutionError> {
         // Get the value to determine if it needs special cleanup
         let value = self.get_place_value(place, function.clone())?;
-        
+
         match value {
             Value::Array(elements) => {
                 // For arrays, we might need to drop each element
@@ -789,16 +860,24 @@ place: Place::local(Local::from(0)), // Placeholder
                 // For simple types, just invalidate
             }
         }
-        
+
         // Invalidate the place
         self.invalidate_place(place);
         Ok(())
     }
 
     /// Execute a bounds check
-    fn execute_bounds_check(&mut self, index_local: Local, length: usize, _function: Rc<MirFunction>) -> Result<(), ExecutionError> {
-        let index = self.locals.get(&index_local)
-            .ok_or_else(|| {
+    fn execute_bounds_check(
+        &mut self,
+        index_local: Local,
+        length: usize,
+        _function: Rc<MirFunction>,
+    ) -> Result<(), ExecutionError> {
+        // Copy the index out before any fallible handling so that reporting a
+        // diagnostic never borrows `self` while a `self.locals` borrow is live.
+        let index = match self.locals.get(&index_local).cloned() {
+            Some(index) => index,
+            None => {
                 self.add_diagnostic(
                     DiagnosticLevel::Error,
                     format!("Index local {:?} not found for bounds check", index_local),
@@ -807,14 +886,12 @@ place: Place::local(Local::from(0)), // Placeholder
                         statement_index: None,
                     }),
                 );
-                ExecutionError::BoundsCheckFailed {
-                    index: -1,
-                    length,
-                }
-            })?;
-        
+                return Err(ExecutionError::BoundsCheckFailed { index: -1, length });
+            }
+        };
+
         let index_val = match index {
-            Value::Int(i) => *i,
+            Value::Int(i) => i,
             _ => {
                 self.add_diagnostic(
                     DiagnosticLevel::Error,
@@ -824,13 +901,10 @@ place: Place::local(Local::from(0)), // Placeholder
                         statement_index: None,
                     }),
                 );
-                return Err(ExecutionError::BoundsCheckFailed {
-                    index: -1,
-                    length,
-                });
+                return Err(ExecutionError::BoundsCheckFailed { index: -1, length });
             }
         };
-        
+
         if index_val < 0 {
             self.add_diagnostic(
                 DiagnosticLevel::Error,
@@ -840,12 +914,9 @@ place: Place::local(Local::from(0)), // Placeholder
                     statement_index: None,
                 }),
             );
-            return Err(ExecutionError::BoundsCheckFailed {
-                index: index_val,
-                length,
-            });
+            return Err(ExecutionError::BoundsCheckFailed { index: index_val, length });
         }
-        
+
         if index_val as usize >= length {
             self.add_diagnostic(
                 DiagnosticLevel::Error,
@@ -855,12 +926,9 @@ place: Place::local(Local::from(0)), // Placeholder
                     statement_index: None,
                 }),
             );
-            return Err(ExecutionError::BoundsCheckFailed {
-                index: index_val,
-                length,
-            });
+            return Err(ExecutionError::BoundsCheckFailed { index: index_val, length });
         }
-        
+
         // Add diagnostic for successful bounds check
         self.add_diagnostic(
             DiagnosticLevel::Note,
@@ -870,12 +938,17 @@ place: Place::local(Local::from(0)), // Placeholder
                 statement_index: None,
             }),
         );
-        
+
         Ok(())
     }
 
     /// Execute a function call
-    fn execute_call(&mut self, func: &Value, args: &[Value], caller_function: Rc<MirFunction>) -> Result<Value, ExecutionError> {
+    fn execute_call(
+        &mut self,
+        func: &Value,
+        args: &[Value],
+        caller_function: Rc<MirFunction>,
+    ) -> Result<Value, ExecutionError> {
         match func {
             Value::FunctionRef(name) => {
                 // Handle built-in functions
@@ -915,18 +988,21 @@ place: Place::local(Local::from(0)), // Placeholder
                         // Memory allocation function
                         if args.len() == 2 {
                             if let (Value::Int(size), Value::Int(align)) = (&args[0], &args[1]) {
-                                let alloc_id = self.memory.allocate(*size as usize, *align as u32, true);
+                                let alloc_id =
+                                    self.memory.allocate(*size as usize, *align as u32, true);
                                 Ok(Value::Int(alloc_id as i64))
                             } else {
                                 Err(ExecutionError::InvalidFunctionCall {
                                     function: name.clone(),
-                                    message: "alloc requires size and align as integers".to_string(),
+                                    message: "alloc requires size and align as integers"
+                                        .to_string(),
                                 })
                             }
                         } else {
                             Err(ExecutionError::InvalidFunctionCall {
                                 function: name.clone(),
-                                message: "alloc requires exactly 2 arguments (size, align)".to_string(),
+                                message: "alloc requires exactly 2 arguments (size, align)"
+                                    .to_string(),
                             })
                         }
                     }
@@ -943,13 +1019,15 @@ place: Place::local(Local::from(0)), // Placeholder
                             } else {
                                 Err(ExecutionError::InvalidFunctionCall {
                                     function: name.clone(),
-                                    message: "dealloc requires allocation ID as integer".to_string(),
+                                    message: "dealloc requires allocation ID as integer"
+                                        .to_string(),
                                 })
                             }
                         } else {
                             Err(ExecutionError::InvalidFunctionCall {
                                 function: name.clone(),
-                                message: "dealloc requires exactly 1 argument (alloc_id)".to_string(),
+                                message: "dealloc requires exactly 1 argument (alloc_id)"
+                                    .to_string(),
                             })
                         }
                     }
@@ -965,45 +1043,54 @@ place: Place::local(Local::from(0)), // Placeholder
             }),
         }
     }
-    
+
     /// Execute a function with proper call stack management
-    fn execute_function_with_stack(&mut self, name: &str, args: &[Value], caller_function: Rc<MirFunction>) -> Result<Value, ExecutionError> {
+    fn execute_function_with_stack(
+        &mut self,
+        name: &str,
+        args: &[Value],
+        caller_function: Rc<MirFunction>,
+    ) -> Result<Value, ExecutionError> {
         // Find the function in the program
-        let function = self.program.functions
-            .iter()
-            .find(|f| f.name == name)
-            .ok_or_else(|| ExecutionError::InvalidFunctionCall {
+        let function = self.program.functions.iter().find(|f| f.name == name).ok_or_else(|| {
+            ExecutionError::InvalidFunctionCall {
                 function: name.to_string(),
                 message: "Function not found".to_string(),
-            })?;
-        
+            }
+        })?;
+
         // Create a copy of the function for execution
         let function_rc = Rc::new(function.clone());
-        
+
         // Push current state to call stack
         let caller_locals = self.locals.clone();
         let return_place = Place::local(function.return_place);
-        
+
         self.call_stack.push(CallFrame {
             function_name: caller_function.name.clone(),
             return_place: Some(return_place),
             return_block: self.current_block.unwrap_or(BasicBlock::from(0)),
             caller_locals,
         });
-        
+
         // Initialize locals with arguments
         self.locals.clear();
         for (i, arg) in args.iter().enumerate() {
-            let local = function.params.get(i).ok_or_else(|| ExecutionError::InvalidFunctionCall {
-                function: name.to_string(),
-                message: format!("Argument count mismatch: expected {}, got {}", function.params.len(), i + 1),
-            })?;
+            let local =
+                function.params.get(i).ok_or_else(|| ExecutionError::InvalidFunctionCall {
+                    function: name.to_string(),
+                    message: format!(
+                        "Argument count mismatch: expected {}, got {}",
+                        function.params.len(),
+                        i + 1
+                    ),
+                })?;
             self.locals.insert(*local, arg.clone());
         }
-        
+
         // Initialize return place
         self.locals.insert(function.return_place, Value::Uninit);
-        
+
         // Start execution from the first basic block
         if function.body.blocks.is_empty() {
             self.call_stack.pop();
@@ -1011,13 +1098,13 @@ place: Place::local(Local::from(0)), // Placeholder
                 message: "Function has no basic blocks".to_string(),
             });
         }
-        
+
         self.current_function = Some(function_rc.clone());
         self.current_block = Some(BasicBlock::from(0));
-        
+
         // Execute the function
         let result = self.execute_function_body(function_rc);
-        
+
         // Restore caller state
         if let Some(call_frame) = self.call_stack.pop() {
             self.locals = call_frame.caller_locals;
@@ -1026,9 +1113,9 @@ place: Place::local(Local::from(0)), // Placeholder
             self.locals.clear();
             self.current_block = None;
         }
-        
+
         self.current_function = None;
-        
+
         result
     }
 
@@ -1043,29 +1130,36 @@ place: Place::local(Local::from(0)), // Placeholder
             Value::String(s) => s.clone(),
             Value::Unit => "()".to_string(),
             Value::Tuple(elements) => {
-                format!("({})", elements.iter().map(|e| self.value_to_string(e)).collect::<Vec<_>>().join(", "))
+                format!(
+                    "({})",
+                    elements.iter().map(|e| self.value_to_string(e)).collect::<Vec<_>>().join(", ")
+                )
             }
             Value::Array(elements) => {
-                format!("[{}]", elements.iter().map(|e| self.value_to_string(e)).collect::<Vec<_>>().join(", "))
+                format!(
+                    "[{}]",
+                    elements.iter().map(|e| self.value_to_string(e)).collect::<Vec<_>>().join(", ")
+                )
             }
             Value::Reference(_) => "&ref".to_string(),
             Value::FunctionRef(name) => format!("fn {}", name),
             Value::EnumVariant { enum_name, variant, fields } => {
-                format!("{}::{}({})", enum_name, variant, fields.iter().map(|e| self.value_to_string(e)).collect::<Vec<_>>().join(", "))
+                format!(
+                    "{}::{}({})",
+                    enum_name,
+                    variant,
+                    fields.iter().map(|e| self.value_to_string(e)).collect::<Vec<_>>().join(", ")
+                )
             }
             Value::Struct { name, fields } => {
-                let field_strs: Vec<String> = fields.iter().map(|(k, v)| format!("{}: {}", k, self.value_to_string(v))).collect();
+                let field_strs: Vec<String> = fields
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, self.value_to_string(v)))
+                    .collect();
                 format!("{} {{ {} }}", name, field_strs.join(", "))
             }
             Value::Uninit => "uninit".to_string(),
         }
-    }
-
-    /// Execute a snippet of source code (for compatibility)
-    pub fn run_snippet(&mut self, _source: &str) -> Result<i64, String> {
-        // For now, just return 42 for compatibility
-        // In a full implementation, this would parse and execute the source
-        Ok(42)
     }
 
     /// Get the current diagnostics
@@ -1073,20 +1167,44 @@ place: Place::local(Local::from(0)), // Placeholder
         &self.diagnostics
     }
 
+    /// Get the effect row accumulated by the current execution context.
+    ///
+    /// The interpreter starts from `EffectRow::pure()` and grows it as
+    /// effectful operations are discharged, so this reports what execution
+    /// actually performed rather than what was merely expected.
+    pub fn effects(&self) -> &EffectRow {
+        &self.effects
+    }
+
+    /// Get the capabilities available to the current execution.
+    pub fn capabilities(&self) -> &CapabilityContext {
+        &self.capabilities
+    }
+
+    /// Whether an allocation handle still refers to live memory.
+    ///
+    /// The `Memory` state itself stays private to the interpreter; this exposes
+    /// only the query needed to observe that a builtin `alloc` really produced
+    /// storage and that a builtin `dealloc` really released it.
+    pub fn allocation_is_live(&self, id: u64) -> bool {
+        self.memory.allocation_exists(id)
+    }
+
     /// Clear diagnostics
     pub fn clear_diagnostics(&mut self) {
         self.diagnostics.clear();
     }
-    
+
     /// Add a diagnostic to the diagnostic list
-    fn add_diagnostic(&mut self, level: DiagnosticLevel, message: String, location: Option<SourceLocation>) {
-        self.diagnostics.push(Diagnostic {
-            level,
-            message,
-            location,
-        });
+    fn add_diagnostic(
+        &mut self,
+        level: DiagnosticLevel,
+        message: String,
+        location: Option<SourceLocation>,
+    ) {
+        self.diagnostics.push(Diagnostic { level, message, location });
     }
-    
+
     /// Get the current diagnostics and clear them
     pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
         std::mem::take(&mut self.diagnostics)
@@ -1127,20 +1245,19 @@ impl Memory {
     pub fn allocate(&mut self, size: usize, align: u32, mutable: bool) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
-        
-        let alloc = Allocation {
-            bytes: vec![0; size],
-            initialized: vec![false; size],
-            align,
-            mutable,
-        };
-        
+
+        let alloc =
+            Allocation { bytes: vec![0; size], initialized: vec![false; size], align, mutable };
+
         self.allocations.insert(id, alloc);
         id
     }
 
     pub fn read(&self, id: u64, offset: usize, size: usize) -> Result<&[u8], String> {
-        let alloc = self.allocations.get(&id).ok_or("Invalid pointer provenance: dangling allocation ID".to_string())?;
+        let alloc = self
+            .allocations
+            .get(&id)
+            .ok_or("Invalid pointer provenance: dangling allocation ID".to_string())?;
         if offset + size > alloc.bytes.len() {
             return Err("Out of bounds read trap".to_string());
         }
@@ -1153,7 +1270,10 @@ impl Memory {
     }
 
     pub fn write(&mut self, id: u64, offset: usize, data: &[u8]) -> Result<(), String> {
-        let alloc = self.allocations.get_mut(&id).ok_or("Invalid pointer provenance: dangling allocation ID".to_string())?;
+        let alloc = self
+            .allocations
+            .get_mut(&id)
+            .ok_or("Invalid pointer provenance: dangling allocation ID".to_string())?;
         if !alloc.mutable {
             return Err("Write to immutable memory trap".to_string());
         }
@@ -1166,12 +1286,12 @@ impl Memory {
         }
         Ok(())
     }
-    
+
     /// Check if an allocation exists
     pub fn allocation_exists(&self, id: u64) -> bool {
         self.allocations.contains_key(&id)
     }
-    
+
     /// Deallocate an allocation
     pub fn deallocate(&mut self, id: u64) -> Result<(), String> {
         if !self.allocations.contains_key(&id) {
@@ -1180,14 +1300,12 @@ impl Memory {
         self.allocations.remove(&id);
         Ok(())
     }
-    
+
     /// Get allocation info
     pub fn get_allocation_info(&self, id: u64) -> Option<(usize, u32, bool)> {
-        self.allocations.get(&id).map(|alloc| {
-            (alloc.bytes.len(), alloc.align, alloc.mutable)
-        })
+        self.allocations.get(&id).map(|alloc| (alloc.bytes.len(), alloc.align, alloc.mutable))
     }
-    
+
     /// Check if memory is initialized at a specific location
     pub fn is_initialized(&self, id: u64, offset: usize) -> Result<bool, String> {
         let alloc = self.allocations.get(&id).ok_or("Invalid pointer provenance".to_string())?;

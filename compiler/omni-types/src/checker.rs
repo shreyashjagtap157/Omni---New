@@ -830,17 +830,15 @@ impl TypeChecker {
             }
             Expr::Loop { label, body } => {
                 self.loop_break_types.push((label.clone(), None));
-                let body_result = self.infer_expr(body, env, local_vars)?;
+                // The body's own type does not decide the loop's type; only a
+                // `break` carrying a value does. A loop that reaches no such
+                // `break` diverges, so it has type `Never` regardless of what
+                // its final expression happened to be.
+                self.infer_expr(body, env, local_vars)?;
                 let (_, break_ty) = self.loop_break_types.pop().expect("loop stack balanced");
                 match break_ty {
                     Some(ty) => Ok(ty),
-                    None => {
-                        if matches!(self.tcx.get(body_result), TyKind::Never) {
-                            Ok(self.tcx.intern(TyKind::Never))
-                        } else {
-                            Ok(self.tcx.intern(TyKind::Never))
-                        }
-                    }
+                    None => Ok(self.tcx.intern(TyKind::Never)),
                 }
             }
             Expr::While { label, condition, body } => {

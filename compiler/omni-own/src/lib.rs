@@ -201,8 +201,8 @@ impl OwnershipState {
 
     /// Marks a place as explicitly dropped.
     pub fn drop_place(&mut self, place: &Place) -> Result<(), OwnershipError> {
-        self.require_initialized(&place)?;
-        self.ensure_access_allowed(&place, AccessKind::Drop)?;
+        self.require_initialized(place)?;
+        self.ensure_access_allowed(place, AccessKind::Drop)?;
         self.places.insert(place.clone(), PlaceState::Moved);
         Ok(())
     }
@@ -229,11 +229,17 @@ impl OwnershipState {
     pub fn move_projection(&mut self, place: Place) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
         self.ensure_access_allowed(&place, AccessKind::Move)?;
-        if place.projections.is_empty() {
-            self.places.insert(place, PlaceState::Moved);
+        // Moving only a projection leaves the parent aggregate partly live:
+        // sibling fields stay readable, while the parent itself may no longer be
+        // consumed whole. `PlaceState::PartiallyMoved` is what `state` reports
+        // for that parent, so it is recorded directly rather than relying on the
+        // ancestor query to infer it from a plain `Moved` entry.
+        let state = if place.projections.is_empty() {
+            PlaceState::Moved
         } else {
-            self.places.insert(place, PlaceState::Moved);
-        }
+            PlaceState::PartiallyMoved
+        };
+        self.places.insert(place, state);
         Ok(())
     }
 

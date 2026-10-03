@@ -19,6 +19,8 @@ omni-names = { path = "../omni-names" }
 omni-types = { path = "../omni-types" }
 omni-traits = { path = "../omni-traits" }
 omni-effects = { path = "../omni-effects" }
+omni-mir = { path = "../omni-mir" }
+omni-verify = { path = "../omni-verify" }
 omni-machine = { path = "../omni-machine" }
 omni-codegen = { path = "../omni-codegen" }
 omni-evidence = { path = "../../tools/omni-evidence" }

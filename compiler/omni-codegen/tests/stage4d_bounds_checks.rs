@@ -1,28 +1,10 @@
 //! Stage 4D tests: Dynamic array indexing with explicit bounds checks.
 
 use omni_mir::ast::{Expr, GenericFnDef, Lit, TypeSpec};
-use std::collections::HashMap;
 
-fn int_main_with_array_param(body: Expr) -> omni_mir::MonomorphizedProgram {
-    omni_mir::MonomorphizedProgram {
-        functions: vec![GenericFnDef {
-            // Named `omni_main` rather than `main`: the test shim below
-            // supplies the real entry point and calls this, so the object
-            // under test never collides with the host CRT entry.
-            name: "omni_main".to_string(),
-            type_params: vec![],
-            bounds: vec![],
-            params: vec![
-                ("array".to_string(), TypeSpec::Array(Box::new(TypeSpec::Int), 5)),
-                ("index".to_string(), TypeSpec::Int),
-            ],
-            return_type: TypeSpec::Int,
-            effects: omni_effects::EffectRow::pure(),
-            capabilities: vec![],
-            body,
-        }],
-    }
-}
+// The entry point is named `omni_main` rather than `main`: the native test
+// shim supplies the real entry point and calls this, so the object under test
+// never collides with the host CRT entry.
 
 fn int_main_with_locals(body: Expr) -> omni_mir::MonomorphizedProgram {
     omni_mir::MonomorphizedProgram {

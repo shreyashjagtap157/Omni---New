@@ -9,5 +9,9 @@ workspace = true
 
 [dependencies]
 omni-mir = { path = "../omni-mir" }
-omni-types = { path = "../omni-types" }
-omni-effects = { path = "../omni-effects" }
+
+[dev-dependencies]
+# `omni_mir::ir` exposes `Body`/`BlockData` fields typed as `IndexVec`, so tests
+# that build MIR by hand need the same type. Reuses the version already locked
+# for `omni-mir`.
+index_vec = "0.1"

@@ -1,7 +1,7 @@
 //! Omni Compiler Driver CLI Entry Point
 //! Fully featured argument parser supporting input files, optimization levels, and output targets.
 
-use omni_types::ast::{BinOp, Expr, GenericFnDef, Lit, TypeSpec, UnOp};
+use omni_types::ast::{BinOp, Expr, GenericFnDef, Lit, StructDef, TypeSpec, UnOp};
 use omni_types::checker::SubstEnv;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -55,9 +55,17 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
     Ok(Args { input_file, output_file, opt_level, emit_native })
 }
 
-/// Compile source through the authoritative frontend, semantic, monomorphization,
-/// typed-MIR, verification, and Cranelift native stages.
-pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
+/// Runs the authoritative frontend, semantic, and monomorphization stages.
+///
+/// Returns the concrete program plus the struct declarations registered along the
+/// way. Both are needed downstream: the backend resolves named field projections
+/// from those declarations, and MIR lowering must type the same projections.
+///
+/// Both the native object path and the abstract-machine path start here, so a
+/// program can never be executed on one pipeline and compiled on another.
+fn lower_to_concrete_program(
+    source_code: &str,
+) -> Result<(omni_types::monomorph::MonomorphizedProgram, HashMap<String, StructDef>), String> {
     let mut parser = omni_parse::Parser::from_source(source_code);
     let parsed = parser.parse_source();
     if !parsed.is_ok() {
@@ -135,7 +143,51 @@ pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
         .monomorphize_entry("main", &[], &[])
         .map_err(|e| format!("Monomorphization error: {:?}", e))?;
 
+    // Capture the declarations before the checker is consumed by the monomorphizer.
     let struct_defs = checker.struct_defs.clone();
+    Ok((program, struct_defs))
+}
+
+/// Runs the concrete program through MIR lowering and MIR verification,
+/// returning the verified MIR program the machine tier executes.
+fn lower_to_verified_mir(source_code: &str) -> Result<omni_mir::ir::MirProgram, String> {
+    let (program, struct_defs) = lower_to_concrete_program(source_code)?;
+
+    let mut lowering = omni_mir::lower::LoweringContext::new();
+    lowering.set_struct_defs(struct_defs);
+    let mir = lowering
+        .lower_monomorphized_program(&program)
+        .map_err(|e| format!("MIR lowering error: {}", e))?;
+
+    omni_verify::MirVerifier::verify_program(&mir)
+        .map_err(|e| format!("MIR verification error: {:?}", e))?;
+
+    Ok(mir)
+}
+
+/// Executes `main` on the abstract machine and returns its integer result.
+///
+/// This is the machine tier's real entry point. It lowers and verifies MIR
+/// first, so an unverified or malformed program is rejected before execution
+/// rather than being interpreted optimistically.
+pub fn compile_source_to_interpreter_value(source_code: &str) -> Result<i64, String> {
+    let mir = lower_to_verified_mir(source_code)?;
+
+    let mut interpreter = omni_machine::Interpreter::new_with_program(mir);
+    let value = interpreter
+        .execute_function("main", vec![])
+        .map_err(|e| format!("Machine execution error: {:?}", e))?;
+
+    match value {
+        omni_machine::Value::Int(n) => Ok(n),
+        other => Err(format!("Machine execution produced a non-integer main result: {:?}", other)),
+    }
+}
+
+/// Compile source through the authoritative frontend, semantic, monomorphization,
+/// typed-MIR, verification, and Cranelift native stages.
+pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
+    let (program, struct_defs) = lower_to_concrete_program(source_code)?;
     omni_codegen::compile_monomorphized_program_with_structs(&program, struct_defs)
 }
 
@@ -762,7 +814,7 @@ fn type_spec_from_cst_with_context(
                 "str" | "String" => Ok(TypeSpec::String),
                 "unit" | "Unit" => Ok(TypeSpec::Unit),
                 "never" | "Never" | "!" => Ok(TypeSpec::Never),
-                other => {
+                _ => {
                     let args = path
                         .as_ref()
                         .map(|p| {
@@ -1219,11 +1271,10 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .ok_or_else(|| "Semantic frontend error: while has no body".to_string())?;
             let condition = node
                 .children()
-                .filter(|n| {
+                .find(|n| {
                     n.kind() != omni_syntax::SyntaxKind::Lifetime
                         && n.kind() != omni_syntax::SyntaxKind::Block
                 })
-                .next()
                 .ok_or_else(|| "Semantic frontend error: while has no condition".to_string())?;
             Ok(Expr::While {
                 label,
@@ -1730,7 +1781,7 @@ fn main() {
                         }
                     }
                 } else {
-                    match omni_machine::bridge::execute_source(&source_code) {
+                    match compile_source_to_interpreter_value(&source_code) {
                         Ok(result) => {
                             println!("Exit code: {}", result);
                         }
@@ -1805,6 +1856,59 @@ mod tests {
         let source = "fn choose() -> i64 { loop { break 7; } } fn main() -> i64 { let x = choose(); let mut y = 3; while y > 0 { y -= 1; continue; } return x; }";
         let object = compile_source_to_object(source).expect("loop and while control must compile");
         assert!(!object.is_empty());
+    }
+
+    #[test]
+    fn machine_tier_returns_the_computed_main_result() {
+        // Guards the default (non-`--native`) path against returning a
+        // fabricated constant instead of executing the program.
+        let source = "fn main() -> i64 { let value = 41; return value; }";
+        assert_eq!(compile_source_to_interpreter_value(source).expect("machine execution"), 41);
+    }
+
+    #[test]
+    fn machine_tier_computes_arithmetic_calls_and_control_flow() {
+        // Each case is checked against a hand-computed result, so a constant
+        // return of any fixed value cannot satisfy this suite.
+        let cases: &[(&str, i64)] = &[
+            ("fn main() -> i64 { let a = 6; let b = 7; return a * b; }", 42),
+            ("fn inc(x: i64) -> i64 { return x + 1; } fn main() -> i64 { return inc(41); }", 42),
+            (
+                "fn main() -> i64 { let mut s = 0; let mut i = 1; while i <= 10 { s += i; i += 1; } return s; }",
+                55,
+            ),
+            ("fn choose(x: i64) -> i64 { match x { 0 => 10, _ => 20 } } fn main() -> i64 { return choose(0); }", 10),
+            ("fn main() -> i64 { let arr = [10,20,30]; return arr[2]; }", 30),
+        ];
+
+        for (source, expected) in cases {
+            assert_eq!(
+                compile_source_to_interpreter_value(source)
+                    .unwrap_or_else(|e| panic!("machine execution failed for {source}: {e}")),
+                *expected,
+                "wrong result for {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn machine_tier_requires_verified_mir_before_execution() {
+        // Execution runs on verified MIR only. This asserts the machine path
+        // lowers and verifies successfully for a well-formed program; the
+        // matching failure case is covered by the no-main rejection test.
+        let source = "fn main() -> i64 { let value = 41; return value; }";
+        assert!(
+            lower_to_verified_mir(source).is_ok(),
+            "a well-formed program must lower and verify"
+        );
+    }
+
+    #[test]
+    fn machine_tier_rejects_source_without_main() {
+        let source = "fn helper(x: i64) -> i64 { return x; }";
+        let error = compile_source_to_interpreter_value(source)
+            .expect_err("a program without main must be rejected");
+        assert!(error.contains("main"), "unexpected error: {error}");
     }
 
     #[test]

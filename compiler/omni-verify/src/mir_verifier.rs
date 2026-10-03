@@ -476,8 +476,14 @@ impl MirVerifier {
                     }
                     Statement::Assume(_) => {}
                     Statement::Drop(place) => Self::check_place(fn_name, place, num_locals)?,
-                    Statement::BoundsCheck { index, length } => {
-                        // Check that the index local exists and is an Int type
+                    Statement::BoundsCheck { index, length: _ } => {
+                        // Check that the index local exists and is an Int type.
+                        //
+                        // `length` is deliberately not inspected here: it is a
+                        // literal bound the backend materialises, not a local
+                        // whose validity the verifier can check. A length of
+                        // zero is valid and the emitted check must trap for
+                        // every index, so there is nothing to reject.
                         if index.index() >= num_locals {
                             return Err(MirVerificationError::UndefinedLocal {
                                 func: fn_name.clone(),
@@ -501,9 +507,6 @@ impl MirVerifier {
                                 local: *index,
                             });
                         }
-
-                        // Length zero is valid: the generated check must trap
-                        // for every index because no element can be in bounds.
                     }
                 }
             }

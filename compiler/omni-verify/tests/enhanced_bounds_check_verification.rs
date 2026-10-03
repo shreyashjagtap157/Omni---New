@@ -1,5 +1,5 @@
 //! Enhanced Stage 4D bounds checking verification tests.
-//! 
+//!
 //! These tests focus on verifying the path-sensitive bounds checking verification
 //! logic, including proper handling of reassignments, control-flow branches,
 //! and complex scenarios.
@@ -30,13 +30,10 @@ fn test_lowering(body: Expr) -> Result<omni_mir::ir::MirProgram, String> {
 fn test_simple_bounds_check() {
     // Test: basic bounds check followed by access - should pass
     let body = Expr::Index {
-        expr: Box::new(Expr::Array(vec![
-            Expr::Literal(Lit::Int(1)),
-            Expr::Literal(Lit::Int(2)),
-        ])),
+        expr: Box::new(Expr::Array(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))])),
         index: Box::new(Expr::Literal(Lit::Int(0))),
     };
-    
+
     let result = test_lowering(body);
     assert!(result.is_ok(), "Simple bounds check should pass");
 }
@@ -45,13 +42,10 @@ fn test_simple_bounds_check() {
 fn test_missing_bounds_check() {
     // Test: access without bounds check - should fail
     let body = Expr::Index {
-        expr: Box::new(Expr::Array(vec![
-            Expr::Literal(Lit::Int(1)),
-            Expr::Literal(Lit::Int(2)),
-        ])),
+        expr: Box::new(Expr::Array(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))])),
         index: Box::new(Expr::Var("index".to_string())),
     };
-    
+
     let result = test_lowering(body);
     // This should fail because there's no bounds check for the dynamic index
     // Note: The exact error behavior depends on the lowering implementation
@@ -73,7 +67,7 @@ fn test_reassignment_after_check() {
             index: Box::new(Expr::Var("index".to_string())),
         }),
     };
-    
+
     let result = test_lowering(body);
     println!("Test reassignment after check: {:?}", result);
     // Current implementation should allow this, but enhanced implementation should detect it
@@ -93,7 +87,7 @@ fn test_branch_with_check() {
         }),
         else_branch: Some(Box::new(Expr::Literal(Lit::Int(0)))),
     };
-    
+
     let result = test_lowering(body);
     assert!(result.is_ok(), "Branch with check should pass");
 }
@@ -112,7 +106,7 @@ fn test_branch_without_check() {
         }),
         else_branch: Some(Box::new(Expr::Literal(Lit::Int(0)))),
     };
-    
+
     let result = test_lowering(body);
     println!("Test branch without check: {:?}", result);
 }
@@ -133,7 +127,7 @@ fn test_different_array_lengths() {
             index: Box::new(Expr::Var("index".to_string())),
         }),
     };
-    
+
     let result = test_lowering(body);
     println!("Test different array lengths: {:?}", result);
 }
@@ -144,20 +138,14 @@ fn test_nested_indexing() {
     let body = Expr::Index {
         expr: Box::new(Expr::Index {
             expr: Box::new(Expr::Array(vec![
-                Expr::Array(vec![
-                    Expr::Literal(Lit::Int(1)),
-                    Expr::Literal(Lit::Int(2)),
-                ]),
-                Expr::Array(vec![
-                    Expr::Literal(Lit::Int(3)),
-                    Expr::Literal(Lit::Int(4)),
-                ]),
+                Expr::Array(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))]),
+                Expr::Array(vec![Expr::Literal(Lit::Int(3)), Expr::Literal(Lit::Int(4))]),
             ])),
             index: Box::new(Expr::Literal(Lit::Int(0))),
         }),
         index: Box::new(Expr::Literal(Lit::Int(0))),
     };
-    
+
     let result = test_lowering(body);
     assert!(result.is_ok(), "Nested indexing should pass");
 }
@@ -171,7 +159,7 @@ fn test_zero_length_array() {
         expr: Box::new(Expr::Array(vec![Expr::Literal(Lit::Int(0))])),
         index: Box::new(Expr::Literal(Lit::Int(0))),
     };
-    
+
     let result = test_lowering(body);
     assert!(result.is_ok(), "Single-element array indexing should compile (bounds check will trap at runtime for index 0)");
 }
@@ -180,13 +168,10 @@ fn test_zero_length_array() {
 fn test_negative_index() {
     // Test: negative index - should be caught by constant bounds checking
     let body = Expr::Index {
-        expr: Box::new(Expr::Array(vec![
-            Expr::Literal(Lit::Int(1)),
-            Expr::Literal(Lit::Int(2)),
-        ])),
+        expr: Box::new(Expr::Array(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))])),
         index: Box::new(Expr::Literal(Lit::Int(-1))),
     };
-    
+
     let result = test_lowering(body);
     // This should fail at compile time for constant negative index
     println!("Test negative index: {:?}", result);
@@ -207,7 +192,7 @@ fn test_multiple_checks_same_index() {
             index: Box::new(Expr::Var("index".to_string())),
         }),
     };
-    
+
     let result = test_lowering(body);
     assert!(result.is_ok(), "Multiple checks on same index should pass");
 }
@@ -226,7 +211,7 @@ fn test_complex_control_flow() {
         }),
         else_branch: Some(Box::new(Expr::Literal(Lit::Int(0)))),
     };
-    
+
     let result = test_lowering(body);
     assert!(result.is_ok(), "Complex control flow should pass");
 }
@@ -244,7 +229,7 @@ fn test_index_in_loop() {
             index: Box::new(Expr::Var("index".to_string())),
         }),
     };
-    
+
     let result = test_lowering(body);
     println!("Test index in loop: {:?}", result);
 }

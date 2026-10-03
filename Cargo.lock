@@ -443,12 +443,14 @@ dependencies = [
  "omni-effects",
  "omni-evidence",
  "omni-machine",
+ "omni-mir",
  "omni-names",
  "omni-parse",
  "omni-registry",
  "omni-syntax",
  "omni-traits",
  "omni-types",
+ "omni-verify",
  "serde_json",
 ]
 
@@ -487,9 +489,8 @@ dependencies = [
 name = "omni-machine"
 version = "0.0.0"
 dependencies = [
- "omni-effects",
+ "index_vec",
  "omni-mir",
- "omni-types",
 ]
 
 [[package]]

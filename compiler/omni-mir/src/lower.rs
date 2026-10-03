@@ -848,7 +848,7 @@ impl<'a> FnMirBuilder<'a> {
         };
 
         if let (Some((operand, _)), Some(end)) = (&then_result, then_end) {
-            let place = result_local.map(|l| crate::ir::Place::local(l));
+            let place = result_local.map(crate::ir::Place::local);
             if let Some(place) = place {
                 self.blocks[end].statements.push(crate::ir::Statement::Assign(
                     place.clone(),
@@ -865,7 +865,7 @@ impl<'a> FnMirBuilder<'a> {
         }
 
         if let (Some((operand, _)), Some(end)) = (&else_result.0, else_result.1) {
-            let place = result_local.map(|l| crate::ir::Place::local(l));
+            let place = result_local.map(crate::ir::Place::local);
             if let Some(place) = place {
                 self.blocks[end].statements.push(crate::ir::Statement::Assign(
                     place.clone(),
@@ -1511,7 +1511,7 @@ impl<'a> FnMirBuilder<'a> {
                                 self.blocks[block].statements.push(
                                     crate::ir::Statement::BoundsCheck {
                                         index: index_local,
-                                        length: length,
+                                        length,
                                     },
                                 );
                                 Some(index_local)

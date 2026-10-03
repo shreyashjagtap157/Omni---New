@@ -405,7 +405,7 @@ fn test_mir_semantic_gate() {
 
 #[test]
 fn test_pattern_usefulness_and_exhaustiveness_bool_and_option() {
-    use crate::ast::{MatchArm, Pattern, UnOp};
+    use crate::ast::{MatchArm, Pattern};
 
     let mut checker = TypeChecker::new();
     let bool_ty = checker.tcx.intern(TyKind::Bool);

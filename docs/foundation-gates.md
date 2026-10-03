@@ -100,8 +100,17 @@ Dev/build edges are direction-exempt but cycle-checked; diagnostics are determin
 (filename-sorted traversal, sorted edges). Dormant downward edges (e.g. hir scaffolding) are tier
 intent, not violations. 0.0.0.9 corrections: removed the layer-skipping `machine → parse` scaffold
 (the constant-input parse never influenced execution; behavior unchanged) and the twelve unused
-driver path dependencies, leaving the proven `machine`/`codegen` orchestration interface. Live
-state: 24 members, 19 normal + 1 dev + 0 build internal edges, clean.
+driver path dependencies, leaving the proven `machine`/`codegen` orchestration interface.
+
+Feed enforcement was previously satisfied in practice only because `omni-machine` happened not to
+use its undeclared edges; the gate still reported `omni-machine bypasses its declared feeds (uses
+omni-effects)`. The machine legitimately needs the effect vocabulary (`EffectRow`,
+`CapabilityContext`) and the type handles (`Ty`, `Lit`, `TypeSpec`) that its MIR program carries, so
+both are now re-exported through `omni-mir` — the machine's single declared feed — and the direct
+`omni-machine → omni-effects` and `omni-machine → omni-types` edges are removed. This keeps the
+`machine: {mir}` feed exact rather than widening it, and matches how `omni-codegen` already depends
+on `omni-effects` only from its test targets. Live state: 25 members, 30 normal + 4 dev + 0 build +
+9 infra internal edges, clean.
 
 ## Evidence schemas (0.0.0.8, `omni-evidence` + `spec/schemas/`)
 
