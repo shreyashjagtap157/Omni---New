@@ -81,6 +81,10 @@ attribute_arg = expression | identifier "=" expression;
 function_def = [attribute] [ "pub" ] [ "const" | "async" | "unsafe" ] "fn" identifier
                [ generic_params ] "(" [ param_list ] ")" [ "->" type ] [ where_clause ] block_expr;
 
+(* Function signature - used in trait items, no body *)
+function_signature = [attribute] [ "pub" ] [ "const" | "async" | "unsafe" ] "fn" identifier
+                    [ generic_params ] "(" [ param_list ] ")" [ "->" type ] [ where_clause ];
+
 (* Generic parameters *)
 generic_params = "<" generic_param { "," generic_param } ">";
 generic_param = lifetime_param | type_param | const_param | effect_param | capability_param;
