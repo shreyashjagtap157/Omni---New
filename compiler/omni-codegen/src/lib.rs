@@ -2432,7 +2432,7 @@ mod tests {
                 params: vec![],
                 return_place: ret,
                 return_type: ast::TypeSpec::Int,
-                body: omni_mir::ir::Body { blocks, local_decls: locals },
+                body: omni_mir::ir::Body { blocks, local_decls: locals, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2522,7 +2522,7 @@ mod tests {
                 params: vec![],
                 return_place: ret,
                 return_type: ast::TypeSpec::Int,
-                body: omni_mir::ir::Body { blocks, local_decls: locals },
+                body: omni_mir::ir::Body { blocks, local_decls: locals, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2603,14 +2603,22 @@ mod tests {
                     params: vec![],
                     return_place: touch_ret,
                     return_type: ast::TypeSpec::Unit,
-                    body: omni_mir::ir::Body { blocks: touch_blocks, local_decls: touch_locals },
+                    body: omni_mir::ir::Body {
+                        blocks: touch_blocks,
+                        local_decls: touch_locals,
+                        ..Default::default()
+                    },
                 },
                 omni_mir::ir::MirFunction {
                     name: "main".to_string(),
                     params: vec![],
                     return_place: main_ret,
                     return_type: ast::TypeSpec::Unit,
-                    body: omni_mir::ir::Body { blocks: main_blocks, local_decls: main_locals },
+                    body: omni_mir::ir::Body {
+                        blocks: main_blocks,
+                        local_decls: main_locals,
+                        ..Default::default()
+                    },
                 },
             ],
             struct_defs: std::collections::HashMap::new(),

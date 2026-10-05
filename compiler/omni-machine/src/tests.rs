@@ -100,7 +100,7 @@ impl FnBuilder {
             params: self.params,
             return_place: self.return_place,
             return_type: self.return_type,
-            body: Body { blocks, local_decls: self.local_decls },
+            body: Body { blocks, local_decls: self.local_decls, ..Default::default() },
         }
     }
 

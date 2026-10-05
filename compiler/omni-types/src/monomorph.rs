@@ -182,6 +182,9 @@ impl MonomorphizedProgram {
                 }
                 Ok(())
             }
+            // An unsafe block is verified exactly like its body: UNSAFE-0001
+            // forbids `unsafe` from waiving a check, so the body must be concrete.
+            Expr::UnsafeBlock { body } => Self::verify_expr_concrete(body, enclosing_fn),
             Expr::Return(opt_e) => {
                 if let Some(e) = opt_e {
                     Self::verify_expr_concrete(e, enclosing_fn)?;
@@ -529,6 +532,11 @@ impl<'a> Monomorphizer<'a> {
                 }
                 Ok(Expr::Block(mono_stmts))
             }
+            // The marker survives monomorphization; the body is rewritten in
+            // place so specialization applies to the block's contents.
+            Expr::UnsafeBlock { body } => Ok(Expr::UnsafeBlock {
+                body: Box::new(self.monomorphize_expr(body, env, local_vars)?),
+            }),
             Expr::Return(opt_expr) => {
                 let mono_opt = if let Some(inner) = opt_expr {
                     Some(Box::new(self.monomorphize_expr(inner, env, local_vars)?))

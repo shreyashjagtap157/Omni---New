@@ -1923,7 +1923,7 @@ mod tests {
                 params: vec![param_l],
                 return_place: ret_l,
                 return_type: dummy_ty,
-                body: Body { blocks, local_decls },
+                body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -1955,7 +1955,7 @@ mod tests {
                 params: vec![param_l, param_l],
                 return_place: ret_l,
                 return_type: omni_mir::ast::TypeSpec::Int,
-                body: Body { blocks, local_decls },
+                body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -1983,7 +1983,7 @@ mod tests {
                 params: vec![shared],
                 return_place: shared,
                 return_type: omni_mir::ast::TypeSpec::Unit,
-                body: Body { blocks, local_decls },
+                body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2015,7 +2015,7 @@ mod tests {
                 params: vec![],
                 return_place: ret_l,
                 return_type: omni_mir::ast::TypeSpec::Int,
-                body: Body { blocks, local_decls },
+                body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2054,7 +2054,7 @@ mod tests {
                 params: vec![],
                 return_place: ret,
                 return_type: omni_mir::ast::TypeSpec::Int,
-                body: Body { blocks, local_decls },
+                body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2098,6 +2098,7 @@ mod tests {
                         locals.push(LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
                         locals
                     },
+                    ..Default::default()
                 },
             }],
             struct_defs: std::collections::HashMap::new(),
@@ -2140,7 +2141,7 @@ mod tests {
                     omni_mir::ast::TypeSpec::Int,
                     omni_mir::ast::TypeSpec::Int,
                 ]),
-                body: Body { blocks, local_decls: locals },
+                body: Body { blocks, local_decls: locals, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2182,7 +2183,7 @@ mod tests {
                     Box::new(omni_mir::ast::TypeSpec::Int),
                     2,
                 ),
-                body: Body { blocks, local_decls: locals },
+                body: Body { blocks, local_decls: locals, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2245,14 +2246,22 @@ mod tests {
                     params: vec![],
                     return_place: caller_ret,
                     return_type: omni_mir::ast::TypeSpec::Int,
-                    body: Body { blocks: caller_blocks, local_decls: caller_locals },
+                    body: Body {
+                        blocks: caller_blocks,
+                        local_decls: caller_locals,
+                        ..Default::default()
+                    },
                 },
                 MirFunction {
                     name: "inc".to_string(),
                     params: vec![callee_param],
                     return_place: callee_ret,
                     return_type: omni_mir::ast::TypeSpec::Int,
-                    body: Body { blocks: callee_blocks, local_decls: callee_locals },
+                    body: Body {
+                        blocks: callee_blocks,
+                        local_decls: callee_locals,
+                        ..Default::default()
+                    },
                 },
             ],
             struct_defs: std::collections::HashMap::new(),
@@ -2303,7 +2312,7 @@ mod tests {
             params: vec![value_local],
             return_place: ret_local,
             return_type: omni_mir::ast::TypeSpec::Int,
-            body: Body { blocks, local_decls },
+            body: Body { blocks, local_decls, ..Default::default() },
         };
         MirProgram::new(tcx, vec![func])
     }
@@ -2375,7 +2384,7 @@ mod tests {
                 params: vec![],
                 return_place: ret,
                 return_type: omni_mir::ast::TypeSpec::Int,
-                body: Body { blocks, local_decls },
+                body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2407,7 +2416,7 @@ mod tests {
                 params: vec![],
                 return_place: ret,
                 return_type: omni_mir::ast::TypeSpec::Int,
-                body: Body { blocks, local_decls },
+                body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };
@@ -2435,7 +2444,7 @@ mod tests {
                 params: vec![],
                 return_place: ret_l,
                 return_type: omni_mir::ast::TypeSpec::Int,
-                body: Body { blocks, local_decls },
+                body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
         };

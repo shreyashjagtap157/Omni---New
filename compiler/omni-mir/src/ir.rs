@@ -57,6 +57,32 @@ pub struct MirFunction {
 pub struct Body {
     pub blocks: IndexVec<BasicBlock, BlockData>,
     pub local_decls: IndexVec<Local, LocalDecl>,
+    /// Basic blocks that were entered from inside an `unsafe` block or function.
+    ///
+    /// UNSAFE-0002 requires that an unsafe operation's effect "is visible in MIR
+    /// and audit reports". Recording the blocks rather than a single boolean is
+    /// deliberate: `unsafe` scopes a *region*, so an audit must be able to say
+    /// which operations were covered by a programmer's proof and which were not.
+    /// A function-wide flag could not distinguish `unsafe { raw() }` from `raw()`
+    /// sitting next to it, and would silently widen every future check.
+    ///
+    /// This is metadata only. It grants nothing: nothing in verification,
+    /// execution, or codegen consults it yet, because no raw-memory operation
+    /// exists to require an unsafe context (UNSAFE-0002). It is carried so the
+    /// context is not lost before such an operation is added.
+    pub unsafe_blocks: Vec<BasicBlock>,
+}
+
+impl Default for Body {
+    /// An empty body: no blocks, no locals, and no unsafe region.
+    ///
+    /// `unsafe_blocks` defaults to empty, which is the correct default rather
+    /// than merely the convenient one: an empty body contains no operation, so
+    /// it is trivially outside every unsafe region. A default that widened the
+    /// region would silently mark hand-built bodies as programmer-proofed.
+    fn default() -> Self {
+        Self { blocks: IndexVec::new(), local_decls: IndexVec::new(), unsafe_blocks: Vec::new() }
+    }
 }
 
 /// A sequence of non-branching statements ending in a single terminator.

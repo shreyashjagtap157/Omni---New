@@ -63,8 +63,7 @@ mod polonius_tests {
 
     #[test]
     fn test_polonius_mir_extraction() {
-        let body =
-            Body { blocks: index_vec::IndexVec::new(), local_decls: index_vec::IndexVec::new() };
+        let body = Body::default();
         let facts = PoloniusFacts::extract_from_mir(&body);
         assert!(facts.borrow_region.is_empty());
     }

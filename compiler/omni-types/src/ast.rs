@@ -120,30 +120,119 @@ pub enum AssignOp {
 pub enum Expr {
     Literal(Lit),
     Var(String),
-    Call { func: String, generic_args: Vec<TypeSpec>, args: Vec<Expr> },
-    Let { pattern: Pattern, ty: Option<TypeSpec>, init: Box<Expr>, body: Box<Expr> },
-    Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
-    Unary { op: UnOp, expr: Box<Expr> },
-    Field { expr: Box<Expr>, field: String },
-    Index { expr: Box<Expr>, index: Box<Expr> },
-    Struct { name: String, generic_args: Vec<TypeSpec>, fields: Vec<(String, Expr)> },
-    EnumVariant { enum_name: String, variant: String, generic_args: Vec<TypeSpec>, args: Vec<Expr> },
+    Call {
+        func: String,
+        generic_args: Vec<TypeSpec>,
+        args: Vec<Expr>,
+    },
+    Let {
+        pattern: Pattern,
+        ty: Option<TypeSpec>,
+        init: Box<Expr>,
+        body: Box<Expr>,
+    },
+    Binary {
+        op: BinOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Unary {
+        op: UnOp,
+        expr: Box<Expr>,
+    },
+    Field {
+        expr: Box<Expr>,
+        field: String,
+    },
+    Index {
+        expr: Box<Expr>,
+        index: Box<Expr>,
+    },
+    Struct {
+        name: String,
+        generic_args: Vec<TypeSpec>,
+        fields: Vec<(String, Expr)>,
+    },
+    EnumVariant {
+        enum_name: String,
+        variant: String,
+        generic_args: Vec<TypeSpec>,
+        args: Vec<Expr>,
+    },
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
-    Range { start: Box<Expr>, end: Box<Expr>, inclusive: bool },
-    Cast { expr: Box<Expr>, ty: TypeSpec },
-    Match { expr: Box<Expr>, arms: Vec<MatchArm> },
-    If { condition: Box<Expr>, then_branch: Box<Expr>, else_branch: Option<Box<Expr>> },
-    Lambda { params: Vec<(String, TypeSpec)>, body: Box<Expr> },
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
+    },
+    Cast {
+        expr: Box<Expr>,
+        ty: TypeSpec,
+    },
+    Match {
+        expr: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
+    If {
+        condition: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Option<Box<Expr>>,
+    },
+    Lambda {
+        params: Vec<(String, TypeSpec)>,
+        body: Box<Expr>,
+    },
     Interpolation(Vec<Expr>),
-    Assign { target: Box<Expr>, value: Box<Expr> },
-    CompoundAssign { op: AssignOp, target: Box<Expr>, value: Box<Expr> },
+    Assign {
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
+    CompoundAssign {
+        op: AssignOp,
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
     Block(Vec<Expr>),
-    Loop { label: Option<String>, body: Box<Expr> },
-    While { label: Option<String>, condition: Box<Expr>, body: Box<Expr> },
-    For { label: Option<String>, pattern: Pattern, iterable: Box<Expr>, body: Box<Expr> },
-    Break { label: Option<String>, value: Option<Box<Expr>> },
-    Continue { label: Option<String> },
+    /// An `unsafe { .. }` block (GRAM: `unsafe_block = "unsafe" block_expr`).
+    ///
+    /// The node is retained rather than erased during lowering, because UNSAFE-0002
+    /// requires an unsafe context to be visible in MIR and audit reports, and
+    /// UNSAFE-0001 requires that `unsafe` not disable typing, ownership, effect,
+    /// capability, initialization, or control-flow checks. So this is a marker
+    /// whose *contents* are checked exactly like any other block: the body is
+    /// inferred, effect-checked, and ownership-checked normally, and the block
+    /// yields its body's type.
+    ///
+    /// Carrying it explicitly (rather than collapsing `unsafe { B }` to `B` at
+    /// the CST boundary) keeps the unsafe context recoverable downstream, so a
+    /// later raw-memory operation can require an enclosing `unsafe` rather than
+    /// having no way to know one was present.
+    UnsafeBlock {
+        body: Box<Expr>,
+    },
+    Loop {
+        label: Option<String>,
+        body: Box<Expr>,
+    },
+    While {
+        label: Option<String>,
+        condition: Box<Expr>,
+        body: Box<Expr>,
+    },
+    For {
+        label: Option<String>,
+        pattern: Pattern,
+        iterable: Box<Expr>,
+        body: Box<Expr>,
+    },
+    Break {
+        label: Option<String>,
+        value: Option<Box<Expr>>,
+    },
+    Continue {
+        label: Option<String>,
+    },
     Return(Option<Box<Expr>>),
 }
 

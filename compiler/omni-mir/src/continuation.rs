@@ -39,10 +39,7 @@ mod tests {
         ctx.lift_variable("x");
         ctx.lift_variable("y");
 
-        let generated = ctx.lower_to_state_machine(&Body {
-            blocks: index_vec::IndexVec::new(),
-            local_decls: index_vec::IndexVec::new(),
-        });
+        let generated = ctx.lower_to_state_machine(&Body::default());
 
         assert!(generated.contains("AsyncComputeStateMachine"));
         assert!(generated.contains("x: usize"));

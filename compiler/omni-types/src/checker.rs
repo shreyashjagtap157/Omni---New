@@ -1033,6 +1033,13 @@ impl TypeChecker {
                 }
                 Ok(last_ty)
             }
+            Expr::UnsafeBlock { body } => {
+                // UNSAFE-0001: `unsafe` does not disable ordinary typing, so the
+                // body is inferred exactly as it would be outside an unsafe block.
+                // The marker contributes the unsafe *context*, which is not a
+                // type-level effect and so adds nothing to the inferred type.
+                self.infer_expr(body, env, local_vars)
+            }
             Expr::Return(opt_expr) => {
                 if let Some(inner) = opt_expr {
                     self.infer_expr(inner, env, local_vars)
@@ -1055,6 +1062,9 @@ impl TypeChecker {
         match expr {
             Expr::Return(_) | Expr::Break { .. } | Expr::Continue { .. } => true,
             Expr::Block(stmts) => stmts.last().is_some_and(|s| self.block_diverges(s)),
+            // An unsafe block diverges exactly when its body does; the marker
+            // changes no control flow.
+            Expr::UnsafeBlock { body } => self.block_diverges(body),
             _ => false,
         }
     }
@@ -1384,6 +1394,12 @@ impl TypeChecker {
                     eff = eff.union(&self.infer_expr_effects(stmt, env, local_vars)?);
                 }
                 Ok(eff)
+            }
+            Expr::UnsafeBlock { body } => {
+                // UNSAFE-0001: effects are not disabled by `unsafe` either. The
+                // body's effect row is reported unchanged, so an unsafe block
+                // cannot launder an effect out of a function's signature.
+                self.infer_expr_effects(body, env, local_vars)
             }
             Expr::Return(opt_expr) => {
                 if let Some(e) = opt_expr {

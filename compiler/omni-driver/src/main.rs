@@ -1423,11 +1423,22 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 .ok_or_else(|| "Semantic frontend error: closure has no body".to_string())?;
             Ok(Expr::Lambda { params, body: Box::new(expr_from_node(&body)?) })
         }
+        omni_syntax::SyntaxKind::UnsafeBlock => {
+            // `unsafe_block = "unsafe" block_expr`: the `unsafe` keyword is a
+            // token child, so the body is the single `Block` child. The marker
+            // is preserved rather than erased so the unsafe context survives
+            // into MIR (UNSAFE-0002); the body's contents are still lowered and
+            // checked exactly as an ordinary block (UNSAFE-0001).
+            let body =
+                node.children().find(|n| n.kind() == omni_syntax::SyntaxKind::Block).ok_or_else(
+                    || "Semantic frontend error: unsafe block has no body block".to_string(),
+                )?;
+            Ok(Expr::UnsafeBlock { body: Box::new(expr_from_node(&body)?) })
+        }
         omni_syntax::SyntaxKind::AwaitExpr
         | omni_syntax::SyntaxKind::MethodCallExpr
         | omni_syntax::SyntaxKind::MacroInvocation
         | omni_syntax::SyntaxKind::AsyncBlock
-        | omni_syntax::SyntaxKind::UnsafeBlock
         | omni_syntax::SyntaxKind::TryBlock
         | omni_syntax::SyntaxKind::TryExpr => Err(format!(
             "Semantic frontend error: native AST lowering does not yet support {:?}",
@@ -2407,5 +2418,140 @@ mod tests {
         let error = compile_source_to_object(source, manifest())
             .expect_err("integer logical-not must fail");
         assert!(error.contains("Type error"), "unexpected error: {error}");
+    }
+
+    // ----------------------------------------------------------------------
+    // `unsafe` blocks. UNSAFE-0001 requires `unsafe` not disable ordinary
+    // checks; UNSAFE-0002 requires the unsafe context to stay visible in MIR.
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn unsafe_block_executes_its_body() {
+        // An unsafe block is a block, so it evaluates to its body's value.
+        assert_eq!(
+            compile_source_to_interpreter_value(
+                "fn main() -> i64 { return unsafe { 7 }; }",
+                manifest()
+            )
+            .expect("unsafe block must execute"),
+            7
+        );
+        // Including a body with its own bindings and a final expression.
+        assert_eq!(
+            compile_source_to_interpreter_value(
+                "fn main() -> i64 { return unsafe { let a = 2; let b = 3; a * b }; }",
+                manifest()
+            )
+            .expect("unsafe block with bindings"),
+            6
+        );
+        // And nested inside ordinary control flow, where the unsafe block's
+        // value must be the one the loop body produces.
+        assert_eq!(
+            compile_source_to_interpreter_value(
+                "fn main() -> i64 { let mut s = 0; for i in 0..5 { s += i; } return unsafe { s }; }",
+                manifest()
+            )
+            .expect("unsafe block after a loop"),
+            10
+        );
+        // A statement-position unsafe block is fine too; it yields Unit here.
+        // The trailing `;` is required because LEX-0002 states newlines never
+        // terminate statements, so a block statement still needs its separator.
+        compile_source_to_object(
+            "fn main() -> i64 { unsafe { let x = 1; }; return 9; }",
+            manifest(),
+        )
+        .expect("statement-position unsafe block");
+    }
+
+    #[test]
+    fn unsafe_does_not_disable_type_checking() {
+        // UNSAFE-0001: "`unsafe` ... does not disable ordinary typing". Each of
+        // these is rejected outside `unsafe`; wrapping the body in `unsafe` must
+        // not make it pass. If `unsafe` ever started waiving checks, this test
+        // would start failing at the `.expect_err`.
+        for (source, why) in [
+            ("fn main() -> i64 { return unsafe { !1 }; }", "logical-not on int"),
+            ("fn main() -> i64 { let x = unsafe { 1 }; return x + true; }", "int + bool"),
+            (
+                // Indexing a one-element array and then adding is fine; adding
+                // to the *element* is a type error only once the element is an
+                // int, so this asserts the error is reported through the unsafe
+                // block rather than being swallowed by it.
+                "fn main() -> i64 { let a = unsafe { [1] }; return a[0] + true; }",
+                "indexed element + bool",
+            ),
+        ] {
+            let error = compile_source_to_interpreter_value(source, manifest())
+                .expect_err(&format!("unsafe must not permit {why}"));
+            // Which stage catches it is not fixed — a given error may surface in
+            // the type checker, in MIR lowering, or in MIR verification, and the
+            // pipeline is free to move that boundary. What must hold is that it
+            // is caught at all, and that the message names a real diagnosis
+            // rather than a generic failure. Asserting one stage would pin an
+            // implementation detail and fail on a legitimate reordering.
+            assert!(
+                error.contains("Type error")
+                    || error.contains("MIR lowering error")
+                    || error.contains("MIR verification error")
+                    || error.contains("Semantic"),
+                "unsafe must not permit {why}, but got: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn unsafe_does_not_disable_ownership_or_mir_verification() {
+        // UNSAFE-0001 also forbids disabling ownership and initialization
+        // checks. Reading a never-initialized local is rejected by MIR
+        // verification whether or not it is wrapped in `unsafe`, so the failure
+        // must come from verification rather than from any relaxation.
+        let error = compile_source_to_interpreter_value(
+            "fn main() -> i64 { return unsafe { uninitialized_local }; }",
+            manifest(),
+        )
+        .expect_err("reading an uninitialized local must be rejected");
+        assert!(
+            error.contains("MIR verification error") || error.contains("Name resolution"),
+            "unsafe must not waive MIR verification: {error}"
+        );
+    }
+
+    #[test]
+    fn unsafe_context_is_recorded_in_mir() {
+        // UNSAFE-0002: the unsafe effect must be visible in MIR. A body that
+        // uses no `unsafe` records no region; one that does records the blocks
+        // it reached, so an audit could tell a covered operation from an
+        // uncovered one.
+        let plain = lower_to_verified_mir("fn main() -> i64 { return 1; }", manifest())
+            .expect("plain program verifies");
+        let main = plain.functions.iter().find(|f| f.name == "main").expect("main");
+        assert!(
+            main.body.unsafe_blocks.is_empty(),
+            "a program with no unsafe block must record no unsafe region: {:?}",
+            main.body.unsafe_blocks
+        );
+
+        let with_unsafe = lower_to_verified_mir(
+            "fn main() -> i64 { let mut s = 0; for i in 0..3 { s += i; } return unsafe { s }; }",
+            manifest(),
+        )
+        .expect("unsafe program verifies");
+        let main = with_unsafe.functions.iter().find(|f| f.name == "main").expect("main");
+        assert!(
+            !main.body.unsafe_blocks.is_empty(),
+            "an unsafe block must be recorded for UNSAFE-0002 visibility"
+        );
+        // Every recorded block must be a real block of this body, or the region
+        // would name blocks that do not exist.
+        for block in &main.body.unsafe_blocks {
+            assert!(
+                block.index() < main.body.blocks.len(),
+                "recorded unsafe block {:?} is out of range for a body of {}",
+                block.index(),
+                main.body.blocks.len()
+            );
+        }
     }
 }

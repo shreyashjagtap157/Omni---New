@@ -18,6 +18,7 @@ fn expr_diverges(expr: &omni_types::ast::Expr) -> bool {
     match expr {
         Expr::Return(_) | Expr::Break { .. } | Expr::Continue { .. } => true,
         Expr::Block(stmts) => stmts.last().is_some_and(expr_diverges),
+        Expr::UnsafeBlock { body } => expr_diverges(body),
         _ => false,
     }
 }
@@ -29,10 +30,7 @@ pub struct LoweringContext {
 
 impl LoweringContext {
     pub fn new() -> Self {
-        Self {
-            body: Body { blocks: IndexVec::new(), local_decls: IndexVec::new() },
-            struct_defs: HashMap::new(),
-        }
+        Self { body: Body::default(), struct_defs: HashMap::new() }
     }
 
     /// Supplies struct declarations so field projections can be typed during lowering.
@@ -101,6 +99,7 @@ impl LoweringContext {
                 current_block: None,
                 loops: Vec::new(),
                 diverged: false,
+                unsafe_blocks: Vec::new(),
             };
 
             let entry_block = builder.new_block();
@@ -146,7 +145,8 @@ impl LoweringContext {
                 }
             }
 
-            let body = Body { blocks, local_decls };
+            let unsafe_blocks = builder.unsafe_blocks;
+            let body = Body { blocks, local_decls, unsafe_blocks };
             mir_functions.push(crate::ir::MirFunction {
                 name: func.name.clone(),
                 params: param_locals,
@@ -200,6 +200,10 @@ struct FnMirBuilder<'a> {
     /// list must keep lowering after them; only a real `return` makes the
     /// remaining statements unreachable.
     diverged: bool,
+    /// Basic blocks reached from inside an `unsafe` region, carried out to
+    /// `Body::unsafe_blocks` for UNSAFE-0002 visibility. Metadata only: it
+    /// relaxes nothing.
+    unsafe_blocks: Vec<crate::ir::BasicBlock>,
 }
 
 impl<'a> FnMirBuilder<'a> {
@@ -1348,6 +1352,29 @@ impl<'a> FnMirBuilder<'a> {
                     last = self.lower_expr(expr)?;
                 }
                 Ok(last)
+            }
+            omni_types::ast::Expr::UnsafeBlock { body } => {
+                // The body is lowered exactly as an ordinary block, so UNSAFE-0001
+                // holds at the MIR level too: `unsafe` waives no check, and the
+                // body must still satisfy the verifier and ownership rules.
+                //
+                // Every block the body reaches is recorded, which is what makes
+                // the unsafe context visible for a UNSAFE-0002 audit. The region
+                // is tracked by block *range*: lowering the body can create new
+                // blocks, and those are inside the region exactly as much as the
+                // block it was entered from.
+                let region_start = self.blocks.len();
+                if let Some(entry) = self.current_block {
+                    self.unsafe_blocks.push(entry);
+                }
+                let result = self.lower_expr(body)?;
+                for raw in region_start..self.blocks.len() {
+                    let block = crate::ir::BasicBlock::from_usize(raw);
+                    if !self.unsafe_blocks.contains(&block) {
+                        self.unsafe_blocks.push(block);
+                    }
+                }
+                Ok(result)
             }
             omni_types::ast::Expr::Tuple(elements) => {
                 let mut operands = Vec::with_capacity(elements.len());
