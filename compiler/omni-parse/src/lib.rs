@@ -4,4 +4,4 @@ pub mod expr;
 mod grammar_contract;
 pub mod parser;
 pub mod precedence;
-pub use parser::{Diagnostic, ParseResult, Parser};
+pub use parser::{Diagnostic, FeatureUse, ParseResult, Parser};

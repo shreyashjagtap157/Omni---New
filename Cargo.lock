@@ -447,6 +447,7 @@ dependencies = [
  "omni-names",
  "omni-parse",
  "omni-registry",
+ "omni-stage0",
  "omni-syntax",
  "omni-traits",
  "omni-types",

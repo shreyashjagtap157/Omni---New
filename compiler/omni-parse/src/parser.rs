@@ -48,6 +48,7 @@ use omni_syntax::{SyntaxKind, SyntaxNode};
 use rowan::GreenNodeBuilder;
 
 use crate::precedence::matching_close;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -86,10 +87,40 @@ impl Node {
     }
 }
 
+/// A Stage-0-classified feature that the parsed source actually exercised,
+/// together with the span at which it was used.
+///
+/// The parser **records** rather than **enforces**. Two distinct questions are
+/// involved and they belong to different layers:
+///
+/// * *Is this syntax legal Edition 1?* — a grammar-layer question, answered by
+///   this parser. `async_block`, `macro_invocation`, and `unsafe_block` are all
+///   normative Edition 1 productions, so the parser must build them and must
+///   round-trip their bytes.
+/// * *Is this feature enabled for the selected profile?* — a profile-layer
+///   question, answered by `omni_stage0`'s predicate engine against the
+///   manifest's `stage0_feature_predicates`.
+///
+/// Folding the profile gate into the parser made Edition-1-legal source fail to
+/// parse, which conflated the two layers and broke the pinned grammar contract.
+/// Recording the usage keeps the information available and losslessly
+/// attributable, and lets the profile layer decide legality on its own terms.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeatureUse {
+    /// The manifest feature name, e.g. `macros` or `unsafe_raw_memory`.
+    pub feature: &'static str,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub struct ParseResult {
     pub green: rowan::GreenNode,
     pub diagnostics: Vec<Diagnostic>,
+    /// Every Stage-0-classified feature this source used, deduplicated and
+    /// ordered by feature name so the set is deterministic regardless of the
+    /// order the constructs appeared in. Empty whenever `diagnostics` is
+    /// non-empty, since a rejected parse has no trustworthy attribution.
+    pub feature_uses: Vec<FeatureUse>,
 }
 impl ParseResult {
     pub fn syntax(&self) -> SyntaxNode {
@@ -110,6 +141,10 @@ pub struct Parser<'a> {
     /// iterable is followed by the loop body block, so `for x in xs { .. }`
     /// must not parse `xs { .. }` as a struct expression.
     no_struct_literal: bool,
+    /// First source position at which each Stage-0-classified feature was
+    /// exercised. A `BTreeMap` keyed by feature name keeps the emitted set
+    /// deterministic and deduplicated without depending on visit order.
+    feature_uses: BTreeMap<&'static str, Span>,
 }
 impl<'a> Parser<'a> {
     pub fn from_source(source: &'a str) -> Self {
@@ -133,6 +168,7 @@ impl<'a> Parser<'a> {
             pos: 0,
             split_token: None,
             no_struct_literal: false,
+            feature_uses: BTreeMap::new(),
         }
     }
     pub fn new(tokens: Vec<String>) -> Parser<'static> {
@@ -150,10 +186,41 @@ impl<'a> Parser<'a> {
             Err(result.diagnostics.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("; "))
         }
     }
+    /// Record that the source exercised a Stage-0-classified feature, keeping the
+    /// first span at which it appeared.
+    ///
+    /// This deliberately produces no diagnostic. Whether the feature is enabled
+    /// is a profile-layer decision made against the manifest, and the parser has
+    /// no manifest to consult — rejecting here would reject Edition-1-legal
+    /// syntax on the grounds of a profile the caller never selected. Recording
+    /// keeps the attribution (which construct, at which bytes) that the profile
+    /// gate needs in order to report precisely, and keeps it lossless.
+    ///
+    /// Callers pass the span explicitly because the token introducing the
+    /// construct is not always the current one: for `foo!(..)` the path has
+    /// already been consumed by the time the `!` is seen, and for `async fn` the
+    /// modifier is recognised before it is bumped.
+    fn record_feature(&mut self, feature: &'static str, span: Span) {
+        self.feature_uses.entry(feature).or_insert(span);
+    }
+
+    /// The span of the token about to be consumed, used to attribute a recorded
+    /// feature to the exact source bytes that introduced it.
+    fn current_span(&self) -> Span {
+        if self.pos < self.tokens.len() {
+            self.tokens[self.pos].span
+        } else {
+            Span { start: 0, end: 0, file_id: 0 }
+        }
+    }
+
     pub fn parse_source(&mut self) -> ParseResult {
         self.pos = 0;
         self.split_token = None;
         self.diagnostics.clear();
+        // `feature_uses` needs no reset: a `Parser` is bound to one immutable
+        // source, so re-parsing re-derives exactly the same entries, and the
+        // first insertion per feature is already the earliest occurrence.
         let mut root = self.parse_source_file();
         // The EOF token is appended exactly once, here, and never anywhere else:
         // `parse_source_file` stops at EOF, and `expect_*` yields `Child::Missing`
@@ -172,7 +239,18 @@ impl<'a> Parser<'a> {
         let mut b = GreenNodeBuilder::new();
         self.emit_node(&mut b, &root);
         let green = b.finish();
-        ParseResult { green, diagnostics: self.diagnostics.clone() }
+        // Recorded features are only meaningful for a source that actually
+        // parsed: a rejected parse may have stopped before reaching some of
+        // them, so reporting them would overstate what the source used.
+        let feature_uses = if self.diagnostics.is_empty() {
+            self.feature_uses
+                .iter()
+                .map(|(feature, span)| FeatureUse { feature, span: *span })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        ParseResult { green, diagnostics: self.diagnostics.clone(), feature_uses }
     }
     fn parse_source_file(&mut self) -> Node {
         let mut n = Node::new(SyntaxKind::SourceFile);
@@ -245,6 +323,8 @@ impl<'a> Parser<'a> {
             return n;
         }
         if self.at_kw(Kw::Async) && self.peek_kind(1) == Some(TokenKind::Keyword(Kw::Fn)) {
+            let async_span = self.current_span();
+            self.record_feature("async", async_span);
             let modifier = self.bump_child();
             let mut n = self.parse_item();
             n.children.insert(0, modifier);
@@ -253,6 +333,8 @@ impl<'a> Parser<'a> {
         if self.at_kw(Kw::Unsafe)
             && matches!(self.peek_kind(1), Some(TokenKind::Keyword(Kw::Fn | Kw::Trait | Kw::Impl)))
         {
+            let unsafe_span = self.current_span();
+            self.record_feature("unsafe_raw_memory", unsafe_span);
             let modifier = self.bump_child();
             let mut n = self.parse_item();
             n.children.insert(0, modifier);
@@ -1560,6 +1642,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_path_expr_or_macro(&mut self) -> Node {
+        // Captured before the path is consumed: by the time a macro invocation
+        // is recognised the parser has already advanced past the macro name,
+        // so the current token is the `!` rather than the construct that
+        // actually introduces the feature.
+        let path_span = self.current_span();
         let path = self.parse_path();
         let mut path_node = path;
         if self.at_punct(Punct::ColonColon)
@@ -1572,6 +1659,7 @@ impl<'a> Parser<'a> {
             path_node = p;
         }
         if self.at_punct(Punct::Bang) {
+            self.record_feature("macros", path_span);
             let mut n = Node::new(SyntaxKind::MacroInvocation);
             n.children.push(Child::Node(path_node));
             n.children.push(self.bump_child());
@@ -1811,6 +1899,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_async_block(&mut self) -> Node {
+        self.record_feature("async", self.current_span());
         let mut n = Node::new(SyntaxKind::AsyncBlock);
         n.children.push(self.expect_kw(Kw::Async));
         if self.at_kw(Kw::Move) {
@@ -1821,6 +1910,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_unsafe_block(&mut self) -> Node {
+        self.record_feature("unsafe_raw_memory", self.current_span());
         let mut n = Node::new(SyntaxKind::UnsafeBlock);
         n.children.push(self.expect_kw(Kw::Unsafe));
         n.children.push(Child::Node(self.parse_block()));
@@ -3067,5 +3157,155 @@ mod tests {
             let r = p.parse_source();
             assert_eq!(r.syntax().text().to_string(), src, "lossless tree for {:?}", src);
         }
+    }
+
+    // ----------------------------------------------------------------------
+    // Stage-0 feature usage is *recorded* by the grammar layer, not enforced
+    // by it. These tests pin that separation.
+    // ----------------------------------------------------------------------
+
+    /// The features a source used, in the deterministic order the parser emits.
+    fn used(src: &str) -> Vec<&'static str> {
+        let mut p = Parser::from_source(src);
+        let r = p.parse_source();
+        assert!(r.is_ok(), "{src:?} must parse cleanly: {:?}", r.diagnostics);
+        // Recording must not disturb losslessness.
+        assert_eq!(r.syntax().text().to_string(), src);
+        r.feature_uses.iter().map(|u| u.feature).collect()
+    }
+
+    #[test]
+    fn stage0_classified_features_are_recorded_not_rejected() {
+        // Every one of these is a normative Edition 1 production, so all must
+        // parse cleanly. Rejecting them here would mean the grammar layer was
+        // enforcing a profile gate, which is exactly the conflation this
+        // recording exists to prevent.
+        assert_eq!(used("fn f() { foo!(a, b); }"), ["macros"]);
+        assert_eq!(used("fn f() { let x = async move { 1 }; return x; }"), ["async"]);
+        assert_eq!(used("fn f() { let x = unsafe { 1 }; return x; }"), ["unsafe_raw_memory"]);
+    }
+
+    #[test]
+    fn feature_recording_covers_nested_and_multiple_uses() {
+        // Nested macro token trees still record exactly once, at the outer `!`.
+        assert_eq!(used("fn f() { outer!(inner!(a), (b, [c, { d }])); }"), ["macros"]);
+        // Two different features in one source are both reported, sorted by
+        // feature name so the result does not depend on visit order.
+        assert_eq!(
+            used("fn f() { let x = async move { unsafe { 1 } }; }"),
+            ["async", "unsafe_raw_memory"]
+        );
+        // An `async fn` is an async feature too, not only an async block.
+        assert_eq!(used("async fn f() { }"), ["async"]);
+    }
+
+    #[test]
+    fn feature_spans_point_at_the_introducing_token() {
+        let src = "fn f() { foo!(a); }";
+        let mut p = Parser::from_source(src);
+        let r = p.parse_source();
+        assert!(r.is_ok());
+        assert_eq!(r.feature_uses.len(), 1);
+        let use_ = &r.feature_uses[0];
+        assert_eq!(use_.feature, "macros");
+        // The recorded span must land inside the source and cover real bytes:
+        // a zero-width or out-of-range span would make a downstream profile
+        // diagnostic point nowhere.
+        assert!(use_.span.start < use_.span.end, "span must be non-empty: {:?}", use_.span);
+        assert!(use_.span.end as usize <= src.len(), "span must be in range: {:?}", use_.span);
+        assert_eq!(&src[use_.span.start as usize..use_.span.end as usize], "foo");
+    }
+
+    #[test]
+    fn ordinary_source_records_no_features() {
+        // The negative case: without this, a gate reading an always-non-empty
+        // list could not be distinguished from one reading real usage.
+        assert!(used("fn main() -> i64 { let mut s = 0; for i in 0..4 { s += i; } return s; }")
+            .is_empty());
+        assert!(used("struct P { x: i64 } fn f(p: P) -> i64 { return p.x; }").is_empty());
+    }
+
+    #[test]
+    fn a_rejected_source_reports_no_features() {
+        // Recovery may stop before reaching a construct, so features from a
+        // failed parse would overstate what the source contains. The gate must
+        // never see usage attributed to a program that did not parse.
+        let mut p = Parser::from_source("fn f() { foo!(a); return a < b < c; }");
+        let r = p.parse_source();
+        assert!(!r.is_ok());
+        assert!(
+            r.feature_uses.is_empty(),
+            "failed parse must record no features: {:?}",
+            r.feature_uses
+        );
+        assert_eq!(r.syntax().text().to_string(), "fn f() { foo!(a); return a < b < c; }");
+    }
+
+    #[test]
+    fn repeated_parses_report_identical_feature_sets() {
+        // Determinism: the same bytes must yield the same usage, or a build
+        // could accept and reject the same program across runs.
+        let src = "fn f() { let x = async move { unsafe { 1 } }; foo!(x); }";
+        let first = used(src);
+        for _ in 0..4 {
+            assert_eq!(used(src), first);
+        }
+    }
+
+    #[test]
+    fn reusing_one_parser_across_parses_repeats_the_same_verdict() {
+        // `parse_source` resets parser position, diagnostics, and recorded
+        // features, so one `Parser` may be driven repeatedly against the source
+        // it was built from. (It cannot be pointed at a *different* source: the
+        // token stream and spans are lexed up front and are tied to the
+        // original bytes.) A reset that missed the recorded features would let
+        // one parse's usage leak into the next, making a report depend on parse
+        // history — a fresh parser per assertion cannot detect that.
+        let src = "fn f() { let x = async move { 1 }; foo!(x); return x; }";
+
+        let mut p = Parser::from_source(src);
+        let first = p.parse_source();
+        assert!(first.is_ok(), "{:?}", first.diagnostics);
+        let first_features: Vec<_> =
+            first.feature_uses.iter().map(|u| (u.feature, u.span)).collect();
+        assert_eq!(first_features.iter().map(|(f, _)| *f).collect::<Vec<_>>(), ["async", "macros"]);
+
+        for round in 1..4 {
+            let again = p.parse_source();
+            assert!(again.is_ok(), "round {round}: {:?}", again.diagnostics);
+            // Same tree, same diagnostics, same feature attribution.
+            assert_eq!(again.syntax().text().to_string(), first.syntax().text().to_string());
+            assert_eq!(again.diagnostics, first.diagnostics);
+            assert_eq!(
+                again.feature_uses.iter().map(|u| (u.feature, u.span)).collect::<Vec<_>>(),
+                first_features,
+                "round {round} reported different feature attribution"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rejected_reparse_clears_features_recorded_by_an_earlier_parse() {
+        // The failure case for the same reset. A parser that parsed a feature
+        // successfully and then fails on malformed input must not report the
+        // earlier feature as part of the failed program: the gate is documented
+        // to see no features for a rejected parse, and that guarantee has to
+        // hold for a reused parser too, not only a fresh one.
+        let mut p = Parser::from_source("fn f() { foo!(a); }");
+        assert_eq!(
+            p.parse_source().feature_uses.iter().map(|u| u.feature).collect::<Vec<_>>(),
+            ["macros"]
+        );
+        p.tokens[3] = omni_lex::Token {
+            kind: omni_lex::TokenKind::Punct(omni_lex::token::Punct::Lt),
+            ..p.tokens[3].clone()
+        };
+        let broken = p.parse_source();
+        assert!(!broken.is_ok(), "corrupted token stream must not parse cleanly");
+        assert!(
+            broken.feature_uses.is_empty(),
+            "rejected parse must report no features, got {:?}",
+            broken.feature_uses
+        );
     }
 }

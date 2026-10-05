@@ -25,6 +25,7 @@ omni-machine = { path = "../omni-machine" }
 omni-codegen = { path = "../omni-codegen" }
 omni-evidence = { path = "../../tools/omni-evidence" }
 omni-registry = { path = "../../tools/omni-registry" }
+omni-stage0 = { path = "../omni-stage0" }
 
 [dev-dependencies]
 omni-canon = { path = "../../tools/omni-canon" }

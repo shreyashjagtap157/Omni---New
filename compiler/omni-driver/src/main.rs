@@ -55,6 +55,58 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
     Ok(Args { input_file, output_file, opt_level, emit_native })
 }
 
+/// Apply the Stage-0 feature profile to a successfully parsed program.
+///
+/// This is the profile layer's job, not the parser's. The grammar layer parses
+/// all of Edition 1 and reports which Stage-0-classified features the source
+/// exercised; this gate decides whether the selected profile enables them, using
+/// the manifest's normative `stage0_feature_predicates` lists.
+///
+/// The gate is fail-closed in both directions: a feature the manifest forbids
+/// and a feature merely absent from the allowed set are both rejected, because
+/// an unlisted feature is unknown rather than disabled. Every rejection names
+/// the feature and the byte span that introduced it, so the diagnostic points at
+/// real source.
+fn enforce_stage0_profile(
+    feature_uses: &[omni_parse::FeatureUse],
+    manifest: &omni_registry::Manifest,
+) -> Result<(), String> {
+    if feature_uses.is_empty() {
+        return Ok(());
+    }
+    let (allowed, forbidden) =
+        manifest.stage0_feature_sets().map_err(|e| format!("Predicate config error: {e}"))?;
+    let engine = omni_stage0::predicates::Stage0PredicateEngine::from_lists(
+        &allowed,
+        &forbidden,
+        &manifest.manifest_version,
+    )
+    .map_err(|e| format!("Predicate configuration error: {e}"))?;
+    let profile = engine
+        .select_profile(omni_stage0::predicates::STAGE0_PROFILE)
+        .map_err(|e| format!("Profile selection error: {e}"))?;
+
+    // Deterministic order: `feature_uses` is already sorted by feature name,
+    // so the reported message does not depend on source ordering.
+    let rejected: Vec<String> = feature_uses
+        .iter()
+        .filter_map(|used| match profile.check(used.feature) {
+            Ok(()) => None,
+            Err(_) => {
+                Some(format!("{} at bytes {}..{}", used.feature, used.span.start, used.span.end))
+            }
+        })
+        .collect();
+    if rejected.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "Stage-0 profile error: feature not enabled under profile '{}': {}",
+        omni_stage0::predicates::STAGE0_PROFILE,
+        rejected.join(", ")
+    ))
+}
+
 /// Runs the authoritative frontend, semantic, and monomorphization stages.
 ///
 /// Returns the concrete program plus the struct declarations registered along the
@@ -65,6 +117,7 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
 /// program can never be executed on one pipeline and compiled on another.
 fn lower_to_concrete_program(
     source_code: &str,
+    manifest: &omni_registry::Manifest,
 ) -> Result<(omni_types::monomorph::MonomorphizedProgram, HashMap<String, StructDef>), String> {
     let mut parser = omni_parse::Parser::from_source(source_code);
     let parsed = parser.parse_source();
@@ -74,6 +127,10 @@ fn lower_to_concrete_program(
             parsed.diagnostics.iter().map(|d| d.message.as_str()).collect::<Vec<_>>().join("; ")
         ));
     }
+
+    // Profile gating happens after a clean parse: a rejected program has no
+    // trustworthy feature attribution to judge.
+    enforce_stage0_profile(&parsed.feature_uses, manifest)?;
 
     let syntax = parsed.syntax();
     let mut resolver = omni_names::Resolver::new(0, 0);
@@ -150,8 +207,11 @@ fn lower_to_concrete_program(
 
 /// Runs the concrete program through MIR lowering and MIR verification,
 /// returning the verified MIR program the machine tier executes.
-fn lower_to_verified_mir(source_code: &str) -> Result<omni_mir::ir::MirProgram, String> {
-    let (program, struct_defs) = lower_to_concrete_program(source_code)?;
+fn lower_to_verified_mir(
+    source_code: &str,
+    manifest: &omni_registry::Manifest,
+) -> Result<omni_mir::ir::MirProgram, String> {
+    let (program, struct_defs) = lower_to_concrete_program(source_code, manifest)?;
 
     let mut lowering = omni_mir::lower::LoweringContext::new();
     lowering.set_struct_defs(struct_defs);
@@ -170,8 +230,11 @@ fn lower_to_verified_mir(source_code: &str) -> Result<omni_mir::ir::MirProgram, 
 /// This is the machine tier's real entry point. It lowers and verifies MIR
 /// first, so an unverified or malformed program is rejected before execution
 /// rather than being interpreted optimistically.
-pub fn compile_source_to_interpreter_value(source_code: &str) -> Result<i64, String> {
-    let mir = lower_to_verified_mir(source_code)?;
+pub fn compile_source_to_interpreter_value(
+    source_code: &str,
+    manifest: &omni_registry::Manifest,
+) -> Result<i64, String> {
+    let mir = lower_to_verified_mir(source_code, manifest)?;
 
     let mut interpreter = omni_machine::Interpreter::new_with_program(mir);
     let value = interpreter
@@ -186,8 +249,11 @@ pub fn compile_source_to_interpreter_value(source_code: &str) -> Result<i64, Str
 
 /// Compile source through the authoritative frontend, semantic, monomorphization,
 /// typed-MIR, verification, and Cranelift native stages.
-pub fn compile_source_to_object(source_code: &str) -> Result<Vec<u8>, String> {
-    let (program, struct_defs) = lower_to_concrete_program(source_code)?;
+pub fn compile_source_to_object(
+    source_code: &str,
+    manifest: &omni_registry::Manifest,
+) -> Result<Vec<u8>, String> {
+    let (program, struct_defs) = lower_to_concrete_program(source_code, manifest)?;
     omni_codegen::compile_monomorphized_program_with_structs(&program, struct_defs)
 }
 
@@ -1753,8 +1819,19 @@ fn main() {
                     }
                 };
 
+                let (_workspace_root, spec_root) =
+                    provenance::discover_workspace().unwrap_or_else(|e| {
+                        eprintln!("Error discovering workspace: {}", e);
+                        std::process::exit(1);
+                    });
+                let loaded = omni_registry::load_specification(spec_root).unwrap_or_else(|e| {
+                    eprintln!("Error loading specification: {}", e);
+                    std::process::exit(1);
+                });
+                let manifest = loaded.manifest();
+
                 if parsed.emit_native {
-                    match compile_source_to_object(&source_code) {
+                    match compile_source_to_object(&source_code, manifest) {
                         Ok(bytes) => {
                             let out_path = parsed
                                 .output_file
@@ -1781,7 +1858,7 @@ fn main() {
                         }
                     }
                 } else {
-                    match compile_source_to_interpreter_value(&source_code) {
+                    match compile_source_to_interpreter_value(&source_code, manifest) {
                         Ok(result) => {
                             println!("Exit code: {}", result);
                         }
@@ -1807,54 +1884,71 @@ fn main() {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::OnceLock;
+
+    fn manifest() -> &'static omni_registry::Manifest {
+        static ONCE: OnceLock<omni_registry::Manifest> = OnceLock::new();
+        ONCE.get_or_init(|| {
+            let spec_root =
+                omni_registry::discover_spec_root().expect("discover spec root for tests");
+            let loaded = omni_registry::load_specification(spec_root).expect("load spec for tests");
+            loaded.manifest().clone()
+        })
+    }
 
     #[test]
     fn source_pipeline_compiles_explicit_turbofish_generic_call() {
         let source = "fn id<T>(x: T) -> T { x } fn main() -> i64 { return id::<i64>(41); }";
-        let object = compile_source_to_object(source).expect("explicit generic call must compile");
+        let object = compile_source_to_object(source, manifest())
+            .expect("explicit generic call must compile");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_compiles_generic_specialization() {
         let source = "fn id<T>(x: T) -> T { x } fn main() -> i64 { return id(41); }";
-        let object = compile_source_to_object(source).expect("generic specialization must compile");
+        let object = compile_source_to_object(source, manifest())
+            .expect("generic specialization must compile");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_compiles_assignment_and_bitwise_integer_ops() {
         let source = "fn main() -> i64 { let mut x = 6; x += 3; x <<= 1; x ^= 2; return x; }";
-        let object = compile_source_to_object(source).expect("assignment operators must compile");
+        let object = compile_source_to_object(source, manifest())
+            .expect("assignment operators must compile");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_compiles_short_circuit_boolean_expression() {
         let source = "fn main() -> bool { return false && (1 == 2) || true; }";
-        let object =
-            compile_source_to_object(source).expect("short-circuit expression must compile");
+        let object = compile_source_to_object(source, manifest())
+            .expect("short-circuit expression must compile");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_compiles_if_expression_values() {
         let source = "fn choose(a: bool) -> i64 { if a { 1 } else { 2 } } fn main() -> i64 { return choose(true); }";
-        let object = compile_source_to_object(source).expect("if expression must compile");
+        let object =
+            compile_source_to_object(source, manifest()).expect("if expression must compile");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_compiles_integer_match() {
         let source = "fn choose(x: i64) -> i64 { match x { 0 => 10, _ => 20 } } fn main() -> i64 { return choose(0); }";
-        let object = compile_source_to_object(source).expect("integer match must compile");
+        let object =
+            compile_source_to_object(source, manifest()).expect("integer match must compile");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_compiles_loop_value_and_while_control() {
         let source = "fn choose() -> i64 { loop { break 7; } } fn main() -> i64 { let x = choose(); let mut y = 3; while y > 0 { y -= 1; continue; } return x; }";
-        let object = compile_source_to_object(source).expect("loop and while control must compile");
+        let object = compile_source_to_object(source, manifest())
+            .expect("loop and while control must compile");
         assert!(!object.is_empty());
     }
 
@@ -1863,7 +1957,10 @@ mod tests {
         // Guards the default (non-`--native`) path against returning a
         // fabricated constant instead of executing the program.
         let source = "fn main() -> i64 { let value = 41; return value; }";
-        assert_eq!(compile_source_to_interpreter_value(source).expect("machine execution"), 41);
+        assert_eq!(
+            compile_source_to_interpreter_value(source, manifest()).expect("machine execution"),
+            41
+        );
     }
 
     #[test]
@@ -1883,8 +1980,8 @@ mod tests {
 
         for (source, expected) in cases {
             assert_eq!(
-                compile_source_to_interpreter_value(source)
-                    .unwrap_or_else(|e| panic!("machine execution failed for {source}: {e}")),
+                compile_source_to_interpreter_value(source, manifest())
+                    .unwrap_or_else(|e| { panic!("machine execution failed for {source}: {e}") }),
                 *expected,
                 "wrong result for {source}"
             );
@@ -1898,7 +1995,7 @@ mod tests {
         // matching failure case is covered by the no-main rejection test.
         let source = "fn main() -> i64 { let value = 41; return value; }";
         assert!(
-            lower_to_verified_mir(source).is_ok(),
+            lower_to_verified_mir(source, manifest()).is_ok(),
             "a well-formed program must lower and verify"
         );
     }
@@ -1906,7 +2003,7 @@ mod tests {
     #[test]
     fn machine_tier_rejects_source_without_main() {
         let source = "fn helper(x: i64) -> i64 { return x; }";
-        let error = compile_source_to_interpreter_value(source)
+        let error = compile_source_to_interpreter_value(source, manifest())
             .expect_err("a program without main must be rejected");
         assert!(error.contains("main"), "unexpected error: {error}");
     }
@@ -1930,7 +2027,8 @@ mod tests {
     #[test]
     fn source_pipeline_executes_explicit_generic_call() {
         let source = "fn id<T>(x: T) -> T { return x; } fn main() -> i64 { let value = id<i64>(41); return value; }";
-        let object = compile_source_to_object(source).expect("generic call native compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("generic call native compilation");
         let dir = std::env::temp_dir();
         static SEQ: AtomicU64 = AtomicU64::new(500);
         let stem = format!(
@@ -1962,7 +2060,7 @@ mod tests {
     #[test]
     fn source_pipeline_executes_integer_call_semantics() {
         let source = "fn inc(x: i64) -> i64 { return x + 1; } fn main() -> i64 { let value = inc(41); return value; }";
-        let object = compile_source_to_object(source).expect("native compilation");
+        let object = compile_source_to_object(source, manifest()).expect("native compilation");
         let dir = std::env::temp_dir();
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let stem = format!(
@@ -1994,7 +2092,7 @@ mod tests {
     #[test]
     fn source_pipeline_accepts_reference_types_until_native_boundary() {
         let source = "fn read(x: &i64) -> i64 { return *x; } fn main() -> i64 { let x = 7; return read(&x); }";
-        let err = compile_source_to_object(source)
+        let err = compile_source_to_object(source, manifest())
             .expect_err("native backend must reject reference storage explicitly");
         assert!(
             err.contains("shared borrow") || err.contains("reference"),
@@ -2009,14 +2107,16 @@ mod tests {
         // one before the following `return`.
         let source =
             "fn main() -> i64 { let x = 7 as f64; let y = x as i64; if y == 7 { return 42; }; return 0; }";
-        let object = compile_source_to_object(source).expect("numeric cast native compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("numeric cast native compilation");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_executes_float_arithmetic_and_comparison() {
         let source = "fn add(a: f64, b: f64) -> f64 { return a + b; } fn main() -> i64 { let x = add(1.5, 2.5); if x >= 4.0 { return 42; }; return 0; }";
-        let object = compile_source_to_object(source).expect("float native compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("float native compilation");
         let dir = std::env::temp_dir();
         static SEQ: AtomicU64 = AtomicU64::new(600);
         let stem = format!(
@@ -2038,7 +2138,7 @@ mod tests {
 
         let run_status = std::process::Command::new(&executable_path)
             .status()
-            .expect("linked float executable must run");
+            .expect("linked native executable must run");
         assert_eq!(run_status.code(), Some(42));
 
         fs::remove_file(&object_path).ok();
@@ -2048,7 +2148,8 @@ mod tests {
     #[test]
     fn source_pipeline_executes_boolean_comparison_and_not() {
         let source = "fn main() -> bool { return !(1 == 2); }";
-        let object = compile_source_to_object(source).expect("native boolean compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("native boolean compilation");
         let dir = std::env::temp_dir();
         static SEQ: AtomicU64 = AtomicU64::new(100);
         let stem = format!(
@@ -2080,14 +2181,16 @@ mod tests {
     #[test]
     fn source_pipeline_executes_value_loop_break() {
         let source = "fn main() -> i64 { return loop { break 42; }; }";
-        let object = compile_source_to_object(source).expect("loop break native compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("loop break native compilation");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_executes_while_loop() {
         let source = "fn main() -> i64 { let mut n = 0; while n < 3 { n += 1; } return n; }";
-        let object = compile_source_to_object(source).expect("while loop native compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("while loop native compilation");
         assert!(!object.is_empty());
     }
 
@@ -2095,8 +2198,8 @@ mod tests {
     fn source_pipeline_executes_integer_range_for_loop() {
         let source =
             "fn main() -> i64 { let mut sum = 0; for i in 0..5 { sum += i; } return sum; }";
-        let object =
-            compile_source_to_object(source).expect("integer-range for-loop native compilation");
+        let object = compile_source_to_object(source, manifest())
+            .expect("integer-range for-loop native compilation");
         let dir = std::env::temp_dir();
         static SEQ: AtomicU64 = AtomicU64::new(300);
         let stem = format!(
@@ -2113,12 +2216,12 @@ mod tests {
             .arg("-o")
             .arg(&executable_path)
             .status()
-            .expect("system C linker is required for native for-loop E2E");
+            .expect("system C linker is required for integer-range E2E");
         assert!(status.success(), "link failed with status {status}");
 
         let run_status = std::process::Command::new(&executable_path)
             .status()
-            .expect("linked native for-loop executable must run");
+            .expect("linked native executable must run");
         assert_eq!(run_status.code(), Some(10));
 
         fs::remove_file(&object_path).ok();
@@ -2128,8 +2231,8 @@ mod tests {
     #[test]
     fn source_pipeline_executes_scalar_match_binding() {
         let source = "fn main() -> i64 { let x = 42; return match x { y => y, }; }";
-        let object =
-            compile_source_to_object(source).expect("scalar binding match native compilation");
+        let object = compile_source_to_object(source, manifest())
+            .expect("scalar binding match native compilation");
         assert!(!object.is_empty());
     }
 
@@ -2140,12 +2243,83 @@ mod tests {
         let parsed = parser.parse_source();
         assert!(parsed.is_ok(), "{:?}", parsed.diagnostics);
         assert_eq!(parsed.syntax().text().to_string(), source);
+        // Borrowing and dereferencing are allowed Stage-0 features and are not
+        // separately recorded, so the profile gate must see nothing to judge.
+        assert!(parsed.feature_uses.is_empty(), "{:?}", parsed.feature_uses);
+        enforce_stage0_profile(&parsed.feature_uses, manifest())
+            .expect("borrowing is enabled by the Stage-0 profile");
+    }
+
+    // ----------------------------------------------------------------------
+    // Stage-0 profile gating. The parser accepts all of Edition 1; the profile
+    // decides which features are enabled. These tests pin both halves.
+    // ----------------------------------------------------------------------
+
+    /// Parse `source` and run the profile gate, returning the gate's verdict.
+    fn profile_verdict(source: &str) -> Result<(), String> {
+        let mut parser = omni_parse::Parser::from_source(source);
+        let parsed = parser.parse_source();
+        assert!(parsed.is_ok(), "source must be Edition-1-legal: {:?}", parsed.diagnostics);
+        // The gate runs on a program the grammar layer accepted, so it can only
+        // be rejecting on profile grounds.
+        enforce_stage0_profile(&parsed.feature_uses, manifest())
+    }
+
+    #[test]
+    fn forbidden_features_are_rejected_by_the_profile_gate() {
+        // `macros` and `async` are both normative Edition 1 productions, so the
+        // parser must accept them; the manifest forbids them for Stage 0, so the
+        // gate must reject them. Each assertion is on the real manifest.
+        for (source, feature) in [
+            ("fn main() -> i64 { foo!(); return 0; }", "macros"),
+            ("fn main() -> i64 { let x = async move { 1 }; return 0; }", "async"),
+            ("async fn main() -> i64 { return 0; }", "async"),
+        ] {
+            let error = profile_verdict(source)
+                .expect_err(&format!("{feature} is forbidden and must be rejected"));
+            assert!(error.contains("Stage-0 profile error"), "unexpected error: {error}");
+            assert!(error.contains(feature), "error must name {feature}: {error}");
+            // The diagnostic must point at real source bytes, not at nothing.
+            assert!(error.contains("at bytes "), "error must carry a span: {error}");
+        }
+    }
+
+    #[test]
+    fn allowed_features_pass_the_profile_gate() {
+        // `unsafe_raw_memory` is on the manifest's allowed list, so an unsafe
+        // block parses and passes. Without this, the gate could be rejecting
+        // everything unconditionally and the forbidden-feature test would still
+        // pass.
+        assert!(profile_verdict("fn main() -> i64 { let x = unsafe { 1 }; return x; }").is_ok());
+        // And source using no classified feature at all passes trivially.
+        assert!(profile_verdict("fn main() -> i64 { return 7; }").is_ok());
+    }
+
+    #[test]
+    fn profile_gate_reports_every_offending_feature_in_a_stable_order() {
+        // Both offending features must be reported, and repeated runs must agree
+        // on the message, so a build cannot accept and reject the same program.
+        let source = "fn main() -> i64 { let x = async move { foo!() }; return 0; }";
+        let first = profile_verdict(source).expect_err("both features are forbidden");
+        assert!(first.contains("async"), "{first}");
+        assert!(first.contains("macros"), "{first}");
+        for _ in 0..3 {
+            assert_eq!(profile_verdict(source).expect_err("stable"), first);
+        }
+    }
+
+    #[test]
+    fn an_empty_feature_list_passes_without_consulting_the_manifest() {
+        // A source that used nothing must not fail just because a manifest were
+        // unavailable; the gate is a no-op rather than a spurious rejection.
+        assert!(enforce_stage0_profile(&[], manifest()).is_ok());
     }
 
     #[test]
     fn source_pipeline_executes_literal_match() {
         let source = "fn main() -> i64 { let x = 2; return match x { 1 => 7, 2 => 42, _ => 0, }; }";
-        let object = compile_source_to_object(source).expect("literal match native compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("literal match native compilation");
         assert!(!object.is_empty());
     }
 
@@ -2153,8 +2327,8 @@ mod tests {
     fn source_pipeline_executes_inclusive_integer_range_for_loop() {
         let source =
             "fn main() -> i64 { let mut sum = 0; for i in 0..=4 { sum += i; } return sum; }";
-        let object =
-            compile_source_to_object(source).expect("inclusive range for-loop native compilation");
+        let object = compile_source_to_object(source, manifest())
+            .expect("inclusive range for-loop native compilation");
         let dir = std::env::temp_dir();
         static SEQ: AtomicU64 = AtomicU64::new(400);
         let stem = format!(
@@ -2189,14 +2363,16 @@ mod tests {
         // supplied by a helper rather than by a `main` parameter, matching every
         // other end-to-end fixture in this module.
         let source = "fn pick(x: i64) -> i64 { let value = if x > 0 { 42 } else { 7 }; return value; } fn main() -> i64 { return pick(1); }";
-        let object = compile_source_to_object(source).expect("if-expression native compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("if-expression native compilation");
         assert!(!object.is_empty());
     }
 
     #[test]
     fn source_pipeline_preserves_unit_call_without_fabricating_result() {
         let source = "fn touch() { return; } fn main() -> i64 { touch(); return 7; }";
-        let object = compile_source_to_object(source).expect("unit call native compilation");
+        let object =
+            compile_source_to_object(source, manifest()).expect("unit call native compilation");
         let dir = std::env::temp_dir();
         static SEQ: AtomicU64 = AtomicU64::new(200);
         let stem = format!(
@@ -2228,7 +2404,8 @@ mod tests {
     #[test]
     fn invalid_unary_source_fails_during_semantic_checking() {
         let source = "fn main() -> i64 { return !1; }";
-        let error = compile_source_to_object(source).expect_err("integer logical-not must fail");
+        let error = compile_source_to_object(source, manifest())
+            .expect_err("integer logical-not must fail");
         assert!(error.contains("Type error"), "unexpected error: {error}");
     }
 }
