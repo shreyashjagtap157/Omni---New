@@ -1543,6 +1543,23 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Punct(Punct::LParen)) => self.parse_paren_expr(),
             Some(TokenKind::Punct(Punct::LBracket)) => self.parse_array_expr(),
             Some(TokenKind::Punct(Punct::Pipe)) => self.parse_closure_expr(),
+            // `self` arrives as a keyword token, not an identifier, so it needs
+            // its own arm. `path_segment = identifier [ "<" type_args ">" ]` does
+            // not admit a keyword, so `self` is admitted here explicitly as the
+            // receiver path rather than pretended to be an identifier.
+            //
+            // Edition 1 has no `self_expr` production, so the receiver becomes a
+            // `path_expr` whose single segment is `self` — a shape the grammar's
+            // `path_expr` alternative already admits. A dedicated node would have
+            // had no production to cite.
+            Some(TokenKind::Keyword(Kw::SelfRef)) => {
+                let path = self.parse_path_expr_or_macro();
+                if self.at_punct(Punct::LBrace) && !self.no_struct_literal {
+                    self.parse_struct_expr_from_path(path)
+                } else {
+                    path
+                }
+            }
             Some(TokenKind::Ident) => {
                 let path = self.parse_path_expr_or_macro();
                 if self.at_punct(Punct::LBrace) && !self.no_struct_literal {

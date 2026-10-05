@@ -162,8 +162,36 @@ impl Resolver {
     ) -> Result<ResolvedNames, Vec<ResolveError>> {
         let mut out = ResolvedNames::default();
         let mut errors = Vec::new();
+
+        // Impl methods are declared under `Type::method` rather than their bare
+        // name. Two types may each define `get`, and they are distinct functions
+        // reached through distinct receivers; declaring both as `get` in one rib
+        // would make the second a shadowing violation and reject valid source.
+        // The `Type::method` key matches the name the semantic frontend registers
+        // the method under, so resolution and lowering agree on one identity.
+        //
+        // The method nodes are matched by identity, not by name: two types may
+        // both define `get`, so a name comparison could not tell their `FnDef`
+        // nodes apart and would skip the wrong one.
+        let inherent_methods = inherent_method_defs(root);
+        let method_nodes: Vec<SyntaxNode> =
+            inherent_methods.iter().map(|(node, _, _)| node.clone()).collect();
+        for (method_node, owner, method) in &inherent_methods {
+            self.declare_name_and_record(
+                method_node,
+                &format!("{owner}::{method}"),
+                &mut out,
+                &mut errors,
+            );
+        }
+
         let mut function_nodes = Vec::new();
         for n in root.descendants().filter(|n| n.kind() == SyntaxKind::FnDef) {
+            // Methods were declared above under their qualified name; declaring
+            // them again here by bare name would reintroduce the collision.
+            if method_nodes.iter().any(|m| m == &n) {
+                continue;
+            }
             function_nodes.push(n);
         }
         for f in &function_nodes {
@@ -191,7 +219,35 @@ impl Resolver {
         out: &mut ResolvedNames,
         errors: &mut Vec<ResolveError>,
     ) {
+        self.resolve_fn_with_self_opt(f, out, errors, None)
+    }
+
+    /// Resolves a method body with `self` bound to its synthetic receiver
+    /// parameter, and any impl-level generic parameters in scope.
+    ///
+    /// `self` is a leading parameter the frontend synthesizes; it has no
+    /// counterpart in the source CST, so it cannot be picked up by the ordinary
+    /// parameter walk in `resolve_fn`.
+    fn resolve_fn_with_self(
+        &mut self,
+        f: &SyntaxNode,
+        out: &mut ResolvedNames,
+        errors: &mut Vec<ResolveError>,
+    ) {
+        self.resolve_fn_with_self_opt(f, out, errors, Some("self"))
+    }
+
+    fn resolve_fn_with_self_opt(
+        &mut self,
+        f: &SyntaxNode,
+        out: &mut ResolvedNames,
+        errors: &mut Vec<ResolveError>,
+        receiver: Option<&str>,
+    ) {
         self.push_rib();
+        if let Some(receiver) = receiver {
+            self.declare_name_and_record(f, receiver, out, errors);
+        }
         if let Some(params) = f.children().find(|n| n.kind() == SyntaxKind::ParamList) {
             for p in params.children().filter(|n| n.kind() == SyntaxKind::Param) {
                 if let Some(name) = direct_name(&p) {
@@ -284,10 +340,37 @@ impl Resolver {
                     self.pop_rib();
                 }
             }
+            SyntaxKind::ImplDef => {
+                // An impl block's methods have bodies that must be resolved, and
+                // each body needs a rib holding the `self` receiver plus the
+                // method's own parameters. `resolve_fn` pushes a rib and declares
+                // the parameters, so `self` is declared first and the body then
+                // resolves on top of it.
+                //
+                // `self` is declared here rather than inside `resolve_fn` because
+                // the frontend synthesizes it as a leading parameter that has no
+                // counterpart in the source CST, so `resolve_fn` cannot see it.
+                let methods: Vec<SyntaxNode> = node
+                    .children()
+                    .filter(|c| c.kind() == SyntaxKind::ImplItem)
+                    .flat_map(|item| {
+                        item.children()
+                            .filter(|c| c.kind() == SyntaxKind::FnDef)
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                for method in methods {
+                    // `resolve_fn` pushes the rib that scopes the body's
+                    // parameters, so `self` is declared through it rather than in
+                    // an extra rib here: declaring `self` outside would leave it
+                    // in a scope that outlives the body, and a second method in
+                    // the same impl would then collide with it.
+                    self.resolve_fn_with_self(&method, out, errors);
+                }
+            }
             SyntaxKind::StructDef
             | SyntaxKind::EnumDef
             | SyntaxKind::TraitDef
-            | SyntaxKind::ImplDef
             | SyntaxKind::TypeAlias
             | SyntaxKind::UseDecl
             | SyntaxKind::ExternCrateDecl
@@ -449,12 +532,28 @@ impl Resolver {
         errors: &mut Vec<ResolveError>,
     ) {
         let name = node.text().to_string().trim().to_string();
-        match self.declare(&name) {
+        self.declare_name_and_record(node, &name, out, errors);
+    }
+
+    /// Declares `name` as the definition at `node`.
+    ///
+    /// Split from `declare_and_record` because an impl method's declaration
+    /// identity is `Type::method`, which is not the text of its `FnDef` node.
+    /// The node is still what supplies the span and the recorded definition site,
+    /// so the diagnostic points at the method the author actually wrote.
+    fn declare_name_and_record(
+        &mut self,
+        node: &SyntaxNode,
+        name: &str,
+        out: &mut ResolvedNames,
+        errors: &mut Vec<ResolveError>,
+    ) {
+        match self.declare(name) {
             Ok(id) => {
                 // SRC-0003: record the *source spelling*, not the NFC key, so a
                 // diagnostic about this definition quotes what the file said.
                 out.definitions.insert(start_u32(node), id);
-                out.names.insert(id, name);
+                out.names.insert(id, name.to_string());
             }
             Err(e) => errors.push(match e {
                 ResolveError::ShadowingViolation { name, existing, .. } => {
@@ -511,6 +610,58 @@ fn start_u32(node: &SyntaxNode) -> u32 {
 }
 fn direct_name(node: &SyntaxNode) -> Option<SyntaxNode> {
     node.children().find(|n| n.kind() == SyntaxKind::NameRef)
+}
+
+/// The inherent methods declared in `source`, as `(FnDef node, owner type, method name)`.
+///
+/// Mirrors the semantic frontend's `collect_inherent_methods`: an inherent impl
+/// is one without `for`, and its methods are qualified by the impl's target type.
+/// The two must agree on which methods exist and what they are called, or the
+/// resolver would declare a name the frontend never registers.
+fn inherent_method_defs(root: &SyntaxNode) -> Vec<(SyntaxNode, String, String)> {
+    let mut out = Vec::new();
+    for node in root.descendants().filter(|n| n.kind() == SyntaxKind::ImplDef) {
+        let has_for = node
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .any(|t| t.kind() == SyntaxKind::Keyword && t.text() == "for");
+        if has_for {
+            continue;
+        }
+        let owner = node
+            .children()
+            .filter(|c| c.kind() == SyntaxKind::Type)
+            .find_map(|t| type_base_name(&t))
+            .unwrap_or_default();
+        if owner.is_empty() {
+            continue;
+        }
+        for item in node.children().filter(|c| c.kind() == SyntaxKind::ImplItem) {
+            for method in item.children().filter(|c| c.kind() == SyntaxKind::FnDef) {
+                if let Some(name) = direct_name(&method) {
+                    let text = name.text().to_string().trim().to_string();
+                    if !text.is_empty() {
+                        out.push((method, owner.clone(), text));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The nominal name of a type node, which is `Type > PathType > Path > PathSegment`.
+///
+/// The last segment is used, matching how `type_spec_from_cst` reads a
+/// `PathType`, so a qualified target such as `impl crate::Point` resolves to the
+/// same name the frontend registers the method under.
+fn type_base_name(node: &SyntaxNode) -> Option<String> {
+    node.children()
+        .find(|n| n.kind() == SyntaxKind::PathType)
+        .and_then(|p| p.children().find(|n| n.kind() == SyntaxKind::Path))
+        .and_then(|p| p.children().filter(|n| n.kind() == SyntaxKind::PathSegment).last())
+        .map(|seg| seg.text().to_string().trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// True for the node kinds the parser uses for a `let` binding pattern.

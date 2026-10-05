@@ -10,22 +10,54 @@ use omni_effects::{CapabilityContext, EffectRow};
 pub enum TypeError {
     ImmutableGlobalAssignment(String),
     UnresolvedSubstitution(String),
-    MismatchedTypes { expected: String, found: String },
+    MismatchedTypes {
+        expected: String,
+        found: String,
+    },
     FunctionNotFound(String),
+    /// A method call whose receiver type has no such inherent method. Reported
+    /// separately from `FunctionNotFound` because the two have different
+    /// remedies: a missing free function is a name error, whereas this means
+    /// the receiver's type does not declare the method.
+    NoMethodOnType {
+        receiver_type: String,
+        method: String,
+    },
     VariableNotFound(String),
     SolverFailure(String),
     TraitObligationUnsatisfied(String),
-    NonExhaustiveMatch { scrutinee_ty: String, missing: String },
-    UnreachablePattern { arm_index: usize, detail: String },
+    NonExhaustiveMatch {
+        scrutinee_ty: String,
+        missing: String,
+    },
+    UnreachablePattern {
+        arm_index: usize,
+        detail: String,
+    },
     EffectViolation(String),
-    ArgumentCountMismatch { expected: usize, found: usize },
-    GenericArgumentCountMismatch { expected: usize, found: usize },
+    ArgumentCountMismatch {
+        expected: usize,
+        found: usize,
+    },
+    GenericArgumentCountMismatch {
+        expected: usize,
+        found: usize,
+    },
     UnsupportedOperator(String),
-    FieldNotFound { ty: String, field: String },
-    UnsupportedCast { from: String, to: String },
+    FieldNotFound {
+        ty: String,
+        field: String,
+    },
+    UnsupportedCast {
+        from: String,
+        to: String,
+    },
     BreakOutsideLoop,
     ContinueOutsideLoop,
-    InvalidLoopBreakType { expected: String, found: String },
+    InvalidLoopBreakType {
+        expected: String,
+        found: String,
+    },
     UnsupportedPattern(String),
 }
 
@@ -269,6 +301,63 @@ impl TypeChecker {
             Lit::Byte(_) => self.tcx.intern(TyKind::Byte),
             Lit::String(_) => self.tcx.intern(TyKind::String),
         }
+    }
+
+    /// The nominal type name a receiver of type `ty` dispatches methods on.
+    ///
+    /// Inherent methods are registered under `Type::method`, so dispatch needs
+    /// the nominal name. Only nominal aggregates have one: a method call on an
+    /// `i64`, a tuple, or a reference has no inherent impl to find, so those
+    /// return `None` and the caller reports a precise diagnostic rather than
+    /// searching for a method under a meaningless name.
+    ///
+    /// References are deliberately not auto-dereferenced here. Edition 1
+    /// defines no implicit deref for dispatch, so `(&p).get()` would need an
+    /// explicit deref; silently forwarding would invent a coercion the grammar
+    /// and TYPE-0016 do not grant.
+    pub fn method_owner_name(&self, ty: Ty) -> Option<String> {
+        match self.tcx.get(ty) {
+            TyKind::Struct(name, _) | TyKind::Enum(name, _) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    /// Infers a method call by resolving the receiver's type, then delegating
+    /// to ordinary call inference with the receiver prepended to the arguments.
+    ///
+    /// Reusing `infer_call` is deliberate: a method call and a function call
+    /// must agree on arity, generic-argument count, argument unification, and
+    /// return type. Implementing a second, parallel path for methods would let
+    /// the two drift, and a drift there is a soundness hole rather than a
+    /// cosmetic inconsistency.
+    pub fn infer_method_call(
+        &mut self,
+        receiver: &Expr,
+        method: &str,
+        generic_args: &[TypeSpec],
+        args: &[Expr],
+        env: &SubstEnv,
+        local_vars: &HashMap<String, Ty>,
+    ) -> Result<(Ty, SpecializationKey, SubstEnv, EffectRow), TypeError> {
+        let recv_ty = self.infer_expr(receiver, env, local_vars)?;
+        let owner = self.method_owner_name(recv_ty).ok_or_else(|| TypeError::NoMethodOnType {
+            receiver_type: self.tcx.mangle(recv_ty),
+            method: method.to_string(),
+        })?;
+        // The receiver is passed as the `self` parameter, so the synthesized
+        // argument list is receiver-first.
+        let mut lowered_args = Vec::with_capacity(args.len() + 1);
+        lowered_args.push(receiver.clone());
+        lowered_args.extend_from_slice(args);
+        let callee = format!("{owner}::{method}");
+        let resolved = self.fn_defs.contains_key(&callee);
+        if !resolved {
+            return Err(TypeError::NoMethodOnType {
+                receiver_type: owner,
+                method: method.to_string(),
+            });
+        }
+        self.infer_call(&callee, generic_args, &lowered_args, env, local_vars)
     }
 
     /// Performs type inference for a call site and derives authoritative generic substitutions.
@@ -1033,6 +1122,11 @@ impl TypeChecker {
                 }
                 Ok(last_ty)
             }
+            Expr::MethodCall { receiver, method, generic_args, args } => {
+                let (ret_ty, _, _, _) =
+                    self.infer_method_call(receiver, method, generic_args, args, env, local_vars)?;
+                Ok(ret_ty)
+            }
             Expr::UnsafeBlock { body } => {
                 // UNSAFE-0001: `unsafe` does not disable ordinary typing, so the
                 // body is inferred exactly as it would be outside an unsafe block.
@@ -1263,6 +1357,20 @@ impl TypeChecker {
                 }
                 let (_, _, _, callee_effects) =
                     self.infer_call(func, generic_args, args, env, local_vars)?;
+                Ok(effects.union(&callee_effects))
+            }
+            Expr::MethodCall { receiver, method, generic_args, args } => {
+                // A method call's effects are its receiver's plus its arguments'
+                // plus the resolved callee's. Routing through `infer_method_call`
+                // keeps that identical to the equivalent plain call rather than
+                // reimplementing the resolution here.
+                let receiver_eff = self.infer_expr_effects(receiver, env, local_vars)?;
+                let mut effects = receiver_eff;
+                for arg in args {
+                    effects = effects.union(&self.infer_expr_effects(arg, env, local_vars)?);
+                }
+                let (_, _, _, callee_effects) =
+                    self.infer_method_call(receiver, method, generic_args, args, env, local_vars)?;
                 Ok(effects.union(&callee_effects))
             }
             Expr::Let { pattern, init, body, .. } => {

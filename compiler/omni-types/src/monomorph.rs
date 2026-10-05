@@ -101,6 +101,22 @@ impl MonomorphizedProgram {
                 }
                 Ok(())
             }
+            Expr::MethodCall { receiver, method: _, generic_args, args } => {
+                // By the time MIR is produced, every method call has been
+                // rewritten into a plain call by monomorphization. This arm
+                // exists so that a `MethodCall` reaching the concrete-program
+                // gate is rejected rather than silently accepted unverified.
+                if !generic_args.is_empty() {
+                    return Err(format!(
+                        "MIR semantic gate violation in `{enclosing_fn}`: method call retains unresolved generic arguments"
+                    ));
+                }
+                Self::verify_expr_concrete(receiver, enclosing_fn)?;
+                for a in args {
+                    Self::verify_expr_concrete(a, enclosing_fn)?;
+                }
+                Ok(())
+            }
             Expr::Let { init, body, .. } => {
                 Self::verify_expr_concrete(init, enclosing_fn)?;
                 Self::verify_expr_concrete(body, enclosing_fn)
@@ -338,6 +354,37 @@ impl<'a> Monomorphizer<'a> {
                 )?;
 
                 // 4. Specialize target function under concrete nested environment
+                let mangled_target = self.monomorphize_fn(&nested_key, &nested_env)?;
+
+                Ok(Expr::Call { func: mangled_target, generic_args: vec![], args: mono_args })
+            }
+            Expr::MethodCall { receiver, method, generic_args, args } => {
+                // A method call becomes an ordinary call: the receiver is
+                // prepended as the `self` argument and the callee is the
+                // receiver-type-qualified name. Doing this here rather than in
+                // the checker means MIR lowering, the verifier, the machine, and
+                // codegen never learn that methods exist — they see only calls,
+                // which is why no change was needed in any of them.
+                let sub_generic_args: Vec<TypeSpec> =
+                    generic_args.iter().map(|g| self.substitute_type_spec(g, env)).collect();
+
+                // The receiver is monomorphized first, because resolving the
+                // callee requires knowing the receiver's concrete type.
+                let mono_receiver = self.monomorphize_expr(receiver, env, local_vars)?;
+                let mut mono_args = Vec::with_capacity(args.len() + 1);
+                mono_args.push(mono_receiver);
+                for arg in args {
+                    mono_args.push(self.monomorphize_expr(arg, env, local_vars)?);
+                }
+
+                let (_, nested_key, nested_env, _nested_effects) = self.checker.infer_method_call(
+                    receiver,
+                    method,
+                    &sub_generic_args,
+                    args,
+                    env,
+                    local_vars,
+                )?;
                 let mangled_target = self.monomorphize_fn(&nested_key, &nested_env)?;
 
                 Ok(Expr::Call { func: mangled_target, generic_args: vec![], args: mono_args })

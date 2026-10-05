@@ -412,6 +412,86 @@ fn collect_function_nodes(
     }
 }
 
+/// The nominal name of a type written in a declaration position.
+///
+/// `direct_name` looks for a `NameRef`/`PathSegment`, but a named type such as
+/// `impl Point` is a `Type > PathType > Path > PathSegment`; the leaf is three
+/// levels down, so `direct_name` returns `None`. Walking to the *last* path
+/// segment matches how `type_spec_from_cst` already reads a `PathType`, so
+/// method registration and type lowering agree on what a type is called.
+fn nominal_type_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
+    let path = node
+        .children()
+        .find(|n| n.kind() == omni_syntax::SyntaxKind::PathType)
+        .and_then(|p| p.children().find(|n| n.kind() == omni_syntax::SyntaxKind::Path));
+    let path = match path {
+        Some(p) => p,
+        None => return direct_name(node),
+    };
+    path.children()
+        .filter(|n| n.kind() == omni_syntax::SyntaxKind::PathSegment)
+        .last()
+        .and_then(|seg| direct_name(&seg))
+        .filter(|s| !s.is_empty())
+}
+
+/// Collects inherent methods from `impl Type { fn .. }` blocks.
+///
+/// Each becomes an ordinary function named `Type::method` whose first parameter
+/// is the receiver, typed as the impl's target type and bound to the name `self`.
+/// That representation is what makes dispatch resolvable by the type checker: the
+/// receiver's type selects the `Type::` prefix, and the ordinary call-inference
+/// path then does the rest. Nothing downstream needs a notion of "method".
+///
+/// Only *inherent* impls are collected here. `impl Trait for Type` blocks are
+/// deliberately skipped: they are registered with the trait solver instead, and
+/// conflating the two would give a trait impl two unrelated definitions. Trait
+/// method *signatures* additionally remain blocked by the recorded EBNF hole —
+/// `trait_item` references an undefined `function_signature` production — so no
+/// trait impl can currently reach this point anyway.
+fn collect_inherent_methods(
+    root: &omni_syntax::SyntaxNode,
+    out: &mut Vec<(omni_syntax::SyntaxNode, String, Option<omni_syntax::SyntaxNode>)>,
+) -> Result<(), String> {
+    for node in root.children() {
+        if node.kind() == omni_syntax::SyntaxKind::ModuleDecl {
+            // Methods are not module-scoped in Edition 1: `self.m()` resolves by
+            // receiver type, not by lexical path, so nested modules are walked
+            // without extending the name.
+            collect_inherent_methods(&node, out)?;
+            continue;
+        }
+        if node.kind() != omni_syntax::SyntaxKind::ImplDef {
+            continue;
+        }
+        // `impl [generics] Type { .. }` has no `for`, which distinguishes an
+        // inherent impl from `impl Trait for Type`.
+        let has_for = node
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .any(|t| t.kind() == omni_syntax::SyntaxKind::Keyword && t.text() == "for");
+        if has_for {
+            continue;
+        }
+        let target =
+            node.children().find(|c| c.kind() == omni_syntax::SyntaxKind::Type).ok_or_else(
+                || "Semantic frontend error: inherent impl has no target type".to_string(),
+            )?;
+        let type_name = nominal_type_name(&target).ok_or_else(|| {
+            "Semantic frontend error: inherent impl target type has no nominal name".to_string()
+        })?;
+        for item in node.children().filter(|c| c.kind() == omni_syntax::SyntaxKind::ImplItem) {
+            for method in item.children().filter(|c| c.kind() == omni_syntax::SyntaxKind::FnDef) {
+                let method_name = direct_name(&method).ok_or_else(|| {
+                    "Semantic frontend error: impl method has no name".to_string()
+                })?;
+                out.push((method, format!("{type_name}::{method_name}"), Some(target.clone())));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn semantic_functions_from_cst(
     root: &omni_syntax::SyntaxNode,
 ) -> Result<Vec<GenericFnDef>, String> {
@@ -419,6 +499,15 @@ fn semantic_functions_from_cst(
     let mut names = HashSet::new();
     let mut function_nodes = Vec::new();
     collect_function_nodes(root, "", &mut function_nodes);
+    // Inherent methods become `Type::method` functions taking `self` first, so
+    // they are lowered through the same path as free functions once collected.
+    // The `None` third element marks a free function, which has no receiver.
+    let mut all_function_nodes: Vec<(
+        omni_syntax::SyntaxNode,
+        String,
+        Option<omni_syntax::SyntaxNode>,
+    )> = function_nodes.into_iter().map(|(n, name)| (n, name, None)).collect();
+    collect_inherent_methods(root, &mut all_function_nodes)?;
 
     let enum_names: HashSet<String> = root
         .children()
@@ -430,7 +519,7 @@ fn semantic_functions_from_cst(
         .map(|a| (a.name.clone(), a))
         .collect::<HashMap<_, _>>();
 
-    for (node, name) in function_nodes {
+    for (node, name, receiver_type) in all_function_nodes {
         if !names.insert(name.clone()) {
             return Err(format!("Semantic frontend error: duplicate function '{}'", name));
         }
@@ -450,6 +539,18 @@ fn semantic_functions_from_cst(
             )?;
 
         let mut params = Vec::new();
+        // An inherent method's receiver is its first parameter, bound to the
+        // name `self` and typed as the impl's target. Prepending it here means
+        // the rest of this function — and the whole call-inference path — sees
+        // an ordinary parameter list.
+        if let Some(target) = &receiver_type {
+            let self_ty = normalize_alias_type(
+                type_spec_from_cst_with_context(target.clone(), &generic_names, &enum_names)?,
+                &alias_defs,
+                &generic_names,
+            )?;
+            params.push(("self".to_string(), self_ty));
+        }
         for param in params_node.children().filter(|n| n.kind() == omni_syntax::SyntaxKind::Param) {
             let param_name = direct_name(&param).ok_or_else(|| {
                 format!("Semantic frontend error: parameter in '{}' has no name", name)
@@ -1435,8 +1536,57 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 )?;
             Ok(Expr::UnsafeBlock { body: Box::new(expr_from_node(&body)?) })
         }
+        omni_syntax::SyntaxKind::MethodCallExpr => {
+            // `method_call_expr = expression "." identifier [ "<" type_args ">" ]
+            // "(" [ expression { "," expression } [ "," ] ] ")"`.
+            //
+            // The parser emits children in source order: the receiver node, the
+            // `.` token, the method-name *token*, an optional `TypeArgs` node,
+            // then the argument expressions as direct children (there is no
+            // argument-list node — `append_call_arguments` pushes each argument
+            // expression straight into the parent). The name is a token rather
+            // than a node, so it is read from the token stream, and it must be
+            // located positionally: taking `children().nth(1)` would silently
+            // pick the first *argument* instead, since the name is not a node.
+            let receiver = node.children().next().ok_or_else(|| {
+                "Semantic frontend error: method call has no receiver".to_string()
+            })?;
+            // The name is the first identifier *token*; `(`, `,`, `)` and the
+            // generic closers are punctuators, so this cannot pick one up.
+            let method = node
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .find(|t| t.kind() == omni_syntax::SyntaxKind::Ident)
+                .map(|t| t.text().to_string())
+                .ok_or_else(|| {
+                    "Semantic frontend error: method call has no method name".to_string()
+                })?;
+
+            // Arguments are direct node children after the name; the type
+            // arguments, when present, are the single `TypeArgs` child among
+            // them. Distinguishing by node kind is what keeps a turbofished
+            // method call's type arguments out of the positional argument list.
+            let mut generic_args = Vec::new();
+            let mut args = Vec::new();
+            for child in node.children().skip(1) {
+                if child.kind() == omni_syntax::SyntaxKind::TypeArgs {
+                    generic_args = child
+                        .children()
+                        .filter(|t| t.kind() == omni_syntax::SyntaxKind::Type)
+                        .map(type_spec_from_cst)
+                        .collect::<Result<Vec<_>, _>>()?;
+                } else {
+                    args.push(expr_from_node(&child)?);
+                }
+            }
+            Ok(Expr::MethodCall {
+                receiver: Box::new(expr_from_node(&receiver)?),
+                method,
+                generic_args,
+                args,
+            })
+        }
         omni_syntax::SyntaxKind::AwaitExpr
-        | omni_syntax::SyntaxKind::MethodCallExpr
         | omni_syntax::SyntaxKind::MacroInvocation
         | omni_syntax::SyntaxKind::AsyncBlock
         | omni_syntax::SyntaxKind::TryBlock
@@ -2418,6 +2568,125 @@ mod tests {
         let error = compile_source_to_object(source, manifest())
             .expect_err("integer logical-not must fail");
         assert!(error.contains("Type error"), "unexpected error: {error}");
+    }
+
+    // ----------------------------------------------------------------------
+    // Inherent methods. GRAM: `method_call_expr = expression "." identifier
+    // [ "<" type_args ">" ] "(" [ args ] ")"`.
+    // ----------------------------------------------------------------------
+
+    #[test]
+    fn inherent_method_call_executes_on_the_receiver() {
+        assert_eq!(
+            compile_source_to_interpreter_value(
+                "struct P { x: i64 } impl P { fn get() -> i64 { return self.x; } } \
+                 fn main() -> i64 { let p = P { x: 42 }; return p.get(); }",
+                manifest()
+            )
+            .expect("method call must execute"),
+            42
+        );
+    }
+
+    #[test]
+    fn method_dispatch_is_selected_by_the_receiver_type() {
+        // The load-bearing property: the same method name on two different
+        // receiver types must reach two different functions. If dispatch were
+        // resolved by name alone — or if the last registration simply won —
+        // this would return the wrong value or fail to compile, so it is the
+        // test that distinguishes real dispatch from a coincidence.
+        assert_eq!(
+            compile_source_to_interpreter_value(
+                "struct A { v: i64 } struct B { v: i64 } \
+                 impl A { fn get() -> i64 { return 1; } } \
+                 impl B { fn get() -> i64 { return 2; } } \
+                 fn main() -> i64 { let a = A { v: 0 }; let b = B { v: 0 }; return a.get() * 10 + b.get(); }",
+                manifest()
+            )
+            .expect("two types may each define the same method name"),
+            12
+        );
+    }
+
+    #[test]
+    fn method_call_accepts_arguments_alongside_the_receiver() {
+        // The receiver is prepended to the argument list, so arity must account
+        // for it: a method declared with one parameter is called with one
+        // explicit argument.
+        assert_eq!(
+            compile_source_to_interpreter_value(
+                "struct S { base: i64 } impl S { fn add(n: i64) -> i64 { return self.base + n; } } \
+                 fn main() -> i64 { let s = S { base: 40 }; return s.add(2); }",
+                manifest()
+            )
+            .expect("method with an argument"),
+            42
+        );
+        // And arity is still checked: passing two arguments to a one-parameter
+        // method must be rejected rather than silently dropping one.
+        let error = compile_source_to_interpreter_value(
+            "struct S { base: i64 } impl S { fn add(n: i64) -> i64 { return self.base + n; } } \
+             fn main() -> i64 { let s = S { base: 1 }; return s.add(1, 2); }",
+            manifest(),
+        )
+        .expect_err("too many arguments must be rejected");
+        assert!(
+            error.contains("ArgumentCountMismatch") || error.contains("argument"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn unknown_method_is_a_distinct_diagnostic() {
+        // A missing method is reported as `NoMethodOnType`, not as a missing free
+        // function: the receiver's type simply does not declare the method, and
+        // the two situations have different remedies.
+        let error = compile_source_to_interpreter_value(
+            "struct A { v: i64 } fn main() -> i64 { let a = A { v: 1 }; return a.nope(); }",
+            manifest(),
+        )
+        .expect_err("unknown method must be rejected");
+        assert!(
+            error.contains("NoMethodOnType") && error.contains("nope"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn method_call_on_a_non_nominal_type_is_rejected() {
+        // There is no inherent impl for a scalar, so this cannot resolve. It must
+        // be rejected rather than searching for a method under some derived name.
+        let error = compile_source_to_interpreter_value(
+            "fn main() -> i64 { let x = 5; return x.get(); }",
+            manifest(),
+        )
+        .expect_err("a scalar receiver has no methods");
+        assert!(error.contains("NoMethodOnType"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn methods_do_not_enter_the_free_function_namespace() {
+        // A method is not callable as a free function. `P::get` is the internal
+        // qualified identity, not source-level call syntax, so `get(p)` must not
+        // resolve — otherwise a method could be invoked without a receiver and
+        // `self` would be unbound.
+        let error = compile_source_to_interpreter_value(
+            "struct P { x: i64 } impl P { fn get() -> i64 { return self.x; } } \
+             fn main() -> i64 { let p = P { x: 1 }; return get(); }",
+            manifest(),
+        )
+        .expect_err("a method must not be callable as a free function");
+        // The rejection legitimately comes from whichever stage owns the name:
+        // the resolver sees an unbound identifier, and the type checker would
+        // report no such function. Accepting either keeps the assertion on the
+        // property being tested — the method is not reachable as a free
+        // function — rather than on which stage happens to run first.
+        assert!(
+            error.contains("UnresolvedName")
+                || error.contains("FunctionNotFound")
+                || error.contains("VariableNotFound"),
+            "unexpected error: {error}"
+        );
     }
 
     // ----------------------------------------------------------------------

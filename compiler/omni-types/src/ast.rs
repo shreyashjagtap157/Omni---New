@@ -211,6 +211,24 @@ pub enum Expr {
     UnsafeBlock {
         body: Box<Expr>,
     },
+    /// A method call `receiver.method(args)` (GRAM: `method_call_expr`).
+    ///
+    /// Carried as its own node rather than desugared during CST lowering,
+    /// because the callee is determined by the receiver's *type*, not by its
+    /// syntax: the same source shape resolves to a different function
+    /// depending on what the receiver turns out to be. Resolving that needs
+    /// the type checker, which runs after CST lowering.
+    ///
+    /// Monomorphization rewrites this into an ordinary `Expr::Call` whose
+    /// callee is the mangled `Type::method` and whose first argument is the
+    /// receiver, so everything downstream of monomorphization sees only plain
+    /// calls and needs no notion of methods at all.
+    MethodCall {
+        receiver: Box<Expr>,
+        method: String,
+        generic_args: Vec<TypeSpec>,
+        args: Vec<Expr>,
+    },
     Loop {
         label: Option<String>,
         body: Box<Expr>,
