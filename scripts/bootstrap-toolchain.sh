@@ -56,7 +56,7 @@ rustup toolchain install
 
 # 4. Ensure the declaratively pinned targets exist for this toolchain.
 rustup target add x86_64-unknown-linux-gnu --toolchain "${EXPECTED_CHANNEL}"
-rustup target add aarch64-unknown-linux-gnu --toolchain "${EXPECTED_CHANNEL}"
+rustup target add riscv64gc-unknown-none-elf --toolchain "${EXPECTED_CHANNEL}"
 
 # 5. Execute the immutable fail-closed qualification assertion.
 echo "[*] Running toolchain qualification gate..."
