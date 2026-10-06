@@ -1279,57 +1279,101 @@ impl<'a> FnMirBuilder<'a> {
                 let (inner_op, inner_ty) = self
                     .lower_expr(expr)?
                     .ok_or_else(|| "MIR lowering error: unary operand is Unit".to_string())?;
-                let bool_ty = self.tcx.intern(TyKind::Bool);
-                let int_ty = self.tcx.intern(TyKind::Int);
                 match op {
-                    omni_types::ast::UnOp::Neg
-                        if inner_ty != int_ty && inner_ty != self.tcx.intern(TyKind::Float) =>
-                    {
-                        return Err(format!(
-                            "MIR lowering error: unary operator requires Int or Float for '-', found {:?}",
-                            inner_ty
-                        ));
-                    }
-                    omni_types::ast::UnOp::Not if inner_ty != bool_ty => {
-                        return Err(format!(
-                            "MIR lowering error: unary '!' requires Bool, found {:?}",
-                            inner_ty
-                        ));
-                    }
-                    _ => {}
-                }
-                let mir_op = match op {
-                    omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
-                    omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
-                    omni_types::ast::UnOp::BitNot => crate::ir::UnOp::BitNot,
-                    omni_types::ast::UnOp::BorrowShared => {
-                        return Err(
-                            "MIR lowering error: shared borrow requires reference storage".into()
-                        );
-                    }
-                    omni_types::ast::UnOp::BorrowMut => {
-                        return Err(
-                            "MIR lowering error: mutable borrow requires reference storage".into(),
-                        );
-                    }
                     omni_types::ast::UnOp::Deref => {
-                        return Err(
-                            "MIR lowering error: dereference requires reference-place projection"
-                                .into(),
-                        );
+                        let inner_place = match inner_op {
+                            crate::ir::Operand::Copy(place) | crate::ir::Operand::Move(place) => place,
+                            other => {
+                                let block = self.current_block.ok_or_else(|| {
+                                    "MIR lowering error: dereference has no live continuation block"
+                                        .to_string()
+                                })?;
+                                let temp = self.new_temp(Some("_deref_ref".to_string()), inner_ty);
+                                let place = crate::ir::Place::local(temp);
+                                self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                                    place.clone(),
+                                    crate::ir::Rvalue::Use(other),
+                                ));
+                                place
+                            }
+                        };
+                        let ty = self.projected_ty(
+                            inner_ty,
+                            &[crate::ir::Projection::Deref],
+                        )?;
+                        let place = inner_place.project(crate::ir::Projection::Deref);
+                        Ok(Some((crate::ir::Operand::Copy(place), ty)))
                     }
-                };
-                let curr_block = self.current_block.ok_or_else(|| {
-                    "MIR lowering error: unary expression has no live continuation block"
-                        .to_string()
-                })?;
-                let temp_local = self.new_temp(Some("_un_tmp".to_string()), inner_ty);
-                let place = crate::ir::Place::local(temp_local);
-                self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
-                    place.clone(),
-                    crate::ir::Rvalue::UnaryOp(mir_op, inner_op),
-                ));
-                Ok(Some((crate::ir::Operand::Copy(place.clone()), inner_ty)))
+                    omni_types::ast::UnOp::BorrowShared | omni_types::ast::UnOp::BorrowMut => {
+                        let (target, target_ty) = self.lower_assign_place(expr)?;
+                        let ref_ty = self.tcx.intern(TyKind::Reference {
+                            lifetime: None,
+                            mutable: matches!(op, omni_types::ast::UnOp::BorrowMut),
+                            inner: target_ty,
+                        });
+                        let block = self.current_block.ok_or_else(|| {
+                            "MIR lowering error: borrow has no live continuation block".to_string()
+                        })?;
+                        let temp = self.new_temp(Some("_ref_tmp".to_string()), ref_ty);
+                        let place = crate::ir::Place::local(temp);
+                        self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                            place.clone(),
+                            crate::ir::Rvalue::Reference {
+                                place: target,
+                                mutable: matches!(op, omni_types::ast::UnOp::BorrowMut),
+                                ty: ref_ty,
+                            },
+                        ));
+                        Ok(Some((crate::ir::Operand::Copy(place), ref_ty)))
+                    }
+                    omni_types::ast::UnOp::Neg
+                    | omni_types::ast::UnOp::Not
+                    | omni_types::ast::UnOp::BitNot => {
+                        let bool_ty = self.tcx.intern(TyKind::Bool);
+                        let int_ty = self.tcx.intern(TyKind::Int);
+                        match op {
+                            omni_types::ast::UnOp::Neg
+                                if inner_ty != int_ty
+                                    && inner_ty != self.tcx.intern(TyKind::Float) =>
+                            {
+                                return Err(format!(
+                                    "MIR lowering error: unary operator requires Int or Float for '-', found {:?}",
+                                    inner_ty
+                                ));
+                            }
+                            omni_types::ast::UnOp::Not if inner_ty != bool_ty => {
+                                return Err(format!(
+                                    "MIR lowering error: unary '!' requires Bool, found {:?}",
+                                    inner_ty
+                                ));
+                            }
+                            omni_types::ast::UnOp::BitNot if inner_ty != int_ty => {
+                                return Err(format!(
+                                    "MIR lowering error: unary '~' requires Int, found {:?}",
+                                    inner_ty
+                                ));
+                            }
+                            _ => {}
+                        }
+                        let mir_op = match op {
+                            omni_types::ast::UnOp::Neg => crate::ir::UnOp::Neg,
+                            omni_types::ast::UnOp::Not => crate::ir::UnOp::Not,
+                            omni_types::ast::UnOp::BitNot => crate::ir::UnOp::BitNot,
+                            _ => unreachable!(),
+                        };
+                        let curr_block = self.current_block.ok_or_else(|| {
+                            "MIR lowering error: unary expression has no live continuation block"
+                                .to_string()
+                        })?;
+                        let temp_local = self.new_temp(Some("_un_tmp".to_string()), inner_ty);
+                        let place = crate::ir::Place::local(temp_local);
+                        self.blocks[curr_block].statements.push(crate::ir::Statement::Assign(
+                            place.clone(),
+                            crate::ir::Rvalue::UnaryOp(mir_op, inner_op),
+                        ));
+                        Ok(Some((crate::ir::Operand::Copy(place), inner_ty)))
+                    }
+                }
             }
             omni_types::ast::Expr::Let { pattern, ty, init, body } => {
                 let (init_op, init_ty) = self.lower_expr(init)?.ok_or_else(|| {
