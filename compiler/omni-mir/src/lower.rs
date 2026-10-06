@@ -44,8 +44,8 @@ impl LoweringContext {
     ) -> Result<crate::ir::MirProgram, String> {
         hir.validate()?;
         self.struct_defs = hir.struct_defs.clone();
-        let tcx = hir.tcx;
         let concrete = hir.to_monomorphized_program();
+        let tcx = hir.tcx;
         self.lower_concrete_program(&concrete, tcx)
     }
 
