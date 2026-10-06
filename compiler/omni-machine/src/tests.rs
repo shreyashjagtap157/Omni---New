@@ -339,11 +339,7 @@ fn executes_mutable_reference_dereference_and_write() {
         assign(value_place.clone(), Rvalue::Use(const_int(10))),
         assign(
             ref_place.clone(),
-            Rvalue::Reference {
-                place: value_place.clone(),
-                mutable: true,
-                ty: reference_ty,
-            },
+            Rvalue::Reference { place: value_place.clone(), mutable: true, ty: reference_ty },
         ),
         assign(deref_place.clone(), Rvalue::Use(const_int(42))),
         assign(Place::local(ret), Rvalue::Use(copy(deref_place))),
