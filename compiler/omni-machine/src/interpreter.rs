@@ -913,27 +913,64 @@ impl Interpreter {
 
     /// Assign a value to a place while preserving unrelated aggregate members.
     fn assign_place(&mut self, place: &Place, value: Value) -> Result<(), ExecutionError> {
-        if place.projections.is_empty() {
-            self.locals.insert(place.local, value);
-            return Ok(());
+        self.assign_place_at_frame(self.call_stack.len(), place, value)
+    }
+
+    fn assign_place_at_frame(
+        &mut self,
+        frame: usize,
+        place: &Place,
+        value: Value,
+    ) -> Result<(), ExecutionError> {
+        if place.projections.first() == Some(&Projection::Deref) {
+            let reference = match self.frame_locals(frame)?.get(&place.local).cloned() {
+                Some(Value::Reference(reference)) => reference,
+                Some(other) => {
+                    return Err(ExecutionError::InvalidProjection {
+                        place: place.clone(),
+                        message: format!("cannot dereference {:?}", other),
+                    })
+                }
+                None => {
+                    return Err(ExecutionError::MemoryAccessError {
+                        message: format!("Local {:?} not found in frame {}", place.local, frame),
+                    })
+                }
+            };
+            if !reference.mutable {
+                return Err(ExecutionError::MemoryAccessError {
+                    message: format!("write through shared reference {} is forbidden", place),
+                });
+            }
+            let mut target = reference.place.clone();
+            target.projections.extend_from_slice(&place.projections[1..]);
+            return self.assign_place_at_frame(reference.frame, &target, value);
         }
 
         let mut index_values = HashMap::new();
         for projection in &place.projections {
             if let Projection::Index(index_local) = projection {
-                let index_value = self.locals.get(index_local).cloned().ok_or_else(|| {
-                    ExecutionError::MemoryAccessError {
-                        message: format!("Index local {:?} not found for assignment", index_local),
-                    }
-                })?;
+                let index_value = self
+                    .frame_locals(frame)?
+                    .get(index_local)
+                    .cloned()
+                    .ok_or_else(|| ExecutionError::MemoryAccessError {
+                        message: format!("Index local {:?} not found in frame {}", index_local, frame),
+                    })?;
                 index_values.insert(*index_local, index_value);
             }
         }
 
-        let root =
-            self.locals.get_mut(&place.local).ok_or_else(|| ExecutionError::MemoryAccessError {
-                message: format!("Local {:?} not found", place.local),
-            })?;
+        let root = if frame == self.call_stack.len() {
+            self.locals.get_mut(&place.local)
+        } else {
+            self.call_stack
+                .get_mut(frame)
+                .and_then(|call| call.caller_locals.get_mut(&place.local))
+        }
+        .ok_or_else(|| ExecutionError::MemoryAccessError {
+            message: format!("Local {:?} not found in frame {}", place.local, frame),
+        })?;
 
         Self::assign_projected_value(root, &place.projections, value, &index_values, place)
     }
