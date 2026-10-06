@@ -266,10 +266,7 @@ impl Runtime {
     }
 
     pub fn allocation_info(&self, id: AllocationId) -> Result<(usize, u32, bool), RuntimeError> {
-        let allocation = self
-            .allocations
-            .get(&id)
-            .ok_or(RuntimeError::UnknownAllocation(id))?;
+        let allocation = self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
         Ok((allocation.bytes.len(), allocation.align, allocation.mutable))
     }
 
@@ -368,10 +365,7 @@ mod tests {
         let mut runtime = Runtime::new();
         let id = runtime.allocate(4, 8, true).unwrap();
         assert_eq!(runtime.allocation_info(id).unwrap(), (4, 8, true));
-        assert!(matches!(
-            runtime.read(id, 0, 1),
-            Err(RuntimeError::UninitializedRead { .. })
-        ));
+        assert!(matches!(runtime.read(id, 0, 1), Err(RuntimeError::UninitializedRead { .. })));
         runtime.write(id, 1, &[10, 20]).unwrap();
         assert_eq!(runtime.read(id, 1, 2).unwrap(), vec![10, 20]);
         assert!(!runtime.is_initialized(id, 0).unwrap());
@@ -382,14 +376,8 @@ mod tests {
     fn immutable_and_bounds_fail_closed() {
         let mut runtime = Runtime::new();
         let id = runtime.allocate(2, 1, false).unwrap();
-        assert!(matches!(
-            runtime.write(id, 0, &[1]),
-            Err(RuntimeError::ImmutableAllocation(_))
-        ));
-        assert!(matches!(
-            runtime.read(id, 1, 2),
-            Err(RuntimeError::OutOfBounds { .. })
-        ));
+        assert!(matches!(runtime.write(id, 0, &[1]), Err(RuntimeError::ImmutableAllocation(_))));
+        assert!(matches!(runtime.read(id, 1, 2), Err(RuntimeError::OutOfBounds { .. })));
     }
 
     #[test]
