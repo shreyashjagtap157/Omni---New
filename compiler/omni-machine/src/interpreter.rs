@@ -825,32 +825,90 @@ impl Interpreter {
     fn get_place_value(
         &self,
         place: &Place,
-        function: Rc<MirFunction>,
+        _function: Rc<MirFunction>,
     ) -> Result<Value, ExecutionError> {
-        // Start with the root local
-        let mut current_value = self
-            .locals
+        self.get_place_value_at_frame(self.call_stack.len(), place)
+    }
+
+    fn frame_locals(&self, frame: usize) -> Result<&HashMap<Local, Value>, ExecutionError> {
+        if frame == self.call_stack.len() {
+            return Ok(&self.locals);
+        }
+        self.call_stack
+            .get(frame)
+            .map(|call| &call.caller_locals)
+            .ok_or_else(|| ExecutionError::MemoryAccessError {
+                message: format!("reference owner frame {} is no longer active", frame),
+            })
+    }
+
+    fn get_place_value_at_frame(
+        &self,
+        frame: usize,
+        place: &Place,
+    ) -> Result<Value, ExecutionError> {
+        let mut current = self
+            .frame_locals(frame)?
             .get(&place.local)
             .ok_or_else(|| ExecutionError::MemoryAccessError {
-                message: format!("Local {:?} not found", place.local),
+                message: format!("Local {:?} not found in frame {}", place.local, frame),
             })?
             .clone();
 
-        // Applying each projection in order
-        for projection in &place.projections {
-            current_value = self.apply_projection(current_value, projection, function.clone())?;
+        let mut projections = place.projections.as_slice();
+        while !projections.is_empty() {
+            match &projections[0] {
+                Projection::Deref => match current {
+                    Value::Reference(reference) => {
+                        let mut target = reference.place.clone();
+                        target.projections.extend_from_slice(&projections[1..]);
+                        return self.get_place_value_at_frame(reference.frame, &target);
+                    }
+                    _ => {
+                        return Err(ExecutionError::InvalidProjection {
+                            place: place.clone(),
+                            message: "cannot dereference a non-reference value".to_string(),
+                        })
+                    }
+                },
+                projection => {
+                    current = self.apply_projection_in_frame(current, projection, frame)?;
+                    projections = &projections[1..];
+                }
+            }
         }
 
-        // A place that was dropped, moved out of, or never initialized still
-        // holds `Uninit`. Reading it is a use of a dead place, so it must be
-        // reported rather than propagating a sentinel value into the result.
-        if current_value == Value::Uninit {
+        if current == Value::Uninit {
             return Err(ExecutionError::MemoryAccessError {
                 message: format!("read of uninitialized place {}", place),
             });
         }
+        Ok(current)
+    }
 
-        Ok(current_value)
+    fn apply_projection_in_frame(
+        &self,
+        base: Value,
+        projection: &Projection,
+        frame: usize,
+    ) -> Result<Value, ExecutionError> {
+        match projection {
+            Projection::Field(field_name) => self.execute_field_projection(base, field_name),
+            Projection::ConstantIndex(index) => {
+                self.execute_constant_index_projection(base, *index)
+            }
+            Projection::Index(index_local) => {
+                let index_value = self
+                    .frame_locals(frame)?
+                    .get(index_local)
+                    .ok_or_else(|| ExecutionError::MemoryAccessError {
+                        message: format!("Index local {:?} not found in frame {}", index_local, frame),
+                    })?
+                    .clone();
+                self.execute_index_projection(base, index_value)
+            }
+            Projection::Deref => unreachable!("deref is handled by get_place_value_at_frame"),
+        }
     }
 
     /// Assign a value to a place while preserving unrelated aggregate members.
