@@ -322,6 +322,36 @@ fn evaluates_boolean_comparisons() {
 }
 
 #[test]
+fn evaluates_range_values_without_type_erasing_to_text() {
+    let f = Fixture::new();
+    let builder = FnBuilder::new(
+        &f,
+        "f",
+        TypeSpec::Range(Box::new(TypeSpec::Int)),
+    );
+    let ret = builder.return_place;
+    let func = builder.returns(vec![assign(
+        Place::local(ret),
+        Rvalue::Range {
+            start: const_int(2),
+            end: const_int(5),
+            inclusive: false,
+            ty: f.int,
+        },
+    )]);
+
+    let mut interp = interpreter(f, vec![func]);
+    assert_eq!(
+        interp.execute_function("f", vec![]).unwrap(),
+        Value::Range {
+            start: Box::new(Value::Int(2)),
+            end: Box::new(Value::Int(5)),
+            inclusive: false,
+        }
+    );
+}
+
+#[test]
 fn evaluates_unary_operations() {
     let cases: &[(UnOp, i64, i64)] = &[(UnOp::Neg, 5, -5), (UnOp::BitNot, 0, -1)];
     for (op, operand, expected) in cases {
