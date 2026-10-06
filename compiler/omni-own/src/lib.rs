@@ -317,18 +317,18 @@ impl OwnershipState {
         for place in places {
             let states_for_place =
                 states.iter().map(|state| state.state(&place)).collect::<Vec<_>>();
-            let combined =
-                if states_for_place.iter().all(|state| *state == PlaceState::Initialized) {
-                    PlaceState::Initialized
-                } else if states_for_place.iter().all(|state| *state == PlaceState::Uninitialized) {
-                    PlaceState::Uninitialized
-                } else if states_for_place.iter().all(|state| *state == PlaceState::Moved) {
-                    PlaceState::Moved
-                } else if states_for_place.iter().all(|state| *state == PlaceState::PartiallyMoved) {
-                    PlaceState::PartiallyMoved
-                } else {
-                    PlaceState::PartiallyMoved
-                };
+            let combined = if states_for_place.iter().all(|state| *state == PlaceState::Initialized)
+            {
+                PlaceState::Initialized
+            } else if states_for_place.iter().all(|state| *state == PlaceState::Uninitialized) {
+                PlaceState::Uninitialized
+            } else if states_for_place.iter().all(|state| *state == PlaceState::Moved) {
+                PlaceState::Moved
+            } else if states_for_place.iter().all(|state| *state == PlaceState::PartiallyMoved) {
+                PlaceState::PartiallyMoved
+            } else {
+                PlaceState::PartiallyMoved
+            };
             if combined != PlaceState::Uninitialized {
                 joined.places.insert(place, combined);
             }

@@ -340,10 +340,7 @@ mod tests {
             locals.push(LocalDecl { name: Some(name), ty: Some(ty) });
         }
         let mut blocks = IndexVec::new();
-        blocks.push(omni_mir::ir::BlockData {
-            statements,
-            terminator: Some(Terminator::Return),
-        });
+        blocks.push(omni_mir::ir::BlockData { statements, terminator: Some(Terminator::Return) });
         MirProgram::new(
             tcx,
             vec![MirFunction {
@@ -351,11 +348,7 @@ mod tests {
                 params,
                 return_place,
                 return_type: TypeSpec::Int,
-                body: omni_mir::ir::Body {
-                    blocks,
-                    local_decls: locals,
-                    unsafe_blocks: Vec::new(),
-                },
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
             }],
         )
     }
