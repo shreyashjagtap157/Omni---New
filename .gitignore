@@ -37,3 +37,33 @@
 # Generated/derived files
 *.hex
 *.wasm
+
+# Omni-specific generated files
+*.output
+*.result
+*.trace
+*.profile
+*.stats
+
+# Temporary files
+*.tmp
+*.temp
+
+# Log files
+*.log
+
+# Test output files
+test_output.txt
+test_out.txt
+all_tests.txt
+ctrl.txt
+
+# Agent documentation files
+.github/agents/**/*.md
+
+# IDE settings
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.idea/workspace.xml
+.idea/tasks.xml
