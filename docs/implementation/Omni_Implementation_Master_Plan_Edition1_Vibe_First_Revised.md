@@ -4764,9 +4764,18 @@ No earlier or alternative implementation starting point supersedes this contract
 
 ---
 
-# Amendment V — Vibe-First Surface Language Integration
+# Amendment V — Vibe-First Surface Language Integration (Historical / Out of Force)
 
-**Status:** Revised implementation directive. This amendment supersedes earlier surface-syntax implementation wording wherever it conflicts with Candidate 2 Vibe Surface Syntax. It does not weaken the semantic core or release gates.
+**Status:** RETIRED — HISTORICAL RECORD ONLY.
+
+This amendment is preserved for historical traceability but is **not an active implementation directive**. It is out of force as of 2026-10-06 and MUST NOT be used to determine current Omni Edition 1 syntax, parser requirements, milestone closure, qualification, or implementation priority.
+
+In particular, Candidate 2 Vibe Surface Syntax is **out of force**. References below to Candidate 2, pipelines, projection shorthand, command calls, optional chaining/coalescing, or other Candidate-2-specific surface requirements are historical proposal text only.
+
+The active normative syntax authority remains:
+`spec/grammar/omni-edition1.ebnf`
+
+The project implementation must follow the active Edition 1 specification and current implementation plan. This historical section MUST NOT override them.
 
 ## V.1 New implementation principle
 
