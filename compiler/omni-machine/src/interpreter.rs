@@ -975,7 +975,10 @@ impl Interpreter {
             Projection::Deref => Err(ExecutionError::InvalidProjection {
                 place: Place::local(Local::from(0)),
                 message: match base {
-                    Value::Reference(_) => "Reference dereference requires an implemented abstract-memory allocation".to_string(),
+                    Value::Reference(_) => {
+                        "Reference dereference requires an implemented abstract-memory allocation"
+                            .to_string()
+                    }
                     _ => "Cannot dereference non-reference value".to_string(),
                 },
             })
@@ -1250,19 +1253,31 @@ impl Interpreter {
                             if let (Value::Int(size), Value::Int(align)) = (&args[0], &args[1]) {
                                 if *size < 0 {
                                     return Err(ExecutionError::MemoryAccessError {
-                                        message: format!("alloc size must be non-negative, got {size}"),
+                                        message: format!(
+                                            "alloc size must be non-negative, got {size}"
+                                        ),
                                     });
                                 }
                                 if *align <= 0 || (*align as u64).count_ones() != 1 {
                                     return Err(ExecutionError::MemoryAccessError {
-                                        message: format!("alloc alignment must be a positive power of two, got {align}"),
+                                        message: format!(
+                                            "alloc alignment must be a positive power of two, got {align}"
+                                        ),
                                     });
                                 }
-                                let size = usize::try_from(*size).map_err(|_| ExecutionError::MemoryAccessError {
-                                    message: format!("alloc size does not fit host usize: {size}"),
+                                let size = usize::try_from(*size).map_err(|_| {
+                                    ExecutionError::MemoryAccessError {
+                                        message: format!(
+                                            "alloc size does not fit host usize: {size}"
+                                        ),
+                                    }
                                 })?;
-                                let align = u32::try_from(*align).map_err(|_| ExecutionError::MemoryAccessError {
-                                    message: format!("alloc alignment does not fit u32: {align}"),
+                                let align = u32::try_from(*align).map_err(|_| {
+                                    ExecutionError::MemoryAccessError {
+                                        message: format!(
+                                            "alloc alignment does not fit u32: {align}"
+                                        ),
+                                    }
                                 })?;
                                 let alloc_id = self.memory.allocate(size, align, true);
                                 Ok(Value::Int(alloc_id as i64))
