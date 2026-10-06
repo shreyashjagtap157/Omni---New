@@ -53,8 +53,8 @@ pub enum Value {
     Tuple(Vec<Value>),
     /// Array value
     Array(Vec<Value>),
-    /// Reference to a place in memory
-    Reference(PlaceValue),
+    /// Reference to a logically borrowed MIR place.
+    Reference(ReferenceValue),
     /// Function reference
     FunctionRef(String),
     /// Enum variant
@@ -73,6 +73,14 @@ pub struct PlaceValue {
     pub alloc_id: u64,
     pub offset: usize,
     pub size: usize,
+}
+
+/// A logical borrow used by the reference machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceValue {
+    pub frame: usize,
+    pub place: Place,
+    pub mutable: bool,
 }
 
 /// A call frame tracks function execution state
