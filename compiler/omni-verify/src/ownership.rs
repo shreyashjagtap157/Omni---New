@@ -50,7 +50,7 @@ fn verify_function(function: &MirFunction) -> Result<(), OwnershipVerificationEr
 
     let mut initial = FlowState::new();
     for &param in &function.params {
-        initial.ownership.declare_initialized(local_name(function, param));
+        initial.ownership.initialize(OwnershipPlace::root(local_name(function, param)));
     }
 
     const MAX_ITERATIONS: usize = 4096;
@@ -127,11 +127,11 @@ fn transfer_block(
                 assign_place(function, block, &context, destination, &mut state)?;
             }
             Statement::Drop(place) => {
-                access_place(function, block, &context, place, AccessKind::Drop, &mut state)?;
+                transfer_place_access(function, block, &context, place, AccessKind::Drop, &mut state)?;
             }
             Statement::BoundsCheck { index, .. } => {
                 let place = Place::local(*index);
-                access_place(function, block, &context, &place, AccessKind::Read, &mut state)?;
+                transfer_place_access(function, block, &context, &place, AccessKind::Read, &mut state)?;
             }
             Statement::Assume(_) => {}
         }
@@ -265,10 +265,14 @@ fn transfer_place_access(
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
     let ownership_place = ownership_place(function, place);
-    state
-        .ownership
-        .access(ownership_place, access)
-        .map_err(|error| violation(function, block, context, error))
+    apply_ownership_access(
+        function,
+        block,
+        context,
+        ownership_place,
+        access,
+        &mut state.ownership,
+    )
 }
 
 fn assign_place(
@@ -283,6 +287,35 @@ fn assign_place(
         .ownership
         .assign(ownership_place)
         .map_err(|error| violation(function, block, context, error))
+}
+
+fn apply_ownership_access(
+    function: &MirFunction,
+    block: BasicBlock,
+    context: &str,
+    place: OwnershipPlace,
+    access: AccessKind,
+    ownership: &mut OwnershipState,
+) -> Result<(), OwnershipVerificationError> {
+    let result = match access {
+        AccessKind::Read => ownership.read(&place),
+        AccessKind::Move => ownership.move_place(place),
+        AccessKind::Write => ownership.assign(place),
+        AccessKind::Drop => ownership.drop_place(place),
+        AccessKind::BorrowShared | AccessKind::BorrowMut => {
+            // Borrow creation requires a stable region identifier. Full MIR
+            // lifetime elaboration owns region derivation; this verifier only
+            // consumes explicit borrow accesses and therefore uses the current
+            // CFG point as a deterministic local region identifier.
+            let region = format!("{}:bb{}:{}", function.name, block.index(), context);
+            if matches!(access, AccessKind::BorrowShared) {
+                ownership.borrow_shared(place, region)
+            } else {
+                ownership.borrow_mut(place, region)
+            }
+        }
+    };
+    result.map_err(|error| violation(function, block, context, error))
 }
 
 fn ownership_place(function: &MirFunction, place: &Place) -> OwnershipPlace {
