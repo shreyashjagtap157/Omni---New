@@ -578,6 +578,16 @@ impl Interpreter {
             (BinOp::Le, Value::Int(l), Value::Int(r)) => Ok(Value::Bool(l <= r)),
             (BinOp::Gt, Value::Int(l), Value::Int(r)) => Ok(Value::Bool(l > r)),
             (BinOp::Ge, Value::Int(l), Value::Int(r)) => Ok(Value::Bool(l >= r)),
+            (BinOp::Add, Value::Float(l), Value::Float(r)) => Ok(Value::Float(l + r)),
+            (BinOp::Sub, Value::Float(l), Value::Float(r)) => Ok(Value::Float(l - r)),
+            (BinOp::Mul, Value::Float(l), Value::Float(r)) => Ok(Value::Float(l * r)),
+            (BinOp::Div, Value::Float(l), Value::Float(r)) => Ok(Value::Float(l / r)),
+            (BinOp::Eq, Value::Float(l), Value::Float(r)) => Ok(Value::Bool(l == r)),
+            (BinOp::Ne, Value::Float(l), Value::Float(r)) => Ok(Value::Bool(l != r)),
+            (BinOp::Lt, Value::Float(l), Value::Float(r)) => Ok(Value::Bool(l < r)),
+            (BinOp::Le, Value::Float(l), Value::Float(r)) => Ok(Value::Bool(l <= r)),
+            (BinOp::Gt, Value::Float(l), Value::Float(r)) => Ok(Value::Bool(l > r)),
+            (BinOp::Ge, Value::Float(l), Value::Float(r)) => Ok(Value::Bool(l >= r)),
             (BinOp::Eq, Value::Bool(l), Value::Bool(r)) => Ok(Value::Bool(l == r)),
             (BinOp::Ne, Value::Bool(l), Value::Bool(r)) => Ok(Value::Bool(l != r)),
             (BinOp::Eq, Value::String(l), Value::String(r)) => Ok(Value::Bool(l == r)),
@@ -598,6 +608,7 @@ impl Interpreter {
             (UnOp::Neg, Value::Int(i)) => i.checked_neg().map(Value::Int).ok_or_else(|| {
                 ExecutionError::ArithmeticFault { operation: format!("negating {i} overflows") }
             }),
+            (UnOp::Neg, Value::Float(value)) => Ok(Value::Float(-value)),
             (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
             (UnOp::BitNot, Value::Int(i)) => Ok(Value::Int(!i)),
             _ => Err(ExecutionError::InvalidRvalue {
