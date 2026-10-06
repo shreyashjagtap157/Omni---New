@@ -127,11 +127,25 @@ fn transfer_block(
                 assign_place(function, block, &context, destination, &mut state)?;
             }
             Statement::Drop(place) => {
-                transfer_place_access(function, block, &context, place, AccessKind::Drop, &mut state)?;
+                transfer_place_access(
+                    function,
+                    block,
+                    &context,
+                    place,
+                    AccessKind::Drop,
+                    &mut state,
+                )?;
             }
             Statement::BoundsCheck { index, .. } => {
                 let place = Place::local(*index);
-                transfer_place_access(function, block, &context, &place, AccessKind::Read, &mut state)?;
+                transfer_place_access(
+                    function,
+                    block,
+                    &context,
+                    &place,
+                    AccessKind::Read,
+                    &mut state,
+                )?;
             }
             Statement::Assume(_) => {}
         }
@@ -265,14 +279,7 @@ fn transfer_place_access(
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
     let ownership_place = ownership_place(function, place);
-    apply_ownership_access(
-        function,
-        block,
-        context,
-        ownership_place,
-        access,
-        &mut state.ownership,
-    )
+    apply_ownership_access(function, block, context, ownership_place, access, &mut state.ownership)
 }
 
 fn assign_place(

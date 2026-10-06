@@ -103,21 +103,13 @@ impl Runtime {
         self.next_id = id.checked_add(1).ok_or(RuntimeError::AllocationIdOverflow)?;
         self.allocations.insert(
             id,
-            Allocation {
-                bytes: vec![0; size],
-                initialized: vec![false; size],
-                align,
-                mutable,
-            },
+            Allocation { bytes: vec![0; size], initialized: vec![false; size], align, mutable },
         );
         Ok(id)
     }
 
     pub fn deallocate(&mut self, id: AllocationId) -> Result<(), RuntimeError> {
-        self.allocations
-            .remove(&id)
-            .map(|_| ())
-            .ok_or(RuntimeError::UnknownAllocation(id))
+        self.allocations.remove(&id).map(|_| ()).ok_or(RuntimeError::UnknownAllocation(id))
     }
 
     pub fn read(
@@ -296,10 +288,7 @@ mod tests {
     fn bounds_and_mutability_are_enforced() {
         let mut runtime = Runtime::new();
         let id = runtime.allocate(4, 4, false).expect("allocation");
-        assert_eq!(
-            runtime.write(id, 0, &[1]),
-            Err(RuntimeError::ImmutableAllocation(id))
-        );
+        assert_eq!(runtime.write(id, 0, &[1]), Err(RuntimeError::ImmutableAllocation(id)));
         assert!(matches!(
             runtime.read(id, 3, 2),
             Err(RuntimeError::OutOfBounds { id: observed, .. }) if observed == id
