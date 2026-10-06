@@ -10,4 +10,5 @@ workspace = true
 [dependencies]
 index_vec = "0.1"
 omni-types = { path = "../omni-types" }
+omni-hir = { path = "../omni-hir" }
 omni-effects = { path = "../omni-effects" }
