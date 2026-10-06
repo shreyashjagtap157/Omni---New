@@ -244,10 +244,7 @@ mod tests {
 
         assert_eq!(hir.functions.len(), 1);
         assert_eq!(hir.functions[0].name, "main");
-        assert!(matches!(
-            hir.functions[0].body.as_expr(),
-            Expr::Literal(Lit::Int(7))
-        ));
+        assert!(matches!(hir.functions[0].body.as_expr(), Expr::Literal(Lit::Int(7)));
 
         let round_trip = hir.to_monomorphized_program();
         assert_eq!(round_trip.functions, program.functions);
@@ -261,9 +258,7 @@ mod tests {
             generic_args: Vec::new(),
             args: Vec::new(),
         };
-        let program = MonomorphizedProgram {
-            functions: vec![concrete_function("main", body)],
-        };
+        let program = MonomorphizedProgram { functions: vec![concrete_function("main", body)] };
 
         let error = HirProgram::from_monomorphized_program(&program, HashMap::new())
             .expect_err("method calls must not cross the HIR boundary");
