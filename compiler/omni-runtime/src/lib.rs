@@ -281,13 +281,19 @@ impl Runtime {
         Ok((allocation.bytes.len(), allocation.align, allocation.mutable))
     }
 
-    pub fn read(&self, id: AllocationId, offset: usize, size: usize) -> Result<Vec<u8>, RuntimeError> {
-        let allocation = self
-            .allocations
-            .get(&id)
-            .ok_or(RuntimeError::UnknownAllocation(id))?;
+    pub fn read(
+        &self,
+        id: AllocationId,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>, RuntimeError> {
+        let allocation =
+            self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
         Self::checked_range(id, allocation.bytes.len(), offset, size)?;
-        if allocation.initialized[offset..offset + size].iter().any(|initialized| !initialized) {
+        if allocation.initialized[offset..offset + size]
+            .iter()
+            .any(|initialized| !initialized)
+        {
             return Err(RuntimeError::UninitializedRead { allocation: id, offset, size });
         }
         Ok(allocation.bytes[offset..offset + size].to_vec())
