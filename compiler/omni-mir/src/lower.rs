@@ -29,6 +29,20 @@ pub struct LoweringContext {
 }
 
 impl LoweringContext {
+    /// Lowers the canonical HIR boundary into typed MIR.
+    ///
+    /// The adapter keeps the existing typed-MIR lowering implementation as
+    /// the single semantic lowering authority while HIR is incrementally
+    /// enriched with resolved types, ownership facts, and obligations.
+    pub fn lower_hir_program(
+        &mut self,
+        hir: &omni_hir::HirProgram,
+    ) -> Result<crate::ir::MirProgram, String> {
+        self.set_struct_defs(hir.struct_defs.clone());
+        let concrete = hir.to_monomorphized_program();
+        self.lower_monomorphized_program(&concrete)
+    }
+
     pub fn new() -> Self {
         Self { body: Body::default(), struct_defs: HashMap::new() }
     }
