@@ -10,4 +10,5 @@ workspace = true
 [dependencies]
 index_vec = "0.1.4"
 omni-mir = { path = "../omni-mir" }
+omni-own = { path = "../omni-own" }
 

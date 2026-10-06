@@ -162,6 +162,13 @@ pub enum MirVerificationError {
         place: String,
         index_local: Local,
     },
+    /// A MIR access violates the affine ownership/initialization rules.
+    OwnershipViolation {
+        func: String,
+        block: BasicBlock,
+        context: String,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for MirVerificationError {
@@ -318,6 +325,11 @@ impl std::fmt::Display for MirVerificationError {
                 "MIR Verification Failure in '{}': dynamic array access {} lacks dominating bounds check for index local {:?}",
                 func, place, index_local
             ),
+            Self::OwnershipViolation { func, block, context, message } => write!(
+                f,
+                "MIR Verification Failure in '{}': ownership violation in block {:?} during {}: {}",
+                func, block, context, message
+            ),
         }
     }
 }
@@ -335,6 +347,14 @@ impl MirVerifier {
         for func in &prog.functions {
             Self::verify_function(prog, func)?;
         }
+        crate::ownership::verify_program(prog).map_err(|error| {
+            MirVerificationError::OwnershipViolation {
+                func: error.function,
+                block: error.block,
+                context: error.context,
+                message: error.message,
+            }
+        })?;
         Ok(())
     }
 

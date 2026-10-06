@@ -5,7 +5,7 @@
 //! concrete place identities into these primitives without duplicating the
 //! affine/loan rules.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 /// A projection component identifying a field/index/subplace within a value.
@@ -15,6 +15,11 @@ pub enum Projection {
     Field(String),
     /// Constant tuple/array index projection.
     Index(usize),
+    /// Dynamic index whose concrete value is not known to the ownership analysis.
+    ///
+    /// It overlaps every concrete index at the same projection position, which
+    /// keeps the analysis conservative when runtime indices may alias.
+    IndexAny,
     /// Dereference through a reference place.
     Deref,
 }
@@ -49,6 +54,7 @@ impl fmt::Display for Place {
             match projection {
                 Projection::Field(name) => write!(f, ".{name}")?,
                 Projection::Index(index) => write!(f, "[{index}]")?,
+                Projection::IndexAny => write!(f, "[*]")?,
                 Projection::Deref => write!(f, ".*")?,
             }
         }
@@ -141,7 +147,7 @@ impl fmt::Display for OwnershipError {
 }
 
 /// Deterministic affine ownership state for a collection of places and loans.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OwnershipState {
     places: BTreeMap<Place, PlaceState>,
     loans: BTreeMap<String, Loan>,
@@ -286,6 +292,55 @@ impl OwnershipState {
         self.loans.values()
     }
 
+    /// Assigns a value into a place, initializing it when necessary.
+    ///
+    /// Assignment is distinct from AccessKind::Write: a first assignment to
+    /// an uninitialized local is valid and establishes initialization.
+    pub fn assign(&mut self, place: Place) -> Result<(), OwnershipError> {
+        self.ensure_access_allowed(&place, AccessKind::Write)?;
+        self.places.insert(place, PlaceState::Initialized);
+        Ok(())
+    }
+
+    /// Joins ownership states at a control-flow merge conservatively.
+    pub fn join_all(states: &[&Self]) -> Self {
+        if states.is_empty() {
+            return Self::new();
+        }
+
+        let mut places = BTreeSet::new();
+        for state in states {
+            places.extend(state.places.keys().cloned());
+        }
+
+        let mut joined = Self::new();
+        for place in places {
+            let states_for_place = states.iter().map(|state| state.state(&place)).collect::<Vec<_>>();
+            let combined = if states_for_place.iter().all(|state| *state == PlaceState::Initialized) {
+                PlaceState::Initialized
+            } else if states_for_place.iter().all(|state| *state == PlaceState::Uninitialized) {
+                PlaceState::Uninitialized
+            } else if states_for_place.iter().all(|state| *state == PlaceState::Moved) {
+                PlaceState::Moved
+            } else if states_for_place.iter().all(|state| *state == PlaceState::PartiallyMoved) {
+                PlaceState::PartiallyMoved
+            } else {
+                PlaceState::PartiallyMoved
+            };
+            if combined != PlaceState::Uninitialized {
+                joined.places.insert(place, combined);
+            }
+        }
+
+        for (region, loan) in &states[0].loans {
+            if states.iter().skip(1).all(|state| state.loans.get(region) == Some(loan)) {
+                joined.loans.insert(region.clone(), loan.clone());
+            }
+        }
+
+        joined
+    }
+
     fn require_initialized(&self, place: &Place) -> Result<(), OwnershipError> {
         match self.state(place) {
             PlaceState::Initialized => Ok(()),
@@ -346,7 +401,14 @@ impl OwnershipState {
 fn is_prefix(prefix: &Place, value: &Place) -> bool {
     prefix.root == value.root
         && prefix.projections.len() <= value.projections.len()
-        && prefix.projections.iter().zip(&value.projections).all(|(a, b)| a == b)
+        && prefix
+            .projections
+            .iter()
+            .zip(&value.projections)
+            .all(|(a, b)| {
+                matches!((a, b), (Projection::IndexAny, _) | (_, Projection::IndexAny))
+                    || a == b
+            })
 }
 
 fn places_overlap(a: &Place, b: &Place) -> bool {
