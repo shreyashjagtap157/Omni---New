@@ -48,17 +48,8 @@ pub enum RuntimeError {
     InvalidAlignment(u32),
     AllocationSizeOverflow { size: usize },
     UnknownAllocation(AllocationId),
-    OutOfBounds {
-        allocation: AllocationId,
-        offset: usize,
-        size: usize,
-        allocation_size: usize,
-    },
-    UninitializedRead {
-        allocation: AllocationId,
-        offset: usize,
-        size: usize,
-    },
+    OutOfBounds { allocation: AllocationId, offset: usize, size: usize, allocation_size: usize },
+    UninitializedRead { allocation: AllocationId, offset: usize, size: usize },
     ImmutableAllocation(AllocationId),
     AlreadyTerminated(RuntimeState),
     HostIo(String),
@@ -274,10 +265,7 @@ impl Runtime {
     }
 
     pub fn allocation_info(&self, id: AllocationId) -> Result<(usize, u32, bool), RuntimeError> {
-        let allocation = self
-            .allocations
-            .get(&id)
-            .ok_or(RuntimeError::UnknownAllocation(id))?;
+        let allocation = self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
         Ok((allocation.bytes.len(), allocation.align, allocation.mutable))
     }
 
@@ -287,13 +275,9 @@ impl Runtime {
         offset: usize,
         size: usize,
     ) -> Result<Vec<u8>, RuntimeError> {
-        let allocation =
-            self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
+        let allocation = self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
         Self::checked_range(id, allocation.bytes.len(), offset, size)?;
-        if allocation.initialized[offset..offset + size]
-            .iter()
-            .any(|initialized| !initialized)
-        {
+        if allocation.initialized[offset..offset + size].iter().any(|initialized| !initialized) {
             return Err(RuntimeError::UninitializedRead { allocation: id, offset, size });
         }
         Ok(allocation.bytes[offset..offset + size].to_vec())
@@ -319,15 +303,8 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn is_initialized(
-        &self,
-        id: AllocationId,
-        offset: usize,
-    ) -> Result<bool, RuntimeError> {
-        let allocation = self
-            .allocations
-            .get(&id)
-            .ok_or(RuntimeError::UnknownAllocation(id))?;
+    pub fn is_initialized(&self, id: AllocationId, offset: usize) -> Result<bool, RuntimeError> {
+        let allocation = self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
         if offset >= allocation.bytes.len() {
             return Err(RuntimeError::OutOfBounds {
                 allocation: id,
