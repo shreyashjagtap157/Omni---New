@@ -121,9 +121,10 @@ impl LoweringContext {
                 scope.insert(p_name.clone(), p_local);
             }
 
+            let subst = omni_types::checker::SubstEnv::new();
             let mut builder = FnMirBuilder {
                 tcx: &mut tcx,
-                subst: &omni_types::checker::SubstEnv::new(),
+                subst: &subst,
                 local_decls: &mut local_decls,
                 blocks: &mut blocks,
                 scope,
@@ -194,6 +195,7 @@ impl LoweringContext {
         }
         Ok(mir_prog)
     }
+}
 
 fn simple_pattern_binding(pattern: &omni_types::ast::Pattern) -> Option<String> {
     match pattern {
