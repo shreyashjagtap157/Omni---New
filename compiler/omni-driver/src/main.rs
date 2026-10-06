@@ -2041,7 +2041,10 @@ fn main() {
                     }
                 }
             } else {
-                println!("Omni Systems Programming Language Compiler v1.0.0.0");
+                println!(
+                    "Omni Systems Programming Language Compiler v{}",
+                    env!("CARGO_PKG_VERSION")
+                );
                 println!("Usage: omni-driver [OPTIONS] <INPUT_FILE>");
             }
         }
