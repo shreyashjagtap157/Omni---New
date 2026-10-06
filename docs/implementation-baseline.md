@@ -1,13 +1,36 @@
 # Omni implementation baseline
 
-Implementation planning is frozen by the supplied sealed ledger:
+The repository's initial implementation baseline is preserved in Git history. It is historical
+context, not a description of the current implementation state.
 
-- Plan SHA-256: `cdf7ff8cb0eae597b52e295fa43c11f701415f62f2a292f4bd4a2be5012cb506`
-- Normative specification SHA-256: `e3ff0e1b6ef0f1f1d713647cc3c0c04dfd940513d292bac95f7b0d44e6c95f0c`
-- Stage boundary sequence: `0.0.0.1` -> `1.0.0.0` -> `2.0.0.0` -> `3.0.0.0`
+The generational release gates remain:
 
-This repository currently contains only foundation mechanics. No lexer, parser, type checker,
-ownership analysis, MIR evaluation, or code generation semantics are implemented.
+- `1.0.0.0` — minimal Rust-core implementation;
+- `2.0.0.0` — complete production Rust platform;
+- `3.0.0.0` — certified self-hosted and independently qualified Omni.
 
-The initial baseline commit is preserved in Git history. Foundation qualification is fail-closed when
-the required Rust toolchain or authoritative specification inputs are absent.
+The current repository has progressed substantially beyond the initial foundation baseline. The
+active implementation path now includes:
+
+- lossless source/lexical and CST/parser infrastructure;
+- Edition 1 semantic name/type infrastructure;
+- ownership, effects, capability, trait, and monomorphization infrastructure;
+- a canonical HIR boundary consumed by MIR lowering;
+- typed MIR with places, projections, control flow, calls, drops, bounds checks, and unsafe-region
+  metadata;
+- an independently invoked MIR verifier;
+- a reference abstract-machine interpreter;
+- deterministic Cranelift native object generation;
+- Stage 4D bounds-verification work;
+- Stage 4E aggregate ABI work;
+- driver integration for reference-machine and native paths.
+
+Important remaining qualification work includes richer canonical HIR typing/provenance and semantic
+obligation preservation, complete ownership/lifetime integration into the production pipeline,
+complete effects/capability enforcement, full MIR drop/initialization/assumption semantics, completion
+of the reference-machine memory/execution model, minimal runtime/platform support, real differential
+qualification across the supported observation set, and later package/tooling/self-hosting work.
+
+The initial baseline commit and its claims must not be reused as evidence that the current tree is
+still a scaffold. Current implementation status is determined by the actual source tree, tests,
+specifications, CI, and qualification evidence.
