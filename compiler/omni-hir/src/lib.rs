@@ -244,10 +244,7 @@ mod tests {
 
         assert_eq!(hir.functions.len(), 1);
         assert_eq!(hir.functions[0].name, "main");
-        assert!(matches!(
-            hir.functions[0].body.as_expr(),
-            Expr::Literal(Lit::Int(7))
-        ));
+        assert!(matches!(hir.functions[0].body.as_expr(), Expr::Literal(Lit::Int(7))));
 
         let round_trip = hir.to_monomorphized_program();
         assert_eq!(round_trip.functions, program.functions);
