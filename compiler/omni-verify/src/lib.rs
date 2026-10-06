@@ -32,8 +32,8 @@ impl PoloniusFacts {
     /// inference belongs to the ownership/lifetime pass; this layer provides a
     /// faithful fact projection of the MIR events that already exist.
     pub fn extract_from_mir(body: &Body) -> Self {
-        use std::collections::BTreeMap;
         use omni_mir::ir::{Projection, Rvalue, Statement, Terminator};
+        use std::collections::BTreeMap;
 
         let mut facts = Self::default();
         let mut active_by_local: BTreeMap<omni_mir::ir::Local, String> = BTreeMap::new();
@@ -46,7 +46,8 @@ impl PoloniusFacts {
                 match statement {
                     Statement::Assign(destination, rvalue) => {
                         if destination.projections.is_empty() {
-                            if let Some(previous_loan) = active_by_local.remove(&destination.local) {
+                            if let Some(previous_loan) = active_by_local.remove(&destination.local)
+                            {
                                 facts.killed.push((previous_loan, point.clone()));
                             }
                         }
@@ -62,7 +63,9 @@ impl PoloniusFacts {
                             if borrowed.projections.iter().any(|p| matches!(p, Projection::Deref)) {
                                 if let Some(parent_loan) = active_by_local.get(&borrowed.local) {
                                     if let Some(parent_region) = region_by_loan.get(parent_loan) {
-                                        facts.outlives.push((parent_region.clone(), region.clone()));
+                                        facts
+                                            .outlives
+                                            .push((parent_region.clone(), region.clone()));
                                     }
                                 }
                             }
@@ -108,8 +111,10 @@ impl PoloniusFacts {
 mod polonius_tests {
     use super::*;
     use index_vec::IndexVec;
-    use omni_mir::ir::{BlockData, Constant, Local, LocalDecl, Place, Rvalue, Statement, Terminator};
     use omni_mir::ast::Lit;
+    use omni_mir::ir::{
+        BlockData, Constant, Local, LocalDecl, Place, Rvalue, Statement, Terminator,
+    };
     use omni_mir::{TyCtxt, TyKind};
 
     fn body_with_statements(statements: Vec<Statement>) -> Body {
@@ -117,11 +122,7 @@ mod polonius_tests {
         let mut locals = IndexVec::new();
         let mut tcx = TyCtxt::new();
         let int_ty = tcx.intern(TyKind::Int);
-        let ref_ty = tcx.intern(TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int_ty,
-        });
+        let ref_ty = tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner: int_ty });
         locals.push(LocalDecl { name: Some("value".into()), ty: Some(int_ty) });
         locals.push(LocalDecl { name: Some("reference".into()), ty: Some(ref_ty) });
         let mut blocks = IndexVec::new();
@@ -131,7 +132,12 @@ mod polonius_tests {
         body
     }
 
-    fn reference_statement(destination: Local, borrowed: Place, mutable: bool, ty: omni_mir::Ty) -> Statement {
+    fn reference_statement(
+        destination: Local,
+        borrowed: Place,
+        mutable: bool,
+        ty: omni_mir::Ty,
+    ) -> Statement {
         Statement::Assign(
             Place::local(destination),
             Rvalue::Reference { place: borrowed, mutable, ty },
@@ -159,12 +165,13 @@ mod polonius_tests {
             mutable: true,
             inner: int_ty,
         });
-        let facts = PoloniusFacts::extract_from_mir(&body_with_statements(vec![reference_statement(
-            Local::from_usize(1),
-            Place::local(Local::from_usize(0)),
-            true,
-            ref_ty,
-        )]));
+        let facts =
+            PoloniusFacts::extract_from_mir(&body_with_statements(vec![reference_statement(
+                Local::from_usize(1),
+                Place::local(Local::from_usize(0)),
+                true,
+                ref_ty,
+            )]));
         assert_eq!(facts.loan_issued, vec![(String::from("loan_bb0_0"), String::from("bb0_0"))]);
         assert_eq!(facts.borrow_region, vec![(String::from("'r_bb0_0"), String::from("bb0_0"))]);
         assert_eq!(facts.region_live_at, vec![(String::from("'r_bb0_0"), String::from("bb0_0"))]);
@@ -194,10 +201,7 @@ mod polonius_tests {
         ];
         let facts = PoloniusFacts::extract_from_mir(&body_with_statements(statements));
         assert!(facts.loan_issued.iter().any(|(loan, _)| loan == "loan_bb0_0"));
-        assert_eq!(
-            facts.killed,
-            vec![(String::from("loan_bb0_0"), String::from("bb0_1"))]
-        );
+        assert_eq!(facts.killed, vec![(String::from("loan_bb0_0"), String::from("bb0_1"))]);
     }
 
     #[test]
@@ -222,10 +226,7 @@ mod polonius_tests {
             ref_ty,
         );
         let facts = PoloniusFacts::extract_from_mir(&body_with_statements(vec![child, reborrow]));
-        assert_eq!(
-            facts.outlives,
-            vec![(String::from("'r_bb0_0"), String::from("'r_bb0_1"))]
-        );
+        assert_eq!(facts.outlives, vec![(String::from("'r_bb0_0"), String::from("'r_bb0_1"))]);
     }
 }
 
