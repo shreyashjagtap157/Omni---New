@@ -1209,51 +1209,56 @@ impl Interpreter {
         Ok(())
     }
 
-    /// Execute a drop operation
+    /// Execute a drop operation.
+    ///
+    /// Dropping is a semantic invalidation. Aggregate members are recursively
+    /// finalized before the containing place is invalidated. References are
+    /// non-owning views and therefore never deallocate their referents.
     fn execute_drop(
         &mut self,
         place: &Place,
         function: Rc<MirFunction>,
     ) -> Result<(), ExecutionError> {
-        // Get the value to determine if it needs special cleanup
-        let value = self.get_place_value(place, function.clone())?;
+        let value = self.get_place_value(place, function)?;
+        self.drop_value(value)?;
+        self.invalidate_place(place);
+        Ok(())
+    }
 
+    fn drop_value(&mut self, value: Value) -> Result<(), ExecutionError> {
         match value {
-            Value::Array(elements) => {
-                // For arrays, we might need to drop each element
-                for _ in elements {
-                    // In a full implementation, this would recursively drop elements
-                }
-            }
-            Value::Tuple(elements) => {
-                // For tuples, we might need to drop each element
-                for _ in elements {
-                    // In a full implementation, this would recursively drop elements
+            Value::Array(elements) | Value::Tuple(elements) => {
+                for element in elements {
+                    if element != Value::Uninit {
+                        self.drop_value(element)?;
+                    }
                 }
             }
             Value::Struct { fields, .. } => {
-                // For structs, we might need to drop each field
-                for _ in fields.values() {
-                    // In a full implementation, this would recursively drop fields
+                for (_, field) in fields {
+                    if field != Value::Uninit {
+                        self.drop_value(field)?;
+                    }
                 }
             }
             Value::EnumVariant { fields, .. } => {
-                // For enum variants, we might need to drop each field
-                for _ in fields {
-                    // In a full implementation, this would recursively drop fields
+                for field in fields {
+                    if field != Value::Uninit {
+                        self.drop_value(field)?;
+                    }
                 }
             }
-            Value::Reference(_) => {
-                // For references, we might need to deallocate memory
-                // In a full implementation, this would handle reference counting or unique ownership
-            }
-            _ => {
-                // For simple types, just invalidate
-            }
+            Value::Reference(_) => {}
+            Value::FunctionRef(_)
+            | Value::Int(_)
+            | Value::Float(_)
+            | Value::Bool(_)
+            | Value::Char(_)
+            | Value::Byte(_)
+            | Value::String(_)
+            | Value::Unit
+            | Value::Uninit => {}
         }
-
-        // Invalidate the place
-        self.invalidate_place(place);
         Ok(())
     }
 
