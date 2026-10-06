@@ -62,7 +62,9 @@ fn verify_function(function: &MirFunction) -> Result<(), OwnershipVerificationEr
                 function: function.name.clone(),
                 block: BasicBlock::from_usize(0),
                 context: "ownership dataflow".into(),
-                message: "ownership analysis did not converge within its deterministic iteration bound".into(),
+                message:
+                    "ownership analysis did not converge within its deterministic iteration bound"
+                        .into(),
             });
         }
 
@@ -139,17 +141,21 @@ fn transfer_block(
         Some(Terminator::Goto(target)) => Ok(vec![(*target, state)]),
         Some(Terminator::SwitchInt { discr, targets, otherwise }) => {
             transfer_operand(function, block, "switch discriminant", discr, &mut state)?;
-            let mut edges = targets
-                .iter()
-                .map(|(_, target)| (*target, state.clone()))
-                .collect::<Vec<_>>();
+            let mut edges =
+                targets.iter().map(|(_, target)| (*target, state.clone())).collect::<Vec<_>>();
             edges.push((*otherwise, state));
             Ok(edges)
         }
         Some(Terminator::Call { func: callee, args, destination, target, cleanup }) => {
             transfer_operand(function, block, "call callee", callee, &mut state)?;
             for (index, argument) in args.iter().enumerate() {
-                transfer_operand(function, block, &format!("call argument {}", index), argument, &mut state)?;
+                transfer_operand(
+                    function,
+                    block,
+                    &format!("call argument {}", index),
+                    argument,
+                    &mut state,
+                )?;
             }
             let cleanup_state = state.clone();
             let mut normal_state = state;
@@ -164,7 +170,14 @@ fn transfer_block(
         }
         Some(Terminator::Return) => {
             let return_place = Place::local(function.return_place);
-            access_place(function, block, "function return", &return_place, AccessKind::Read, &mut state)?;
+            access_place(
+                function,
+                block,
+                "function return",
+                &return_place,
+                AccessKind::Read,
+                &mut state,
+            )?;
             Ok(Vec::new())
         }
         Some(Terminator::Unreachable) | None => Ok(Vec::new()),
@@ -179,22 +192,34 @@ fn transfer_rvalue(
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
     match rvalue {
-        Rvalue::Use(operand)
-        | Rvalue::UnaryOp(_, operand)
-        | Rvalue::Cast { operand, .. } => transfer_operand(function, block, context, operand, state),
+        Rvalue::Use(operand) | Rvalue::UnaryOp(_, operand) | Rvalue::Cast { operand, .. } => {
+            transfer_operand(function, block, context, operand, state)
+        }
         Rvalue::BinaryOp(_, lhs, rhs) => {
             transfer_operand(function, block, &format!("{context} lhs"), lhs, state)?;
             transfer_operand(function, block, &format!("{context} rhs"), rhs, state)
         }
         Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
             for (index, operand) in operands.iter().enumerate() {
-                transfer_operand(function, block, &format!("{context} operand {}", index), operand, state)?;
+                transfer_operand(
+                    function,
+                    block,
+                    &format!("{context} operand {}", index),
+                    operand,
+                    state,
+                )?;
             }
             Ok(())
         }
         Rvalue::Struct { fields, .. } => {
             for (name, operand) in fields {
-                transfer_operand(function, block, &format!("{context} field {name}"), operand, state)?;
+                transfer_operand(
+                    function,
+                    block,
+                    &format!("{context} field {name}"),
+                    operand,
+                    state,
+                )?;
             }
             Ok(())
         }
@@ -221,8 +246,12 @@ fn transfer_operand(
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
     match operand {
-        Operand::Copy(place) => transfer_place_access(function, block, context, place, AccessKind::Read, state),
-        Operand::Move(place) => transfer_place_access(function, block, context, place, AccessKind::Move, state),
+        Operand::Copy(place) => {
+            transfer_place_access(function, block, context, place, AccessKind::Read, state)
+        }
+        Operand::Move(place) => {
+            transfer_place_access(function, block, context, place, AccessKind::Move, state)
+        }
         Operand::Constant(Constant::Lit(_)) | Operand::Constant(Constant::FnRef(_)) => Ok(()),
     }
 }
@@ -236,7 +265,10 @@ fn transfer_place_access(
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
     let ownership_place = ownership_place(function, place);
-    state.ownership.access(ownership_place, access).map_err(|error| violation(function, block, context, error))
+    state
+        .ownership
+        .access(ownership_place, access)
+        .map_err(|error| violation(function, block, context, error))
 }
 
 fn assign_place(
@@ -247,7 +279,10 @@ fn assign_place(
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
     let ownership_place = ownership_place(function, place);
-    state.ownership.assign(ownership_place).map_err(|error| violation(function, block, context, error))
+    state
+        .ownership
+        .assign(ownership_place)
+        .map_err(|error| violation(function, block, context, error))
 }
 
 fn ownership_place(function: &MirFunction, place: &Place) -> OwnershipPlace {
@@ -305,10 +340,7 @@ mod tests {
             locals.push(LocalDecl { name: Some(name), ty: Some(ty) });
         }
         let mut blocks = IndexVec::new();
-        blocks.push(omni_mir::ir::BlockData {
-            statements,
-            terminator: Some(Terminator::Return),
-        });
+        blocks.push(omni_mir::ir::BlockData { statements, terminator: Some(Terminator::Return) });
         MirProgram::new(
             tcx,
             vec![MirFunction {
@@ -316,11 +348,7 @@ mod tests {
                 params,
                 return_place,
                 return_type: TypeSpec::Int,
-                body: omni_mir::ir::Body {
-                    blocks,
-                    local_decls: locals,
-                    unsafe_blocks: Vec::new(),
-                },
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
             }],
         )
     }
