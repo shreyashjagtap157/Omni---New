@@ -34,13 +34,19 @@ impl LoweringContext {
     /// The adapter keeps the existing typed-MIR lowering implementation as
     /// the single semantic lowering authority while HIR is incrementally
     /// enriched with resolved types, ownership facts, and obligations.
+    /// Lowers the canonical semantic HIR into typed MIR.
+    ///
+    /// HIR is validated before any MIR is produced. The existing concrete
+    /// lowering implementation remains the single MIR construction authority,
+    /// while every production entry point now crosses the HIR boundary first.
     pub fn lower_hir_program(
         &mut self,
         hir: &omni_hir::HirProgram,
     ) -> Result<crate::ir::MirProgram, String> {
+        hir.validate()?;
         self.set_struct_defs(hir.struct_defs.clone());
         let concrete = hir.to_monomorphized_program();
-        self.lower_monomorphized_program(&concrete)
+        self.lower_concrete_program(&concrete)
     }
 
     pub fn new() -> Self {
@@ -52,11 +58,24 @@ impl LoweringContext {
         self.struct_defs = struct_defs;
     }
 
-    /// Lowers a concrete MonomorphizedProgram into typed MIR.
+    /// Lowers a concrete monomorphized program through the canonical HIR boundary.
     ///
-    /// The concrete-program gate runs before any MIR is produced. Every materialized
-    /// local receives an explicit Ty; Unit is represented by the absence of a value.
+    /// This compatibility entry point is retained for existing callers, but it
+    /// cannot bypass HIR validation: the program is first converted into HIR and
+    /// then lowered by the same implementation used by explicit HIR callers.
     pub fn lower_monomorphized_program(
+        &mut self,
+        prog: &MonomorphizedProgram,
+    ) -> Result<crate::ir::MirProgram, String> {
+        let hir = omni_hir::HirProgram::from_monomorphized(
+            prog,
+            self.struct_defs.clone(),
+            HashMap::new(),
+        )?;
+        self.lower_hir_program(&hir)
+    }
+
+    fn lower_concrete_program(
         &mut self,
         prog: &MonomorphizedProgram,
     ) -> Result<crate::ir::MirProgram, String> {
