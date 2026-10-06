@@ -278,6 +278,18 @@ fn ensure_source_mir_type_match(
                     && spec_args.len() == ty_args.len()
                     && spec_args.iter().zip(ty_args.iter()).all(|(s, t)| matches(tcx, s, *t))
             }
+            (
+                TypeSpec::Reference { lifetime, mutable, inner },
+                TyKind::Reference {
+                    lifetime: mir_lifetime,
+                    mutable: mir_mutable,
+                    inner: mir_inner,
+                },
+            ) => {
+                lifetime == mir_lifetime
+                    && mutable == mir_mutable
+                    && matches(tcx, inner, *mir_inner)
+            }
             _ => false,
         }
     }
