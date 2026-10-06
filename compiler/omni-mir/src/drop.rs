@@ -116,19 +116,20 @@ impl DropElaborator {
             }
         }
 
-        for (block, data) in body.blocks.iter_enumerated_mut() {
-            if !reachable[block.index()] || !matches!(data.terminator, Some(Terminator::Return)) {
+        for idx in 0..count {
+            let block = BasicBlock::from_usize(idx);
+            if !reachable[idx] || !matches!(body.blocks[block].terminator, Some(Terminator::Return)) {
                 continue;
             }
 
-            let mut to_drop = out_states[block.index()]
+            let mut to_drop = out_states[idx]
                 .iter()
                 .copied()
                 .filter(|local| *local != return_place)
                 .collect::<Vec<_>>();
             to_drop.sort_by_key(|local| std::cmp::Reverse(local.index()));
 
-            let existing = data
+            let existing = body.blocks[block]
                 .statements
                 .iter()
                 .filter_map(|statement| match statement {
@@ -140,7 +141,7 @@ impl DropElaborator {
             for local in to_drop {
                 let place = Place::local(local);
                 if !existing.contains(&place) {
-                    data.statements.push(Statement::Drop(place));
+                    body.blocks[block].statements.push(Statement::Drop(place));
                 }
             }
         }
