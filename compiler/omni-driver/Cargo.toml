@@ -17,6 +17,7 @@ omni-parse = { path = "../omni-parse" }
 omni-syntax = { path = "../omni-syntax" }
 omni-names = { path = "../omni-names" }
 omni-types = { path = "../omni-types" }
+omni-hir = { path = "../omni-hir" }
 omni-traits = { path = "../omni-traits" }
 omni-effects = { path = "../omni-effects" }
 omni-mir = { path = "../omni-mir" }
