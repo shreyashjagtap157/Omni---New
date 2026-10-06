@@ -62,8 +62,6 @@ ctrl.txt
 *.tmp
 *.temp
 
-# Cargo lock file - generated, not source
-Cargo.lock
 
 # Rust binary executable outputs
 *.exe
@@ -114,12 +112,7 @@ mut_l.txt
 main.rs
 main_l.txt
 
-# CHANGELOG generated entries
-CHANGELOG.md.bak
 
-# Any runtime or runtime-related artifacts
-*.run
-*.runtime
 
 # F4F related corpus/corpus data
 /tests/corpus/*
@@ -129,20 +122,8 @@ CHANGELOG.md.bak
 /.delta/
 /.kilo/
 
-# CI specific
-/ci/
 
-# Conformance test artifacts
-/conformance/
 
-# Documentation (built docs)
-/docs/
 
-# Scripts (generated shell scripts)
-/scripts/
 
-# Specification files (source only, not generated)
-/spec/
 
-# Tool-specific build artifacts
-/tools/
