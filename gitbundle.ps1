@@ -33,17 +33,17 @@ Write-Output "=== Step 6: Create a complete history bundle ==="
 # Get the current date for the bundle filename
 $date = Get-Date -Format "yyyyMMdd_HHmmss"
 $bundleName = "omni-complete-history_$date.bundle"
-$bundleRefs = "omni-complete-history_$date.bundle.info"
 
-# Create a bundle with all branches and tags, including all refs
-# --all includes all branches; --tags includes all tags; --afd includes annotated refs
-git bundle create "$bundleName" --all --tags --afd
+# Create a bundle with all branches and tags
+# --all includes all branches; --tags includes all tags
+# The bundle format v2 is the default newer format
+git bundle create "$bundleName" --all --tags
 
 Write-Output "=== Bundle created: $bundleName ==="
 Write-Output "=== Bundle info ==="
 # Show bundle info
-git bundle verify "$bundleName" 2>&1 | Write-Output
+git bundle info "$bundleName" 2>&1 | Write-Output
 
 Write-Output "=== All steps completed successfully! ==="
 Write-Output "The bundle can be cloned on another device with:"
-Write-Output "git clone $bundleName"
+Write-Output "git bundle unbundle omni-complete-history_*.bundle"
