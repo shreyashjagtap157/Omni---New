@@ -91,14 +91,8 @@ impl LoweringContext {
                     func.name
                 ));
             }
-            if fn_sigs
-                .insert(func.name.clone(), (func.param_tys.clone(), func.return_ty))
-                .is_some()
-            {
-                return Err(format!(
-                    "MIR lowering error: duplicate HIR function '{}'",
-                    func.name
-                ));
+            if fn_sigs.insert(func.name.clone(), (func.param_tys.clone(), func.return_ty)).is_some() {
+                return Err(format!("MIR lowering error: duplicate HIR function '{}'", func.name));
             }
         }
 
