@@ -1453,8 +1453,7 @@ impl MirVerifier {
             }
             Rvalue::Reference { place, mutable, ty } => {
                 let root_ty = Self::local_ty(func, place.local, &func.name)?;
-                let target_ty =
-                    Self::place_ty(tcx, defs, func, place, root_ty)?;
+                let target_ty = Self::place_ty(tcx, defs, func, place, root_ty)?;
                 let TyKind::Reference { mutable: ref_mut, inner, .. } = tcx.get(*ty) else {
                     return Err(MirVerificationError::TypeMismatch {
                         func: func.name.clone(),
@@ -1470,7 +1469,8 @@ impl MirVerifier {
                 if *ref_mut != *mutable || *inner != target_ty {
                     return Err(MirVerificationError::TypeMismatch {
                         func: func.name.clone(),
-                        context: "reference rvalue mutability or target type does not match".to_string(),
+                        context: "reference rvalue mutability or target type does not match"
+                            .to_string(),
                         expected: tcx.intern(TyKind::Reference {
                             lifetime: None,
                             mutable: *mutable,
