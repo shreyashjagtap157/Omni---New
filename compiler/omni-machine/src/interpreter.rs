@@ -419,7 +419,7 @@ impl Interpreter {
         match constant {
             Constant::Lit(lit) => match lit {
                 Lit::Int(i) => Ok(Value::Int(*i)),
-                Lit::Float(f) => Ok(Value::Float(*f as f64)),
+                Lit::Float(bits) => Ok(Value::Float(f64::from_bits(*bits))),
                 Lit::Bool(b) => Ok(Value::Bool(*b)),
                 Lit::Char(c) => Ok(Value::Char(*c)),
                 Lit::Byte(b) => Ok(Value::Byte(*b)),
@@ -556,11 +556,88 @@ impl Interpreter {
         }
     }
 
-    /// Execute a type cast
-    fn execute_cast(&self, value: Value, _from: &Ty, _to: &Ty) -> Result<Value, ExecutionError> {
-        // For now, just return the value as-is
-        // In a full implementation, this would handle actual type conversions
-        Ok(value)
+    /// Execute an explicit numeric cast.
+    ///
+    /// The type checker permits casts only among Int/Byte/Char/Float.
+    /// The reference machine performs the conversion rather than silently
+    /// preserving the source value. Narrowing conversions trap on failure.
+    fn execute_cast(&self, value: Value, from: &Ty, to: &Ty) -> Result<Value, ExecutionError> {
+        use omni_mir::TyKind;
+
+        let from_kind = self.program.tcx.get(*from);
+        let to_kind = self.program.tcx.get(*to);
+
+        match (from_kind, to_kind, value) {
+            (TyKind::Int, TyKind::Int, Value::Int(v)) => Ok(Value::Int(v)),
+            (TyKind::Byte, TyKind::Byte, Value::Byte(v)) => Ok(Value::Byte(v)),
+            (TyKind::Char, TyKind::Char, Value::Char(v)) => Ok(Value::Char(v)),
+            (TyKind::Float, TyKind::Float, Value::Float(v)) => Ok(Value::Float(v)),
+
+            (TyKind::Int, TyKind::Float, Value::Int(v)) => Ok(Value::Float(v as f64)),
+            (TyKind::Byte, TyKind::Float, Value::Byte(v)) => Ok(Value::Float(v as f64)),
+            (TyKind::Char, TyKind::Float, Value::Char(v)) => Ok(Value::Float(v as u32 as f64)),
+
+            (TyKind::Float, TyKind::Int, Value::Float(v))
+                if v.is_finite() && v >= i64::MIN as f64 && v <= i64::MAX as f64 =>
+            {
+                Ok(Value::Int(v.trunc() as i64))
+            }
+            (TyKind::Float, TyKind::Byte, Value::Float(v))
+                if v.is_finite() && v >= 0.0 && v <= u8::MAX as f64 =>
+            {
+                Ok(Value::Byte(v.trunc() as u8))
+            }
+            (TyKind::Float, TyKind::Char, Value::Float(v))
+                if v.is_finite() && v >= 0.0 && v <= u32::MAX as f64 =>
+            {
+                let codepoint = v.trunc() as u32;
+                char::from_u32(codepoint).map(Value::Char).ok_or_else(|| {
+                    ExecutionError::TypeMismatch {
+                        expected: "valid Unicode scalar value".to_string(),
+                        actual: codepoint.to_string(),
+                    }
+                })
+            }
+
+            (TyKind::Int, TyKind::Byte, Value::Int(v)) => u8::try_from(v)
+                .map(Value::Byte)
+                .map_err(|_| ExecutionError::TypeMismatch {
+                    expected: "Byte range 0..=255".to_string(),
+                    actual: v.to_string(),
+                }),
+            (TyKind::Int, TyKind::Char, Value::Int(v)) => u32::try_from(v)
+                .ok()
+                .and_then(char::from_u32)
+                .map(Value::Char)
+                .ok_or_else(|| ExecutionError::TypeMismatch {
+                    expected: "valid Unicode scalar value".to_string(),
+                    actual: v.to_string(),
+                }),
+            (TyKind::Byte, TyKind::Int, Value::Byte(v)) => Ok(Value::Int(v as i64)),
+            (TyKind::Char, TyKind::Int, Value::Char(v)) => Ok(Value::Int(v as u32 as i64)),
+            (TyKind::Byte, TyKind::Char, Value::Byte(v)) => {
+                char::from_u32(v as u32).map(Value::Char).ok_or_else(|| ExecutionError::TypeMismatch {
+                    expected: "valid Unicode scalar value".to_string(),
+                    actual: v.to_string(),
+                })
+            }
+            (TyKind::Char, TyKind::Byte, Value::Char(v)) => {
+                let value = v as u32;
+                if value <= u8::MAX as u32 {
+                    Ok(Value::Byte(value as u8))
+                } else {
+                    Err(ExecutionError::TypeMismatch {
+                        expected: "Byte range 0..=255".to_string(),
+                        actual: value.to_string(),
+                    })
+                }
+            }
+
+            (from_kind, to_kind, value) => Err(ExecutionError::TypeMismatch {
+                expected: format!("{:?}", to_kind),
+                actual: format!("{:?} value from {:?}", from_kind, value),
+            }),
+        }
     }
 
     /// Execute an aggregate construction
@@ -706,12 +783,121 @@ impl Interpreter {
         Ok(current_value)
     }
 
-    /// Assign a value to a place
+    /// Assign a value to a place while preserving unrelated aggregate members.
     fn assign_place(&mut self, place: &Place, value: Value) -> Result<(), ExecutionError> {
-        // For now, just assign to the local directly
-        // In a full implementation, this would handle projections and memory references
-        self.locals.insert(place.local, value);
-        Ok(())
+        if place.projections.is_empty() {
+            self.locals.insert(place.local, value);
+            return Ok(());
+        }
+
+        let mut index_values = HashMap::new();
+        for projection in &place.projections {
+            if let Projection::Index(index_local) = projection {
+                let index_value = self.locals.get(index_local).cloned().ok_or_else(|| {
+                    ExecutionError::MemoryAccessError {
+                        message: format!("Index local {:?} not found for assignment", index_local),
+                    }
+                })?;
+                index_values.insert(*index_local, index_value);
+            }
+        }
+
+        let root = self.locals.get_mut(&place.local).ok_or_else(|| {
+            ExecutionError::MemoryAccessError {
+                message: format!("Local {:?} not found", place.local),
+            }
+        })?;
+
+        Self::assign_projected_value(root, &place.projections, value, &index_values, place)
+    }
+
+    fn assign_projected_value(
+        base: &mut Value,
+        projections: &[Projection],
+        value: Value,
+        index_values: &HashMap<Local, Value>,
+        place: &Place,
+    ) -> Result<(), ExecutionError> {
+        if projections.is_empty() {
+            *base = value;
+            return Ok(());
+        }
+
+        match &projections[0] {
+            Projection::Field(field) => match base {
+                Value::Struct { fields, .. } => {
+                    let child = fields.get_mut(field).ok_or_else(|| ExecutionError::InvalidProjection {
+                        place: place.clone(),
+                        message: format!("Field '{}' does not exist", field),
+                    })?;
+                    Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                }
+                Value::EnumVariant { fields, .. } => {
+                    let index = field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
+                        place: place.clone(),
+                        message: format!("Enum field '{}' is not an ordinal", field),
+                    })?;
+                    let child = fields.get_mut(index).ok_or_else(|| ExecutionError::InvalidProjection {
+                        place: place.clone(),
+                        message: format!("Enum field index {} is out of range", index),
+                    })?;
+                    Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                }
+                _ => Err(ExecutionError::InvalidProjection {
+                    place: place.clone(),
+                    message: format!("Cannot project field '{}' from {:?}", field, base),
+                }),
+            },
+            Projection::ConstantIndex(index) => match base {
+                Value::Tuple(elements) | Value::Array(elements) => {
+                    let child = elements.get_mut(*index).ok_or_else(|| ExecutionError::InvalidProjection {
+                        place: place.clone(),
+                        message: format!("Index {} is out of range", index),
+                    })?;
+                    Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                }
+                _ => Err(ExecutionError::InvalidProjection {
+                    place: place.clone(),
+                    message: format!("Cannot apply constant index to {:?}", base),
+                }),
+            },
+            Projection::Index(index_local) => {
+                let index = match index_values.get(index_local) {
+                    Some(Value::Int(value)) => usize::try_from(*value).map_err(|_| ExecutionError::InvalidProjection {
+                        place: place.clone(),
+                        message: format!("Negative array index {} is invalid", value),
+                    })?,
+                    Some(other) => {
+                        return Err(ExecutionError::InvalidProjection {
+                            place: place.clone(),
+                            message: format!("Array index must be Int, got {:?}", other),
+                        });
+                    }
+                    None => {
+                        return Err(ExecutionError::MemoryAccessError {
+                            message: format!("Index local {:?} not available", index_local),
+                        });
+                    }
+                };
+                match base {
+                    Value::Array(elements) | Value::Tuple(elements) => {
+                        let child = elements.get_mut(index).ok_or_else(|| ExecutionError::InvalidProjection {
+                            place: place.clone(),
+                            message: format!("Index {} is out of range", index),
+                        })?;
+                        Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                    }
+                    _ => Err(ExecutionError::InvalidProjection {
+                        place: place.clone(),
+                        message: format!("Cannot apply runtime index to {:?}", base),
+                    }),
+                }
+            }
+            Projection::Deref => Err(ExecutionError::InvalidProjection {
+                place: place.clone(),
+                message: "Deref projection requires a valid reference allocation".to_string(),
+            }),
+        }
     }
 
     /// Apply a projection to a value
@@ -739,20 +925,13 @@ impl Interpreter {
                     .clone();
                 self.execute_index_projection(base, index_value)
             }
-            Projection::Deref => {
-                match base {
-                    Value::Reference(_place_value) => {
-                        // Dereference the place value
-                        // For now, return a placeholder value
-                        // In a full implementation, this would read from memory
-                        Ok(Value::Int(0)) // Placeholder
-                    }
-                    _ => Err(ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
-                        message: "Cannot dereference non-reference value".to_string(),
-                    }),
-                }
-            }
+            Projection::Deref => Err(ExecutionError::InvalidProjection {
+                place: Place::local(Local::from(0)),
+                message: match base {
+                    Value::Reference(_) => "Reference dereference requires an implemented abstract-memory allocation".to_string(),
+                    _ => "Cannot dereference non-reference value".to_string(),
+                },
+            })
         }
     }
 
@@ -793,9 +972,34 @@ impl Interpreter {
         }
     }
 
-    /// Invalidate a place (e.g., after a move)
+    /// Invalidate a place after a move/drop without destroying unrelated
+    /// aggregate members.
     fn invalidate_place(&mut self, place: &Place) {
-        self.locals.insert(place.local, Value::Uninit);
+        if place.projections.is_empty() {
+            self.locals.insert(place.local, Value::Uninit);
+            return;
+        }
+
+        let mut index_values = HashMap::new();
+        for projection in &place.projections {
+            if let Projection::Index(index_local) = projection {
+                if let Some(value) = self.locals.get(index_local).cloned() {
+                    index_values.insert(*index_local, value);
+                } else {
+                    return;
+                }
+            }
+        }
+
+        if let Some(root) = self.locals.get_mut(&place.local) {
+            let _ = Self::assign_projected_value(
+                root,
+                &place.projections,
+                Value::Uninit,
+                &index_values,
+                place,
+            );
+        }
     }
 
     /// Execute an assumption
