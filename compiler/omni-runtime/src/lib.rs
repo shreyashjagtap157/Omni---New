@@ -245,9 +245,10 @@ impl Runtime {
         let initialized = vec![false; size];
         let bytes = vec![0u8; size];
         let id = AllocationId(self.next_allocation);
-        self.next_allocation = self.next_allocation.checked_add(1).ok_or(
-            RuntimeError::AllocationSizeOverflow { size },
-        )?;
+        self.next_allocation = self
+            .next_allocation
+            .checked_add(1)
+            .ok_or(RuntimeError::AllocationSizeOverflow { size })?;
         self.allocations.insert(id, Allocation { bytes, initialized, align, mutable });
         Ok(id)
     }
@@ -265,7 +266,10 @@ impl Runtime {
     }
 
     pub fn allocation_info(&self, id: AllocationId) -> Result<(usize, u32, bool), RuntimeError> {
-        let allocation = self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
+        let allocation = self
+            .allocations
+            .get(&id)
+            .ok_or(RuntimeError::UnknownAllocation(id))?;
         Ok((allocation.bytes.len(), allocation.align, allocation.mutable))
     }
 
@@ -290,10 +294,8 @@ impl Runtime {
         data: &[u8],
     ) -> Result<(), RuntimeError> {
         self.ensure_running()?;
-        let allocation = self
-            .allocations
-            .get_mut(&id)
-            .ok_or(RuntimeError::UnknownAllocation(id))?;
+        let allocation =
+            self.allocations.get_mut(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
         if !allocation.mutable {
             return Err(RuntimeError::ImmutableAllocation(id));
         }
