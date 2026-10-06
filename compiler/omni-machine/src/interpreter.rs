@@ -506,15 +506,21 @@ impl Interpreter {
         right: Value,
     ) -> Result<Value, ExecutionError> {
         match (op, left, right) {
-            (BinOp::Add, Value::Int(l), Value::Int(r)) => l.checked_add(r)
-                .map(Value::Int)
-                .ok_or_else(|| ExecutionError::ArithmeticFault { operation: format!("{l} + {r} overflows") }),
-            (BinOp::Sub, Value::Int(l), Value::Int(r)) => l.checked_sub(r)
-                .map(Value::Int)
-                .ok_or_else(|| ExecutionError::ArithmeticFault { operation: format!("{l} - {r} overflows") }),
-            (BinOp::Mul, Value::Int(l), Value::Int(r)) => l.checked_mul(r)
-                .map(Value::Int)
-                .ok_or_else(|| ExecutionError::ArithmeticFault { operation: format!("{l} * {r} overflows") }),
+            (BinOp::Add, Value::Int(l), Value::Int(r)) => {
+                l.checked_add(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
+                    operation: format!("{l} + {r} overflows"),
+                })
+            }
+            (BinOp::Sub, Value::Int(l), Value::Int(r)) => {
+                l.checked_sub(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
+                    operation: format!("{l} - {r} overflows"),
+                })
+            }
+            (BinOp::Mul, Value::Int(l), Value::Int(r)) => {
+                l.checked_mul(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
+                    operation: format!("{l} * {r} overflows"),
+                })
+            },
             (BinOp::Div, Value::Int(l), Value::Int(r)) => {
                 if r == 0 {
                     Err(ExecutionError::DivisionByZero)
@@ -590,9 +596,7 @@ impl Interpreter {
     fn execute_unary_op(&self, op: UnOp, operand: Value) -> Result<Value, ExecutionError> {
         match (op, operand) {
             (UnOp::Neg, Value::Int(i)) => i.checked_neg().map(Value::Int).ok_or_else(|| {
-                ExecutionError::ArithmeticFault {
-                    operation: format!("negating {i} overflows"),
-                }
+                ExecutionError::ArithmeticFault { operation: format!("negating {i} overflows") }
             }),
             (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
             (UnOp::BitNot, Value::Int(i)) => Ok(Value::Int(!i)),
@@ -646,28 +650,28 @@ impl Interpreter {
                 })
             }
 
-            (TyKind::Int, TyKind::Byte, Value::Int(v)) => u8::try_from(v)
-                .map(Value::Byte)
-                .map_err(|_| ExecutionError::TypeMismatch {
+            (TyKind::Int, TyKind::Byte, Value::Int(v)) => {
+                u8::try_from(v).map(Value::Byte).map_err(|_| ExecutionError::TypeMismatch {
                     expected: "Byte range 0..=255".to_string(),
                     actual: v.to_string(),
-                }),
-            (TyKind::Int, TyKind::Char, Value::Int(v)) => u32::try_from(v)
-                .ok()
-                .and_then(char::from_u32)
+                })
+            }
+            (TyKind::Int, TyKind::Char, Value::Int(v)) => {
+                u32::try_from(v).ok().and_then(char::from_u32).map(Value::Char).ok_or_else(|| {
+                    ExecutionError::TypeMismatch {
+                        expected: "valid Unicode scalar value".to_string(),
+                        actual: v.to_string(),
+                    }
+                })
+            }
+            (TyKind::Byte, TyKind::Int, Value::Byte(v)) => Ok(Value::Int(v as i64)),
+            (TyKind::Char, TyKind::Int, Value::Char(v)) => Ok(Value::Int(v as u32 as i64)),
+            (TyKind::Byte, TyKind::Char, Value::Byte(v)) => char::from_u32(v as u32)
                 .map(Value::Char)
                 .ok_or_else(|| ExecutionError::TypeMismatch {
                     expected: "valid Unicode scalar value".to_string(),
                     actual: v.to_string(),
                 }),
-            (TyKind::Byte, TyKind::Int, Value::Byte(v)) => Ok(Value::Int(v as i64)),
-            (TyKind::Char, TyKind::Int, Value::Char(v)) => Ok(Value::Int(v as u32 as i64)),
-            (TyKind::Byte, TyKind::Char, Value::Byte(v)) => {
-                char::from_u32(v as u32).map(Value::Char).ok_or_else(|| ExecutionError::TypeMismatch {
-                    expected: "valid Unicode scalar value".to_string(),
-                    actual: v.to_string(),
-                })
-            }
             (TyKind::Char, TyKind::Byte, Value::Char(v)) => {
                 let value = v as u32;
                 if value <= u8::MAX as u32 {
@@ -849,11 +853,10 @@ impl Interpreter {
             }
         }
 
-        let root = self.locals.get_mut(&place.local).ok_or_else(|| {
-            ExecutionError::MemoryAccessError {
+        let root =
+            self.locals.get_mut(&place.local).ok_or_else(|| ExecutionError::MemoryAccessError {
                 message: format!("Local {:?} not found", place.local),
-            }
-        })?;
+            })?;
 
         Self::assign_projected_value(root, &place.projections, value, &index_values, place)
     }
@@ -873,22 +876,37 @@ impl Interpreter {
         match &projections[0] {
             Projection::Field(field) => match base {
                 Value::Struct { fields, .. } => {
-                    let child = fields.get_mut(field).ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: place.clone(),
-                        message: format!("Field '{}' does not exist", field),
-                    })?;
-                    Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                    let child =
+                        fields.get_mut(field).ok_or_else(|| ExecutionError::InvalidProjection {
+                            place: place.clone(),
+                            message: format!("Field '{}' does not exist", field),
+                        })?;
+                    Self::assign_projected_value(
+                        child,
+                        &projections[1..],
+                        value,
+                        index_values,
+                        place,
+                    )
                 }
                 Value::EnumVariant { fields, .. } => {
-                    let index = field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
-                        place: place.clone(),
-                        message: format!("Enum field '{}' is not an ordinal", field),
-                    })?;
-                    let child = fields.get_mut(index).ok_or_else(|| ExecutionError::InvalidProjection {
-                        place: place.clone(),
-                        message: format!("Enum field index {} is out of range", index),
-                    })?;
-                    Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                    let index =
+                        field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
+                            place: place.clone(),
+                            message: format!("Enum field '{}' is not an ordinal", field),
+                        })?;
+                    let child =
+                        fields.get_mut(index).ok_or_else(|| ExecutionError::InvalidProjection {
+                            place: place.clone(),
+                            message: format!("Enum field index {} is out of range", index),
+                        })?;
+                    Self::assign_projected_value(
+                        child,
+                        &projections[1..],
+                        value,
+                        index_values,
+                        place,
+                    )
                 }
                 _ => Err(ExecutionError::InvalidProjection {
                     place: place.clone(),
@@ -910,10 +928,12 @@ impl Interpreter {
             },
             Projection::Index(index_local) => {
                 let index = match index_values.get(index_local) {
-                    Some(Value::Int(value)) => usize::try_from(*value).map_err(|_| ExecutionError::InvalidProjection {
-                        place: place.clone(),
-                        message: format!("Negative array index {} is invalid", value),
-                    })?,
+                    Some(Value::Int(value)) => {
+                        usize::try_from(*value).map_err(|_| ExecutionError::InvalidProjection {
+                            place: place.clone(),
+                            message: format!("Negative array index {} is invalid", value),
+                        })?
+                    }
                     Some(other) => {
                         return Err(ExecutionError::InvalidProjection {
                             place: place.clone(),
@@ -981,7 +1001,7 @@ impl Interpreter {
                     }
                     _ => "Cannot dereference non-reference value".to_string(),
                 },
-            })
+            }),
         }
     }
 
