@@ -75,7 +75,7 @@ impl PoloniusFacts {
                             }
                         }
 
-                        if let Rvalue::Reference { place: borrowed, .. } = rvalue {
+                        if let Rvalue::Reference { place: _borrowed, .. } = rvalue {
                             let loan = format!("loan_bb{}_{}", block_idx, stmt_idx);
                             let region = format!("'r_bb{}_{}", block_idx, stmt_idx);
 
