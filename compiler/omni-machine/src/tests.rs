@@ -127,6 +127,10 @@ fn const_bool(value: bool) -> Operand {
     Operand::Constant(Constant::Lit(Lit::Bool(value)))
 }
 
+fn const_float(value: f64) -> Operand {
+    Operand::Constant(Constant::Lit(Lit::Float(value.to_bits())))
+}
+
 fn copy(place: Place) -> Operand {
     Operand::Copy(place)
 }
@@ -213,6 +217,86 @@ fn evaluates_integer_comparisons() {
             "case {i}: {op:?}({lhs}, {rhs})"
         );
     }
+}
+
+#[test]
+fn evaluates_float_arithmetic_operations() {
+    let cases: &[(BinOp, f64, f64, f64)] = &[
+        (BinOp::Add, 1.5, 2.25, 3.75),
+        (BinOp::Sub, 5.5, 2.25, 3.25),
+        (BinOp::Mul, 2.5, 4.0, 10.0),
+        (BinOp::Div, 7.5, 2.5, 3.0),
+    ];
+
+    for (i, (op, lhs, rhs, expected)) in cases.iter().enumerate() {
+        let f = Fixture::new();
+        let float = {
+            let mut tcx = f.tcx.clone();
+            tcx.intern(TyKind::Float)
+        };
+        let mut builder = FnBuilder::new(&f, "f", TypeSpec::Float);
+        let ret = builder.return_place;
+        builder.local("lhs", Some(float));
+        let func = builder.returns(vec![assign(
+            Place::local(ret),
+            Rvalue::BinaryOp(*op, const_float(*lhs), const_float(*rhs)),
+        )]);
+
+        let mut interp = interpreter(f, vec![func]);
+        let Value::Float(value) = interp.execute_function("f", vec![]).unwrap() else {
+            panic!("expected Float result");
+        };
+        assert_eq!(value.to_bits(), expected.to_bits(), "case {i}: {op:?}");
+    }
+}
+
+#[test]
+fn evaluates_float_comparisons_and_nan() {
+    let cases: &[(BinOp, f64, f64, bool)] = &[
+        (BinOp::Eq, 4.0, 4.0, true),
+        (BinOp::Ne, 4.0, 5.0, true),
+        (BinOp::Lt, 4.0, 5.0, true),
+        (BinOp::Le, 4.0, 4.0, true),
+        (BinOp::Gt, 5.0, 4.0, true),
+        (BinOp::Ge, 5.0, 5.0, true),
+        (BinOp::Eq, f64::NAN, f64::NAN, false),
+        (BinOp::Ne, f64::NAN, 1.0, true),
+        (BinOp::Lt, f64::NAN, 1.0, false),
+        (BinOp::Ge, 1.0, f64::NAN, false),
+    ];
+
+    for (op, lhs, rhs, expected) in cases {
+        let f = Fixture::new();
+        let mut tcx = f.tcx.clone();
+        let float = tcx.intern(TyKind::Float);
+        let mut builder = FnBuilder::new(&f, "f", TypeSpec::Bool);
+        let ret = builder.return_place;
+        builder.local("lhs", Some(float));
+        let func = builder.returns(vec![assign(
+            Place::local(ret),
+            Rvalue::BinaryOp(*op, const_float(*lhs), const_float(*rhs)),
+        )]);
+
+        let mut interp = interpreter(f, vec![func]);
+        assert_eq!(interp.execute_function("f", vec![]).unwrap(), Value::Bool(*expected));
+    }
+}
+
+#[test]
+fn evaluates_float_negation() {
+    let f = Fixture::new();
+    let float = {
+        let mut tcx = f.tcx.clone();
+        tcx.intern(TyKind::Float)
+    };
+    let mut builder = FnBuilder::new(&f, "f", TypeSpec::Float);
+    let ret = builder.return_place;
+    builder.local("operand", Some(float));
+    let func = builder
+        .returns(vec![assign(Place::local(ret), Rvalue::UnaryOp(UnOp::Neg, const_float(2.5)))]);
+
+    let mut interp = interpreter(f, vec![func]);
+    assert_eq!(interp.execute_function("f", vec![]).unwrap(), Value::Float(-2.5));
 }
 
 #[test]
