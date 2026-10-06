@@ -118,7 +118,9 @@ impl DropElaborator {
 
         for idx in 0..count {
             let block = BasicBlock::from_usize(idx);
-            if !reachable[idx] || !matches!(body.blocks[block].terminator, Some(Terminator::Return)) {
+            if !reachable[idx]
+                || !matches!(body.blocks[block].terminator, Some(Terminator::Return))
+            {
                 continue;
             }
 
@@ -383,10 +385,7 @@ mod tests {
                         otherwise: BasicBlock::from(2),
                     }),
                 },
-                BlockData {
-                    statements: vec![],
-                    terminator: Some(Terminator::Return),
-                },
+                BlockData { statements: vec![], terminator: Some(Terminator::Return) },
             ],
             vec![
                 LocalDecl { name: Some("_return".into()), ty: Some(int_ty()) },
