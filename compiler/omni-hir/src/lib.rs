@@ -232,9 +232,7 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
         Expr::Index { expr, index } => {
             contains_unresolved_syntax(expr) || contains_unresolved_syntax(index)
         }
-        Expr::Cast { expr, ty } => {
-            type_spec_is_unresolved(ty) || contains_unresolved_syntax(expr)
-        }
+        Expr::Cast { expr, ty } => type_spec_is_unresolved(ty) || contains_unresolved_syntax(expr),
         Expr::Struct { generic_args, fields, .. } => {
             generic_args.iter().any(type_spec_is_unresolved)
                 || fields.iter().any(|(_, value)| contains_unresolved_syntax(value))
@@ -275,9 +273,7 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
         Expr::For { iterable, body, .. } => {
             contains_unresolved_syntax(iterable) || contains_unresolved_syntax(body)
         }
-        Expr::Break { value, .. } => {
-            value.as_ref().is_some_and(contains_unresolved_syntax)
-        }
+        Expr::Break { value, .. } => value.as_ref().is_some_and(contains_unresolved_syntax),
         Expr::Continue { .. } | Expr::Return(None) | Expr::Literal(_) | Expr::Var(_) => false,
         Expr::Return(Some(expr)) => contains_unresolved_syntax(expr),
     }
