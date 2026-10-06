@@ -170,7 +170,7 @@ fn transfer_block(
         }
         Some(Terminator::Return) => {
             let return_place = Place::local(function.return_place);
-            access_place(
+            transfer_place_access(
                 function,
                 block,
                 "function return",
