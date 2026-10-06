@@ -201,9 +201,9 @@ fn transfer_terminator(term: &Terminator, state: &mut HashSet<Local>) {
 
 fn transfer_rvalue(rvalue: &Rvalue, state: &mut HashSet<Local>) {
     match rvalue {
-        Rvalue::Use(operand)
-        | Rvalue::UnaryOp(_, operand)
-        | Rvalue::Cast { operand, .. } => transfer_operand(operand, state),
+        Rvalue::Use(operand) | Rvalue::UnaryOp(_, operand) | Rvalue::Cast { operand, .. } => {
+            transfer_operand(operand, state)
+        }
         Rvalue::BinaryOp(_, lhs, rhs) => {
             transfer_operand(lhs, state);
             transfer_operand(rhs, state);
@@ -259,11 +259,7 @@ mod tests {
         for local in locals {
             local_vec.push(local);
         }
-        Body {
-            blocks: block_vec,
-            local_decls: local_vec,
-            unsafe_blocks: Vec::new(),
-        }
+        Body { blocks: block_vec, local_decls: local_vec, unsafe_blocks: Vec::new() }
     }
 
     #[test]
@@ -319,10 +315,7 @@ mod tests {
                     statements: vec![],
                     terminator: Some(Terminator::Goto(BasicBlock::from(3))),
                 },
-                BlockData {
-                    statements: vec![],
-                    terminator: Some(Terminator::Return),
-                },
+                BlockData { statements: vec![], terminator: Some(Terminator::Return) },
             ],
             vec![
                 LocalDecl { name: Some("_return".into()), ty: Some(int_ty()) },
