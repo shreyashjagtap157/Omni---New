@@ -1249,6 +1249,14 @@ impl Interpreter {
                 }
             }
             Value::Reference(_) => {}
+            Value::Range { start, end, .. } => {
+                if *start != Value::Uninit {
+                    self.drop_value(*start)?;
+                }
+                if *end != Value::Uninit {
+                    self.drop_value(*end)?;
+                }
+            }
             Value::FunctionRef(_)
             | Value::Int(_)
             | Value::Float(_)
