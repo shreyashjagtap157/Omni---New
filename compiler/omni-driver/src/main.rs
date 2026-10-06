@@ -262,7 +262,7 @@ pub fn compile_source_to_object(
 ) -> Result<Vec<u8>, String> {
     let (program, hir) = lower_to_hir(source_code, manifest)?;
     let mut lowering = omni_mir::lower::LoweringContext::new();
-    let mir = lowering.lower_hir_program(&hir).map_err(|e| format!("MIR lowering error: {}", e))?;
+    let mir = lowering.lower_hir_program(hir).map_err(|e| format!("MIR lowering error: {}", e))?;
     omni_verify::MirVerifier::verify_program(&mir)
         .map_err(|e| format!("MIR verification error: {:?}", e))?;
     omni_codegen::compile_verified_mir_program(&program, &mir)
