@@ -2826,3 +2826,119 @@ mod tests {
                     type_params: vec![],
                     bounds: vec![],
                     params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Let {
+                        pattern: omni_types::ast::Pattern::Binding("value".to_string()),
+                        ty: None,
+                        init: Box::new(Expr::Call {
+                            func: "inc".to_string(),
+                            generic_args: vec![],
+                            args: vec![Expr::Literal(Lit::Int(41))],
+                        }),
+                        body: Box::new(Expr::Return(Some(Box::new(Expr::Var(
+                            "value".to_string(),
+                        ))))),
+                    },
+                },
+            ],
+        };
+
+        let mir = ctx
+            .lower_monomorphized_program(&program)
+            .expect("call result must lower to a continuation block");
+        let main = mir.functions.iter().find(|f| f.name == "main").expect("main MIR");
+        assert!(main.body.blocks.len() >= 2);
+        assert!(main.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::Use(crate::ir::Operand::Copy(_))
+                    )
+                )
+            })
+        }));
+    }
+
+    #[test]
+    fn test_mir_lowering_materializes_literal_var_unary_and_block() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![
+                GenericFnDef {
+                    name: "literal".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Literal(Lit::Int(7)),
+                },
+                GenericFnDef {
+                    name: "identity".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Var("x".to_string()),
+                },
+                GenericFnDef {
+                    name: "negate".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![("x".to_string(), TypeSpec::Int)],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Unary {
+                        op: omni_types::ast::UnOp::Neg,
+                        expr: Box::new(Expr::Var("x".to_string())),
+                    },
+                },
+                GenericFnDef {
+                    name: "block_value".to_string(),
+                    type_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: TypeSpec::Int,
+                    effects: omni_effects::EffectRow::default(),
+                    capabilities: vec![],
+                    body: Expr::Block(vec![Expr::Literal(Lit::Int(1)), Expr::Literal(Lit::Int(2))]),
+                },
+            ],
+        };
+
+        let mir = ctx.lower_monomorphized_program(&program).expect("expression corpus must lower");
+        assert_eq!(mir.functions.len(), 4);
+        for function in &mir.functions {
+            assert!(
+                function.body.blocks.iter().any(|block| !block.statements.is_empty()),
+                "function '{}' must materialize at least one MIR statement",
+                function.name
+            );
+            assert!(
+                function.body.local_decls.iter().all(|decl| decl.ty.is_some()),
+                "function '{}' must type every MIR local",
+                function.name
+            );
+        }
+        let negate = mir.functions.iter().find(|f| f.name == "negate").unwrap();
+        assert!(negate.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::UnaryOp(crate::ir::UnOp::Neg, _)
+                    )
+                )
+            })
+        }));
+    }
+}
