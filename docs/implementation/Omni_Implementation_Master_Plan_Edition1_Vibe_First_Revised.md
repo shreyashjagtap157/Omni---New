@@ -989,6 +989,8 @@ Lower syntax-oriented structure into a canonical semantic representation.
 
 The HIR must eliminate merely syntactic distinctions that are no longer semantically useful while preserving all information needed for diagnostics and provenance.
 
+The Stage-1 implementation now establishes an explicit omni-hir boundary between the validated, monomorphized frontend and MIR. HIR construction is fail-closed for unresolved generic arguments and unresolved method-call syntax, preserves function effects/capabilities and struct declarations, and is consumed by the production MIR lowering path. Richer per-expression typing, provenance attachment, ownership facts, and obligation data remain subsequent HIR hardening work.
+
 ## 12.6 MIR — `0.0.5.x` later portion
 
 Define the canonical MIR model:
