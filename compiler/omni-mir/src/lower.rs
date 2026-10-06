@@ -1284,7 +1284,7 @@ impl<'a> FnMirBuilder<'a> {
                         let inner_place = match inner_op {
                             crate::ir::Operand::Copy(place) | crate::ir::Operand::Move(place) => {
                                 place
-                            },
+                            }
                             other => {
                                 let block = self.current_block.ok_or_else(|| {
                                     "MIR lowering error: dereference has no live continuation block"
