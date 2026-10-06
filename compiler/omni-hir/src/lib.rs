@@ -273,7 +273,9 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
         Expr::For { iterable, body, .. } => {
             contains_unresolved_syntax(iterable) || contains_unresolved_syntax(body)
         }
-        Expr::Break { value, .. } => value.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr)),
+        Expr::Break { value, .. } => {
+            value.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr))
+        },
         Expr::Continue { .. } | Expr::Return(None) | Expr::Literal(_) | Expr::Var(_) => false,
         Expr::Return(Some(expr)) => contains_unresolved_syntax(expr),
     }
