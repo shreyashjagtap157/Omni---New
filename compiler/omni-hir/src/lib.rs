@@ -216,12 +216,7 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
             generic_args.iter().any(type_spec_is_unresolved)
                 || args.iter().any(contains_unresolved_syntax)
         }
-        Expr::MethodCall { generic_args, receiver, args, .. } => {
-            generic_args.iter().any(type_spec_is_unresolved)
-                || contains_unresolved_syntax(receiver)
-                || args.iter().any(contains_unresolved_syntax)
-                || true
-        }
+        Expr::MethodCall { .. } => true,
         Expr::Let { ty, init, body, .. } => {
             ty.as_ref().is_some_and(type_spec_is_unresolved)
                 || contains_unresolved_syntax(init)
