@@ -186,32 +186,67 @@ fn validate_concrete_expr(expr: &Expr, function_name: &str) -> Result<(), String
     Ok(())
 }
 
+fn type_spec_is_unresolved(spec: &TypeSpec) -> bool {
+    match spec {
+        TypeSpec::GenericParam(_) => true,
+        TypeSpec::Tuple(items) => items.iter().any(type_spec_is_unresolved),
+        TypeSpec::Array(inner, _) | TypeSpec::Range(inner) => type_spec_is_unresolved(inner),
+        TypeSpec::Reference { inner, .. } => type_spec_is_unresolved(inner),
+        TypeSpec::Fn(params, ret) => {
+            params.iter().any(type_spec_is_unresolved) || type_spec_is_unresolved(ret)
+        }
+        TypeSpec::Struct(_, args)
+        | TypeSpec::Enum(_, args)
+        | TypeSpec::TraitObject { args, .. } => args.iter().any(type_spec_is_unresolved),
+        TypeSpec::Int
+        | TypeSpec::Float
+        | TypeSpec::Bool
+        | TypeSpec::Char
+        | TypeSpec::Byte
+        | TypeSpec::String
+        | TypeSpec::Unit
+        | TypeSpec::Never
+        | TypeSpec::Known(_) => false,
+    }
+}
+
 fn contains_unresolved_syntax(expr: &Expr) -> bool {
     match expr {
         Expr::Call { generic_args, args, .. } => {
-            !generic_args.is_empty() || args.iter().any(contains_unresolved_syntax)
+            generic_args.iter().any(type_spec_is_unresolved)
+                || args.iter().any(contains_unresolved_syntax)
         }
-        Expr::MethodCall { .. } => true,
-        Expr::Let { init, body, .. } => {
-            contains_unresolved_syntax(init) || contains_unresolved_syntax(body)
+        Expr::MethodCall { generic_args, receiver, args, .. } => {
+            generic_args.iter().any(type_spec_is_unresolved)
+                || contains_unresolved_syntax(receiver)
+                || args.iter().any(contains_unresolved_syntax)
+                || true
+        }
+        Expr::Let { ty, init, body, .. } => {
+            ty.as_ref().is_some_and(type_spec_is_unresolved)
+                || contains_unresolved_syntax(init)
+                || contains_unresolved_syntax(body)
         }
         Expr::Binary { lhs, rhs, .. } => {
             contains_unresolved_syntax(lhs) || contains_unresolved_syntax(rhs)
         }
         Expr::Unary { expr, .. }
         | Expr::Field { expr, .. }
-        | Expr::Cast { expr, .. }
         | Expr::Loop { body: expr, .. }
         | Expr::UnsafeBlock { body: expr } => contains_unresolved_syntax(expr),
         Expr::Index { expr, index } => {
             contains_unresolved_syntax(expr) || contains_unresolved_syntax(index)
         }
+        Expr::Cast { expr, ty } => {
+            type_spec_is_unresolved(ty) || contains_unresolved_syntax(expr)
+        }
         Expr::Struct { generic_args, fields, .. } => {
-            !generic_args.is_empty()
+            generic_args.iter().any(type_spec_is_unresolved)
                 || fields.iter().any(|(_, value)| contains_unresolved_syntax(value))
         }
         Expr::EnumVariant { generic_args, args, .. } => {
-            !generic_args.is_empty() || args.iter().any(contains_unresolved_syntax)
+            generic_args.iter().any(type_spec_is_unresolved)
+                || args.iter().any(contains_unresolved_syntax)
         }
         Expr::Tuple(items)
         | Expr::Array(items)
@@ -230,9 +265,12 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
         Expr::If { condition, then_branch, else_branch } => {
             contains_unresolved_syntax(condition)
                 || contains_unresolved_syntax(then_branch)
-                || else_branch.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr))
+                || else_branch.as_ref().is_some_and(contains_unresolved_syntax)
         }
-        Expr::Lambda { body, .. } => contains_unresolved_syntax(body),
+        Expr::Lambda { params, body } => {
+            params.iter().any(|(_, spec)| type_spec_is_unresolved(spec))
+                || contains_unresolved_syntax(body)
+        }
         Expr::Assign { target, value } | Expr::CompoundAssign { target, value, .. } => {
             contains_unresolved_syntax(target) || contains_unresolved_syntax(value)
         }
@@ -243,7 +281,7 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
             contains_unresolved_syntax(iterable) || contains_unresolved_syntax(body)
         }
         Expr::Break { value, .. } => {
-            value.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr))
+            value.as_ref().is_some_and(contains_unresolved_syntax)
         }
         Expr::Continue { .. } | Expr::Return(None) | Expr::Literal(_) | Expr::Var(_) => false,
         Expr::Return(Some(expr)) => contains_unresolved_syntax(expr),
