@@ -834,12 +834,11 @@ impl Interpreter {
         if frame == self.call_stack.len() {
             return Ok(&self.locals);
         }
-        self.call_stack
-            .get(frame)
-            .map(|call| &call.caller_locals)
-            .ok_or_else(|| ExecutionError::MemoryAccessError {
+        self.call_stack.get(frame).map(|call| &call.caller_locals).ok_or_else(|| {
+            ExecutionError::MemoryAccessError {
                 message: format!("reference owner frame {} is no longer active", frame),
-            })
+            }
+        })
     }
 
     fn get_place_value_at_frame(
@@ -898,11 +897,14 @@ impl Interpreter {
                 self.execute_constant_index_projection(base, *index)
             }
             Projection::Index(index_local) => {
-                let index_value = self
-                    .frame_locals(frame)?
-                    .get(index_local)
-                    .ok_or_else(|| ExecutionError::MemoryAccessError {
-                        message: format!("Index local {:?} not found in frame {}", index_local, frame),
+                let index_value =
+                    self.frame_locals(frame)?.get(index_local).ok_or_else(|| {
+                        ExecutionError::MemoryAccessError {
+                            message: format!(
+                                "Index local {:?} not found in frame {}",
+                                index_local, frame
+                            ),
+                        }
                     })?
                     .clone();
                 self.execute_index_projection(base, index_value)
@@ -950,12 +952,14 @@ impl Interpreter {
         let mut index_values = HashMap::new();
         for projection in &place.projections {
             if let Projection::Index(index_local) = projection {
-                let index_value = self
-                    .frame_locals(frame)?
-                    .get(index_local)
-                    .cloned()
-                    .ok_or_else(|| ExecutionError::MemoryAccessError {
-                        message: format!("Index local {:?} not found in frame {}", index_local, frame),
+                let index_value =
+                    self.frame_locals(frame)?.get(index_local).cloned().ok_or_else(|| {
+                        ExecutionError::MemoryAccessError {
+                            message: format!(
+                                "Index local {:?} not found in frame {}",
+                                index_local, frame
+                            ),
+                        }
                     })?;
                 index_values.insert(*index_local, index_value);
             }
@@ -964,9 +968,7 @@ impl Interpreter {
         let root = if frame == self.call_stack.len() {
             self.locals.get_mut(&place.local)
         } else {
-            self.call_stack
-                .get_mut(frame)
-                .and_then(|call| call.caller_locals.get_mut(&place.local))
+            self.call_stack.get_mut(frame).and_then(|call| call.caller_locals.get_mut(&place.local))
         }
         .ok_or_else(|| ExecutionError::MemoryAccessError {
             message: format!("Local {:?} not found in frame {}", place.local, frame),
