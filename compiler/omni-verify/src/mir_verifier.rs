@@ -460,6 +460,9 @@ impl MirVerifier {
                                     Self::check_operand(fn_name, operand, num_locals)?;
                                 }
                             }
+                            Rvalue::Reference { place, .. } => {
+                                Self::check_place(fn_name, place, num_locals)?;
+                            }
                             Rvalue::Range { start, end, .. } => {
                                 Self::check_operand(fn_name, start, num_locals)?;
                                 Self::check_operand(fn_name, end, num_locals)?;
@@ -1436,6 +1439,36 @@ impl MirVerifier {
                             context: "aggregate kind does not match declared MIR type".to_string(),
                         });
                     }
+                }
+                Ok(*ty)
+            }
+            Rvalue::Reference { place, mutable, ty } => {
+                let root_ty = Self::local_ty(func, place.local, &func.name)?;
+                let target_ty =
+                    Self::place_ty(tcx, defs, func, place, root_ty)?;
+                let TyKind::Reference { mutable: ref_mut, inner, .. } = tcx.get(*ty) else {
+                    return Err(MirVerificationError::TypeMismatch {
+                        func: func.name.clone(),
+                        context: "reference rvalue must have a reference type".to_string(),
+                        expected: tcx.intern(TyKind::Reference {
+                            lifetime: None,
+                            mutable: *mutable,
+                            inner: target_ty,
+                        }),
+                        actual: *ty,
+                    });
+                };
+                if *ref_mut != *mutable || *inner != target_ty {
+                    return Err(MirVerificationError::TypeMismatch {
+                        func: func.name.clone(),
+                        context: "reference rvalue mutability or target type does not match".to_string(),
+                        expected: tcx.intern(TyKind::Reference {
+                            lifetime: None,
+                            mutable: *mutable,
+                            inner: target_ty,
+                        }),
+                        actual: *ty,
+                    });
                 }
                 Ok(*ty)
             }
