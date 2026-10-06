@@ -44,9 +44,8 @@ impl LoweringContext {
     ) -> Result<crate::ir::MirProgram, String> {
         hir.validate()?;
         self.struct_defs = hir.struct_defs.clone();
-        let concrete = hir.to_monomorphized_program();
         let tcx = hir.tcx;
-        self.lower_concrete_program(&concrete, tcx)
+        self.lower_hir_functions(&hir.functions, tcx)
     }
 
     /// Supplies struct declarations so field projections can be typed during lowering.
@@ -56,9 +55,9 @@ impl LoweringContext {
 
     /// Lowers a concrete monomorphized program through the canonical HIR boundary.
     ///
-    /// This compatibility entry point is retained for existing callers, but it
-    /// cannot bypass HIR validation: the program is first converted into HIR and
-    /// then lowered by the same implementation used by explicit HIR callers.
+    /// This compatibility entry point is retained for existing callers. It
+    /// constructs canonical HIR first and then uses exactly the same HIR-to-MIR
+    /// implementation as the explicit HIR entry point.
     pub fn lower_monomorphized_program(
         &mut self,
         prog: &MonomorphizedProgram,
@@ -71,44 +70,51 @@ impl LoweringContext {
         self.lower_hir_program(hir)
     }
 
-    fn lower_concrete_program(
+    /// Lower the canonical HIR representation into typed MIR without
+    /// reconstructing or re-lowering its type specifications.
+    ///
+    /// HIR owns the canonical TyCtxt and concrete function type handles. Those
+    /// handles become the MIR type authority directly. The declarative
+    /// TypeSpec fields retained by HIR are consumed only where MIR must
+    /// preserve source-level declarations for diagnostics/compatibility.
+    fn lower_hir_functions(
         &mut self,
-        prog: &MonomorphizedProgram,
+        functions: &[omni_hir::HirFunction],
         mut tcx: TyCtxt,
     ) -> Result<crate::ir::MirProgram, String> {
-        prog.assert_concrete_for_mir()?;
-        let subst = omni_types::checker::SubstEnv::new();
         let mut fn_sigs: HashMap<String, (Vec<Ty>, Ty)> = HashMap::new();
 
-        for func in &prog.functions {
-            let params = func
-                .params
-                .iter()
-                .map(|(_, spec)| tcx.lower_type_spec(spec, &subst))
-                .collect::<Vec<_>>();
-            let ret = tcx.lower_type_spec(&func.return_type, &subst);
-            if fn_sigs.insert(func.name.clone(), (params, ret)).is_some() {
+        for func in functions {
+            if func.param_tys.len() != func.params.len() {
                 return Err(format!(
-                    "MIR lowering error: duplicate monomorphized function '{}'",
+                    "MIR lowering error: HIR parameter metadata mismatch in '{}'",
+                    func.name
+                ));
+            }
+            if fn_sigs
+                .insert(func.name.clone(), (func.param_tys.clone(), func.return_ty))
+                .is_some()
+            {
+                return Err(format!(
+                    "MIR lowering error: duplicate HIR function '{}'",
                     func.name
                 ));
             }
         }
 
-        let mut mir_functions = Vec::with_capacity(prog.functions.len());
+        let mut mir_functions = Vec::with_capacity(functions.len());
 
-        for func in &prog.functions {
+        for func in functions {
             let mut blocks = IndexVec::new();
             let mut local_decls = IndexVec::new();
             let mut scope = HashMap::new();
 
-            let ret_ty = tcx.lower_type_spec(&func.return_type, &subst);
+            let ret_ty = func.return_ty;
             let return_place = local_decls
                 .push(crate::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(ret_ty) });
 
             let mut param_locals = Vec::with_capacity(func.params.len());
-            for (p_name, p_type) in &func.params {
-                let p_ty = tcx.lower_type_spec(p_type, &subst);
+            for ((p_name, _), &p_ty) in func.params.iter().zip(&func.param_tys) {
                 let p_local = local_decls
                     .push(crate::ir::LocalDecl { name: Some(p_name.clone()), ty: Some(p_ty) });
                 param_locals.push(p_local);
@@ -117,7 +123,7 @@ impl LoweringContext {
 
             let mut builder = FnMirBuilder {
                 tcx: &mut tcx,
-                subst: &subst,
+                subst: &omni_types::checker::SubstEnv::new(),
                 local_decls: &mut local_decls,
                 blocks: &mut blocks,
                 scope,
@@ -151,12 +157,6 @@ impl LoweringContext {
                         ));
                     }
                     None => {
-                        // A `None` body result means control never produced a
-                        // value on this path. That is admissible for a `Never`
-                        // return type, which is how a diverging function (for
-                        // example one whose only statement is an infinite
-                        // `loop`) is typed. Any other non-Unit return type would
-                        // need a value the body never produced.
                         let unit_ty = builder.tcx.intern(TyKind::Unit);
                         let never_ty = builder.tcx.intern(TyKind::Never);
                         if ret_ty != unit_ty && ret_ty != never_ty {
@@ -194,7 +194,6 @@ impl LoweringContext {
         }
         Ok(mir_prog)
     }
-}
 
 fn simple_pattern_binding(pattern: &omni_types::ast::Pattern) -> Option<String> {
     match pattern {
