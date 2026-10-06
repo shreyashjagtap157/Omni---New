@@ -2246,6 +2246,9 @@ fn lower_rvalue_to_cl(
             "Codegen error: enum constructor '{}::{}' requires target tagged-layout metadata",
             enum_name, variant
         )),
+        omni_mir::ir::Rvalue::Reference { .. } => Err(
+            "Codegen error: reference value representation requires target pointer/lifetime ABI".into(),
+        ),
         omni_mir::ir::Rvalue::Range { .. } => Err(
             "Codegen error: range value representation requires target layout metadata".into(),
         ),
