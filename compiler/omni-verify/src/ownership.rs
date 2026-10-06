@@ -301,7 +301,7 @@ fn apply_ownership_access(
         AccessKind::Read => ownership.read(&place),
         AccessKind::Move => ownership.move_place(place),
         AccessKind::Write => ownership.assign(place),
-        AccessKind::Drop => ownership.drop_place(place),
+        AccessKind::Drop => ownership.drop_place(&place),
         AccessKind::BorrowShared | AccessKind::BorrowMut => {
             // Borrow creation requires a stable region identifier. Full MIR
             // lifetime elaboration owns region derivation; this verifier only
