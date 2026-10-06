@@ -15,7 +15,7 @@ active implementation path now includes:
 - lossless source/lexical and CST/parser infrastructure;
 - Edition 1 semantic name/type infrastructure;
 - ownership, effects, capability, trait, and monomorphization infrastructure;
-- a canonical HIR boundary consumed by MIR lowering;
+- a canonical HIR boundary consumed directly by MIR lowering;
 - typed MIR with places, projections, control flow, calls, drops, bounds checks, and unsafe-region
   metadata;
 - an independently invoked MIR verifier;
