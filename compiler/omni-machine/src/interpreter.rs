@@ -746,11 +746,16 @@ impl Interpreter {
     /// The MIR `Rvalue::Field` carries a `Ty` for the projected result, but projection
     /// here is resolved structurally against the runtime `Value` shape, so no type
     /// parameter is required.
-    fn execute_field_projection(&self, base: Value, field: &str) -> Result<Value, ExecutionError> {
+    fn execute_field_projection(
+        &self,
+        base: Value,
+        field: &str,
+        place: &Place,
+    ) -> Result<Value, ExecutionError> {
         match base {
             Value::Struct { name, fields } => {
                 fields.get(field).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
-                    place: Place::local(Local::from(0)), // Placeholder
+                    place: place.clone(),
                     message: format!("Field '{}' not found in struct '{}'", field, name),
                 })
             }
@@ -759,14 +764,14 @@ impl Interpreter {
                 // This is a simplification; a full implementation would need proper enum layout
                 let field_index =
                     field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
+                        place: place.clone(),
                         message: format!(
                             "Invalid field index '{}' in enum variant '{}'",
                             field, variant
                         ),
                     })?;
                 fields.get(field_index).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
-                    place: Place::local(Local::from(0)), // Placeholder
+                    place: place.clone(),
                     message: format!(
                         "Field index {} out of range in enum variant '{}'",
                         field_index, variant
@@ -774,7 +779,7 @@ impl Interpreter {
                 })
             }
             _ => Err(ExecutionError::InvalidProjection {
-                place: Place::local(Local::from(0)), // Placeholder
+                place: place.clone(),
                 message: format!("Cannot project field '{}' from non-struct value", field),
             }),
         }
@@ -788,13 +793,18 @@ impl Interpreter {
     /// The MIR index is a signed integer. A negative index must be rejected as
     /// out of range in its own right rather than being cast to `usize` first,
     /// which would wrap to a huge offset and report a nonsensical bound.
-    fn execute_index_projection(&self, base: Value, index: Value) -> Result<Value, ExecutionError> {
+    fn execute_index_projection(
+        &self,
+        base: Value,
+        index: Value,
+        place: &Place,
+    ) -> Result<Value, ExecutionError> {
         match (base, index) {
             (Value::Tuple(elements), Value::Int(idx)) => {
                 let len = elements.len();
                 let slot = usize::try_from(idx).ok().and_then(|i| elements.get(i));
                 slot.cloned().ok_or_else(|| ExecutionError::InvalidProjection {
-                    place: Place::local(Local::from(0)), // Placeholder
+                    place: place.clone(),
                     message: format!("Tuple index {} out of range for length {}", idx, len),
                 })
             }
@@ -802,7 +812,7 @@ impl Interpreter {
                 let len = elements.len();
                 let slot = usize::try_from(idx).ok().and_then(|i| elements.get(i));
                 slot.cloned().ok_or_else(|| ExecutionError::InvalidProjection {
-                    place: Place::local(Local::from(0)), // Placeholder
+                    place: place.clone(),
                     message: format!("Array index {} out of range for length {}", idx, len),
                 })
             }
@@ -810,12 +820,12 @@ impl Interpreter {
                 let len = s.chars().count();
                 let ch = usize::try_from(idx).ok().and_then(|i| s.chars().nth(i));
                 ch.map(Value::Char).ok_or_else(|| ExecutionError::InvalidProjection {
-                    place: Place::local(Local::from(0)), // Placeholder
+                    place: place.clone(),
                     message: format!("String index {} out of range for length {}", idx, len),
                 })
             }
             _ => Err(ExecutionError::InvalidProjection {
-                place: Place::local(Local::from(0)), // Placeholder
+                place: place.clone(),
                 message: "Cannot index non-array/tuple/string value".to_string(),
             }),
         }
@@ -871,7 +881,7 @@ impl Interpreter {
                     }
                 },
                 projection => {
-                    current = self.apply_projection_in_frame(current, projection, frame)?;
+                    current = self.apply_projection_in_frame(current, projection, frame, place)?;
                     projections = &projections[1..];
                 }
             }
@@ -890,11 +900,12 @@ impl Interpreter {
         base: Value,
         projection: &Projection,
         frame: usize,
+        place: &Place,
     ) -> Result<Value, ExecutionError> {
         match projection {
-            Projection::Field(field_name) => self.execute_field_projection(base, field_name),
+            Projection::Field(field_name) => self.execute_field_projection(base, field_name, place),
             Projection::ConstantIndex(index) => {
-                self.execute_constant_index_projection(base, *index)
+                self.execute_constant_index_projection(base, *index, place)
             }
             Projection::Index(index_local) => {
                 let index_value = self
@@ -907,7 +918,7 @@ impl Interpreter {
                         ),
                     })?
                     .clone();
-                self.execute_index_projection(base, index_value)
+                self.execute_index_projection(base, index_value, place)
             }
             Projection::Deref => unreachable!("deref is handled by get_place_value_at_frame"),
         }
@@ -1118,30 +1129,31 @@ impl Interpreter {
         &self,
         base: Value,
         index: usize,
+        place: &Place,
     ) -> Result<Value, ExecutionError> {
         match base {
             Value::Tuple(elements) => {
                 elements.get(index).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
-                    place: Place::local(Local::from(0)), // Placeholder
+                    place: place.clone(),
                     message: format!("Tuple index {} out of range", index),
                 })
             }
             Value::Array(elements) => {
                 elements.get(index).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
-                    place: Place::local(Local::from(0)), // Placeholder
+                    place: place.clone(),
                     message: format!("Array index {} out of range", index),
                 })
             }
             Value::String(s) => {
                 s.chars().nth(index).map(Value::Char).ok_or_else(|| {
                     ExecutionError::InvalidProjection {
-                        place: Place::local(Local::from(0)), // Placeholder
+                        place: place.clone(),
                         message: format!("String index {} out of range", index),
                     }
                 })
             }
             _ => Err(ExecutionError::InvalidProjection {
-                place: Place::local(Local::from(0)), // Placeholder
+                place: place.clone(),
                 message: format!(
                     "Cannot apply constant index to non-array/tuple/string value: {:?}",
                     base
