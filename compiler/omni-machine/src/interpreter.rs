@@ -506,21 +506,21 @@ impl Interpreter {
         right: Value,
     ) -> Result<Value, ExecutionError> {
         match (op, left, right) {
-            (BinOp::Add, Value::Int(l), Value::Int(r)) => l.checked_add(r)
-                .map(Value::Int)
-                .ok_or_else(|| ExecutionError::ArithmeticFault {
+            (BinOp::Add, Value::Int(l), Value::Int(r)) => {
+                l.checked_add(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
                     operation: format!("{l} + {r} overflows"),
-                }),
-            (BinOp::Sub, Value::Int(l), Value::Int(r)) => l.checked_sub(r)
-                .map(Value::Int)
-                .ok_or_else(|| ExecutionError::ArithmeticFault {
+                })
+            }
+            (BinOp::Sub, Value::Int(l), Value::Int(r)) => {
+                l.checked_sub(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
                     operation: format!("{l} - {r} overflows"),
-                }),
-            (BinOp::Mul, Value::Int(l), Value::Int(r)) => l.checked_mul(r)
-                .map(Value::Int)
-                .ok_or_else(|| ExecutionError::ArithmeticFault {
+                })
+            }
+            (BinOp::Mul, Value::Int(l), Value::Int(r)) => {
+                l.checked_mul(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
                     operation: format!("{l} * {r} overflows"),
-                }),
+                })
+            }
             (BinOp::Div, Value::Int(l), Value::Int(r)) => {
                 if r == 0 {
                     Err(ExecutionError::DivisionByZero)
