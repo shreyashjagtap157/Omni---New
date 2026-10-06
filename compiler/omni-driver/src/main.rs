@@ -221,12 +221,11 @@ fn lower_to_verified_mir(
     source_code: &str,
     manifest: &omni_registry::Manifest,
 ) -> Result<omni_mir::ir::MirProgram, String> {
-    let (program, struct_defs) = lower_to_concrete_program(source_code, manifest)?;
+    let (_, hir) = lower_to_hir(source_code, manifest)?;
 
     let mut lowering = omni_mir::lower::LoweringContext::new();
-    lowering.set_struct_defs(struct_defs);
     let mir = lowering
-        .lower_monomorphized_program(&program)
+        .lower_hir_program(&hir)
         .map_err(|e| format!("MIR lowering error: {}", e))?;
 
     omni_verify::MirVerifier::verify_program(&mir)
@@ -2071,6 +2070,46 @@ mod tests {
             let loaded = omni_registry::load_specification(spec_root).expect("load spec for tests");
             loaded.manifest().clone()
         })
+    }
+
+    #[test]
+    fn reference_machine_and_native_backend_agree_on_exit_value() {
+        let source = "fn main() -> i64 { return 40 + 2; }";
+        let expected = compile_source_to_interpreter_value(source, manifest())
+            .expect("reference machine must execute the differential corpus");
+
+        let object = compile_source_to_object(source, manifest())
+            .expect("native backend must compile the differential corpus");
+        let dir = std::env::temp_dir();
+        static SEQ: AtomicU64 = AtomicU64::new(600);
+        let stem = format!(
+            "omni-differential-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let object_path = dir.join(format!("{stem}.o"));
+        let executable_path = dir.join(&stem);
+        fs::write(&object_path, object).expect("write differential object");
+
+        let status = std::process::Command::new("cc")
+            .arg(&object_path)
+            .arg("-o")
+            .arg(&executable_path)
+            .status()
+            .expect("system C linker is required for native differential execution");
+        assert!(status.success(), "differential link failed with status {status}");
+
+        let native = std::process::Command::new(&executable_path)
+            .status()
+            .expect("linked differential executable must run");
+        assert_eq!(
+            native.code(),
+            Some((expected & 0xff) as i32),
+            "reference machine and native execution disagree"
+        );
+
+        fs::remove_file(&object_path).ok();
+        fs::remove_file(&executable_path).ok();
     }
 
     #[test]
