@@ -207,6 +207,16 @@ fn lower_to_concrete_program(
 
 /// Runs the concrete program through MIR lowering and MIR verification,
 /// returning the verified MIR program the machine tier executes.
+fn lower_to_hir(
+    source_code: &str,
+    manifest: &omni_registry::Manifest,
+) -> Result<(omni_types::monomorph::MonomorphizedProgram, omni_hir::HirProgram), String> {
+    let (program, struct_defs) = lower_to_concrete_program(source_code, manifest)?;
+    let hir = omni_hir::HirProgram::from_monomorphized_program(&program, struct_defs)
+        .map_err(|e| format!("HIR construction error: {}", e))?;
+    Ok((program, hir))
+}
+
 fn lower_to_verified_mir(
     source_code: &str,
     manifest: &omni_registry::Manifest,
@@ -253,8 +263,14 @@ pub fn compile_source_to_object(
     source_code: &str,
     manifest: &omni_registry::Manifest,
 ) -> Result<Vec<u8>, String> {
-    let (program, struct_defs) = lower_to_concrete_program(source_code, manifest)?;
-    omni_codegen::compile_monomorphized_program_with_structs(&program, struct_defs)
+    let (program, hir) = lower_to_hir(source_code, manifest)?;
+    let mut lowering = omni_mir::lower::LoweringContext::new();
+    let mir = lowering
+        .lower_hir_program(&hir)
+        .map_err(|e| format!("MIR lowering error: {}", e))?;
+    omni_verify::MirVerifier::verify_program(&mir)
+        .map_err(|e| format!("MIR verification error: {:?}", e))?;
+    omni_codegen::compile_verified_mir_program(&program, &mir)
 }
 
 fn semantic_type_aliases_from_cst(
