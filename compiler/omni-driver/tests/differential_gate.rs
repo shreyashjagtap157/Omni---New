@@ -24,11 +24,7 @@ mod linux {
     }
 
     fn unique_stem() -> String {
-        format!(
-            "omni-diff-{}-{}",
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::SeqCst)
-        )
+        format!("omni-diff-{}-{}", std::process::id(), SEQ.fetch_add(1, Ordering::SeqCst))
     }
 
     fn llvm_objcopy() -> PathBuf {
@@ -39,7 +35,11 @@ mod linux {
         assert!(rustc.status.success(), "rustc --print sysroot failed");
         let sysroot = PathBuf::from(String::from_utf8(rustc.stdout).expect("utf8 sysroot").trim());
         let path = sysroot.join("bin").join("llvm-objcopy");
-        assert!(path.is_file(), "pinned Rust toolchain must provide llvm-objcopy: {}", path.display());
+        assert!(
+            path.is_file(),
+            "pinned Rust toolchain must provide llvm-objcopy: {}",
+            path.display()
+        );
         path
     }
 
