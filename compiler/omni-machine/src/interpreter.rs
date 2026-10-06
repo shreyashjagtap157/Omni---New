@@ -123,6 +123,8 @@ pub enum ExecutionError {
     InvalidFunctionCall { function: String, message: String },
     /// Memory access error
     MemoryAccessError { message: String },
+    /// Arithmetic operation violated Edition 1's checked numeric semantics.
+    ArithmeticFault { operation: String },
     /// Effect violation
     EffectViolation { effect: Effect, function: String },
     /// Capability violation
@@ -159,6 +161,9 @@ impl std::fmt::Display for ExecutionError {
             }
             ExecutionError::MemoryAccessError { message } => {
                 write!(f, "Memory access error: {}", message)
+            }
+            ExecutionError::ArithmeticFault { operation } => {
+                write!(f, "Arithmetic fault: {}", operation)
             }
             ExecutionError::EffectViolation { effect, function } => {
                 write!(f, "Effect violation: {} not allowed in function {}", effect, function)
@@ -493,7 +498,7 @@ impl Interpreter {
         }
     }
 
-    /// Execute a binary operation
+    /// Execute a binary operation using the Edition 1 checked numeric rules.
     fn execute_binary_op(
         &self,
         op: BinOp,
@@ -501,12 +506,22 @@ impl Interpreter {
         right: Value,
     ) -> Result<Value, ExecutionError> {
         match (op, left, right) {
-            (BinOp::Add, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l + r)),
-            (BinOp::Sub, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l - r)),
-            (BinOp::Mul, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l * r)),
+            (BinOp::Add, Value::Int(l), Value::Int(r)) => l.checked_add(r)
+                .map(Value::Int)
+                .ok_or_else(|| ExecutionError::ArithmeticFault { operation: format!("{l} + {r} overflows") }),
+            (BinOp::Sub, Value::Int(l), Value::Int(r)) => l.checked_sub(r)
+                .map(Value::Int)
+                .ok_or_else(|| ExecutionError::ArithmeticFault { operation: format!("{l} - {r} overflows") }),
+            (BinOp::Mul, Value::Int(l), Value::Int(r)) => l.checked_mul(r)
+                .map(Value::Int)
+                .ok_or_else(|| ExecutionError::ArithmeticFault { operation: format!("{l} * {r} overflows") }),
             (BinOp::Div, Value::Int(l), Value::Int(r)) => {
                 if r == 0 {
                     Err(ExecutionError::DivisionByZero)
+                } else if l == i64::MIN && r == -1 {
+                    Err(ExecutionError::ArithmeticFault {
+                        operation: format!("{l} / {r} overflows"),
+                    })
                 } else {
                     Ok(Value::Int(l / r))
                 }
@@ -514,6 +529,10 @@ impl Interpreter {
             (BinOp::Rem, Value::Int(l), Value::Int(r)) => {
                 if r == 0 {
                     Err(ExecutionError::DivisionByZero)
+                } else if l == i64::MIN && r == -1 {
+                    Err(ExecutionError::ArithmeticFault {
+                        operation: format!("{l} % {r} is undefined"),
+                    })
                 } else {
                     Ok(Value::Int(l % r))
                 }
@@ -521,8 +540,32 @@ impl Interpreter {
             (BinOp::BitAnd, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l & r)),
             (BinOp::BitOr, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l | r)),
             (BinOp::BitXor, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l ^ r)),
-            (BinOp::Shl, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l << r)),
-            (BinOp::Shr, Value::Int(l), Value::Int(r)) => Ok(Value::Int(l >> r)),
+            (BinOp::Shl, Value::Int(l), Value::Int(r)) => {
+                let shift = u32::try_from(r).map_err(|_| ExecutionError::ArithmeticFault {
+                    operation: format!("negative shift count {r}"),
+                })?;
+                if shift >= i64::BITS {
+                    return Err(ExecutionError::ArithmeticFault {
+                        operation: format!("shift count {r} is outside 0..{}", i64::BITS),
+                    });
+                }
+                l.checked_shl(shift).map(Value::Int).ok_or_else(|| {
+                    ExecutionError::ArithmeticFault {
+                        operation: format!("shift {l} << {r} overflows"),
+                    }
+                })
+            }
+            (BinOp::Shr, Value::Int(l), Value::Int(r)) => {
+                let shift = u32::try_from(r).map_err(|_| ExecutionError::ArithmeticFault {
+                    operation: format!("negative shift count {r}"),
+                })?;
+                if shift >= i64::BITS {
+                    return Err(ExecutionError::ArithmeticFault {
+                        operation: format!("shift count {r} is outside 0..{}", i64::BITS),
+                    });
+                }
+                Ok(Value::Int(l >> shift))
+            }
             (BinOp::Eq, Value::Int(l), Value::Int(r)) => Ok(Value::Bool(l == r)),
             (BinOp::Ne, Value::Int(l), Value::Int(r)) => Ok(Value::Bool(l != r)),
             (BinOp::Lt, Value::Int(l), Value::Int(r)) => Ok(Value::Bool(l < r)),
@@ -999,6 +1042,15 @@ impl Interpreter {
                 &index_values,
                 place,
             );
+        } else {
+            self.diagnostics.push(Diagnostic {
+                level: DiagnosticLevel::Error,
+                message: format!("cannot invalidate missing local {:?}", place.local),
+                location: Some(SourceLocation {
+                    block: self.current_block.unwrap_or(BasicBlock::from(0)),
+                    statement_index: None,
+                }),
+            });
         }
     }
 
@@ -1192,8 +1244,23 @@ impl Interpreter {
                         // Memory allocation function
                         if args.len() == 2 {
                             if let (Value::Int(size), Value::Int(align)) = (&args[0], &args[1]) {
-                                let alloc_id =
-                                    self.memory.allocate(*size as usize, *align as u32, true);
+                                if *size < 0 {
+                                    return Err(ExecutionError::MemoryAccessError {
+                                        message: format!("alloc size must be non-negative, got {size}"),
+                                    });
+                                }
+                                if *align <= 0 || (*align as u64).count_ones() != 1 {
+                                    return Err(ExecutionError::MemoryAccessError {
+                                        message: format!("alloc alignment must be a positive power of two, got {align}"),
+                                    });
+                                }
+                                let size = usize::try_from(*size).map_err(|_| ExecutionError::MemoryAccessError {
+                                    message: format!("alloc size does not fit host usize: {size}"),
+                                })?;
+                                let align = u32::try_from(*align).map_err(|_| ExecutionError::MemoryAccessError {
+                                    message: format!("alloc alignment does not fit u32: {align}"),
+                                })?;
+                                let alloc_id = self.memory.allocate(size, align, true);
                                 Ok(Value::Int(alloc_id as i64))
                             } else {
                                 Err(ExecutionError::InvalidFunctionCall {
@@ -1462,10 +1529,11 @@ impl Memory {
             .allocations
             .get(&id)
             .ok_or("Invalid pointer provenance: dangling allocation ID".to_string())?;
-        if offset + size > alloc.bytes.len() {
+        let end = offset.checked_add(size).ok_or("Out of bounds read trap".to_string())?;
+        if end > alloc.bytes.len() {
             return Err("Out of bounds read trap".to_string());
         }
-        for i in offset..(offset + size) {
+        for i in offset..end {
             if !alloc.initialized[i] {
                 return Err("Read from uninitialized memory trap".to_string());
             }
@@ -1481,7 +1549,8 @@ impl Memory {
         if !alloc.mutable {
             return Err("Write to immutable memory trap".to_string());
         }
-        if offset + data.len() > alloc.bytes.len() {
+        let end = offset.checked_add(data.len()).ok_or("Out of bounds write trap".to_string())?;
+        if end > alloc.bytes.len() {
             return Err("Out of bounds write trap".to_string());
         }
         for (i, &byte) in data.iter().enumerate() {
