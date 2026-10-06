@@ -1113,43 +1113,6 @@ impl Interpreter {
     }
 
     /// Apply a projection to a value
-    fn apply_projection(
-        &self,
-        base: Value,
-        projection: &Projection,
-        function: Rc<MirFunction>,
-    ) -> Result<Value, ExecutionError> {
-        match projection {
-            Projection::Field(field_name) => {
-                let _ = &function;
-                self.execute_field_projection(base, field_name)
-            }
-            Projection::ConstantIndex(index) => {
-                self.execute_constant_index_projection(base, *index)
-            }
-            Projection::Index(index_local) => {
-                let index_value = self
-                    .locals
-                    .get(index_local)
-                    .ok_or_else(|| ExecutionError::MemoryAccessError {
-                        message: format!("Index local {:?} not found", index_local),
-                    })?
-                    .clone();
-                self.execute_index_projection(base, index_value)
-            }
-            Projection::Deref => Err(ExecutionError::InvalidProjection {
-                place: Place::local(Local::from(0)),
-                message: match base {
-                    Value::Reference(_) => {
-                        "Reference dereference requires an implemented abstract-memory allocation"
-                            .to_string()
-                    }
-                    _ => "Cannot dereference non-reference value".to_string(),
-                },
-            }),
-        }
-    }
-
     /// Execute a constant index projection
     fn execute_constant_index_projection(
         &self,
