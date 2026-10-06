@@ -241,7 +241,7 @@ mod polonius_tests {
 }
 
 pub mod llvm_val;
-mod ownership;
 pub mod mir_verifier;
+mod ownership;
 
 pub use mir_verifier::{MirVerificationError, MirVerifier};

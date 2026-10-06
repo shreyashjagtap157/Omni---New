@@ -315,18 +315,20 @@ impl OwnershipState {
 
         let mut joined = Self::new();
         for place in places {
-            let states_for_place = states.iter().map(|state| state.state(&place)).collect::<Vec<_>>();
-            let combined = if states_for_place.iter().all(|state| *state == PlaceState::Initialized) {
-                PlaceState::Initialized
-            } else if states_for_place.iter().all(|state| *state == PlaceState::Uninitialized) {
-                PlaceState::Uninitialized
-            } else if states_for_place.iter().all(|state| *state == PlaceState::Moved) {
-                PlaceState::Moved
-            } else if states_for_place.iter().all(|state| *state == PlaceState::PartiallyMoved) {
-                PlaceState::PartiallyMoved
-            } else {
-                PlaceState::PartiallyMoved
-            };
+            let states_for_place =
+                states.iter().map(|state| state.state(&place)).collect::<Vec<_>>();
+            let combined =
+                if states_for_place.iter().all(|state| *state == PlaceState::Initialized) {
+                    PlaceState::Initialized
+                } else if states_for_place.iter().all(|state| *state == PlaceState::Uninitialized) {
+                    PlaceState::Uninitialized
+                } else if states_for_place.iter().all(|state| *state == PlaceState::Moved) {
+                    PlaceState::Moved
+                } else if states_for_place.iter().all(|state| *state == PlaceState::PartiallyMoved) {
+                    PlaceState::PartiallyMoved
+                } else {
+                    PlaceState::PartiallyMoved
+                };
             if combined != PlaceState::Uninitialized {
                 joined.places.insert(place, combined);
             }
@@ -401,14 +403,9 @@ impl OwnershipState {
 fn is_prefix(prefix: &Place, value: &Place) -> bool {
     prefix.root == value.root
         && prefix.projections.len() <= value.projections.len()
-        && prefix
-            .projections
-            .iter()
-            .zip(&value.projections)
-            .all(|(a, b)| {
-                matches!((a, b), (Projection::IndexAny, _) | (_, Projection::IndexAny))
-                    || a == b
-            })
+        && prefix.projections.iter().zip(&value.projections).all(|(a, b)| {
+            matches!((a, b), (Projection::IndexAny, _) | (_, Projection::IndexAny)) || a == b
+        })
 }
 
 fn places_overlap(a: &Place, b: &Place) -> bool {
