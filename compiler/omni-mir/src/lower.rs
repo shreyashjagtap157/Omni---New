@@ -29,28 +29,24 @@ pub struct LoweringContext {
 }
 
 impl LoweringContext {
-    /// Lowers the canonical HIR boundary into typed MIR.
-    ///
-    /// The adapter keeps the existing typed-MIR lowering implementation as
-    /// the single semantic lowering authority while HIR is incrementally
-    /// enriched with resolved types, ownership facts, and obligations.
-    /// Lowers the canonical semantic HIR into typed MIR.
-    ///
-    /// HIR is validated before any MIR is produced. The existing concrete
-    /// lowering implementation remains the single MIR construction authority,
-    /// while every production entry point now crosses the HIR boundary first.
-    pub fn lower_hir_program(
-        &mut self,
-        hir: &omni_hir::HirProgram,
-    ) -> Result<crate::ir::MirProgram, String> {
-        hir.validate()?;
-        self.set_struct_defs(hir.struct_defs.clone());
-        let concrete = hir.to_monomorphized_program();
-        self.lower_concrete_program(&concrete)
-    }
-
     pub fn new() -> Self {
         Self { body: Body::default(), struct_defs: HashMap::new() }
+    }
+
+    /// Lowers the canonical semantic HIR into typed MIR.
+    ///
+    /// HIR is consumed at the MIR boundary so its TyCtxt becomes the exact
+    /// type context owned by the resulting MIR program. This prevents MIR from
+    /// rebuilding a second, semantically independent type arena.
+    pub fn lower_hir_program(
+        &mut self,
+        hir: omni_hir::HirProgram,
+    ) -> Result<crate::ir::MirProgram, String> {
+        hir.validate()?;
+        self.struct_defs = hir.struct_defs.clone();
+        let tcx = hir.tcx;
+        let concrete = hir.to_monomorphized_program();
+        self.lower_concrete_program(&concrete, tcx)
     }
 
     /// Supplies struct declarations so field projections can be typed during lowering.
@@ -72,16 +68,15 @@ impl LoweringContext {
             self.struct_defs.clone(),
             HashMap::new(),
         )?;
-        self.lower_hir_program(&hir)
+        self.lower_hir_program(hir)
     }
 
     fn lower_concrete_program(
         &mut self,
         prog: &MonomorphizedProgram,
+        mut tcx: TyCtxt,
     ) -> Result<crate::ir::MirProgram, String> {
         prog.assert_concrete_for_mir()?;
-
-        let mut tcx = TyCtxt::new();
         let subst = omni_types::checker::SubstEnv::new();
         let mut fn_sigs: HashMap<String, (Vec<Ty>, Ty)> = HashMap::new();
 
