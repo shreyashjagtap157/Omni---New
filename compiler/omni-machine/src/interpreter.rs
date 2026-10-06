@@ -506,21 +506,21 @@ impl Interpreter {
         right: Value,
     ) -> Result<Value, ExecutionError> {
         match (op, left, right) {
-            (BinOp::Add, Value::Int(l), Value::Int(r)) => {
-                l.checked_add(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
+            (BinOp::Add, Value::Int(l), Value::Int(r)) => l.checked_add(r)
+                .map(Value::Int)
+                .ok_or_else(|| ExecutionError::ArithmeticFault {
                     operation: format!("{l} + {r} overflows"),
-                })
-            }
-            (BinOp::Sub, Value::Int(l), Value::Int(r)) => {
-                l.checked_sub(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
+                }),
+            (BinOp::Sub, Value::Int(l), Value::Int(r)) => l.checked_sub(r)
+                .map(Value::Int)
+                .ok_or_else(|| ExecutionError::ArithmeticFault {
                     operation: format!("{l} - {r} overflows"),
-                })
-            }
-            (BinOp::Mul, Value::Int(l), Value::Int(r)) => {
-                l.checked_mul(r).map(Value::Int).ok_or_else(|| ExecutionError::ArithmeticFault {
+                }),
+            (BinOp::Mul, Value::Int(l), Value::Int(r)) => l.checked_mul(r)
+                .map(Value::Int)
+                .ok_or_else(|| ExecutionError::ArithmeticFault {
                     operation: format!("{l} * {r} overflows"),
-                })
-            },
+                }),
             (BinOp::Div, Value::Int(l), Value::Int(r)) => {
                 if r == 0 {
                     Err(ExecutionError::DivisionByZero)
@@ -853,11 +853,10 @@ impl Interpreter {
             }
         }
 
-        let root = self.locals.get_mut(&place.local).ok_or_else(|| {
-            ExecutionError::MemoryAccessError {
+        let root =
+            self.locals.get_mut(&place.local).ok_or_else(|| ExecutionError::MemoryAccessError {
                 message: format!("Local {:?} not found", place.local),
-            }
-        })?;
+            })?;
 
         Self::assign_projected_value(root, &place.projections, value, &index_values, place)
     }
@@ -877,28 +876,37 @@ impl Interpreter {
         match &projections[0] {
             Projection::Field(field) => match base {
                 Value::Struct { fields, .. } => {
-                    let child = fields.get_mut(field).ok_or_else(|| {
-                        ExecutionError::InvalidProjection {
+                    let child =
+                        fields.get_mut(field).ok_or_else(|| ExecutionError::InvalidProjection {
                             place: place.clone(),
                             message: format!("Field '{}' does not exist", field),
-                        }
-                    })?;
-                    Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                        })?;
+                    Self::assign_projected_value(
+                        child,
+                        &projections[1..],
+                        value,
+                        index_values,
+                        place,
+                    )
                 }
                 Value::EnumVariant { fields, .. } => {
-                    let index = field.parse::<usize>().map_err(|_| {
-                        ExecutionError::InvalidProjection {
+                    let index =
+                        field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
                             place: place.clone(),
                             message: format!("Enum field '{}' is not an ordinal", field),
-                        }
-                    })?;
-                    let child = fields.get_mut(index).ok_or_else(|| {
-                        ExecutionError::InvalidProjection {
+                        })?;
+                    let child =
+                        fields.get_mut(index).ok_or_else(|| ExecutionError::InvalidProjection {
                             place: place.clone(),
                             message: format!("Enum field index {} is out of range", index),
-                        }
-                    })?;
-                    Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                        })?;
+                    Self::assign_projected_value(
+                        child,
+                        &projections[1..],
+                        value,
+                        index_values,
+                        place,
+                    )
                 }
                 _ => Err(ExecutionError::InvalidProjection {
                     place: place.clone(),
@@ -913,7 +921,13 @@ impl Interpreter {
                             message: format!("Index {} is out of range", index),
                         }
                     })?;
-                    Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                    Self::assign_projected_value(
+                        child,
+                        &projections[1..],
+                        value,
+                        index_values,
+                        place,
+                    )
                 }
                 _ => Err(ExecutionError::InvalidProjection {
                     place: place.clone(),
@@ -922,12 +936,12 @@ impl Interpreter {
             },
             Projection::Index(index_local) => {
                 let index = match index_values.get(index_local) {
-                    Some(Value::Int(value)) => usize::try_from(*value).map_err(|_| {
-                        ExecutionError::InvalidProjection {
+                    Some(Value::Int(value)) => {
+                        usize::try_from(*value).map_err(|_| ExecutionError::InvalidProjection {
                             place: place.clone(),
                             message: format!("Negative array index {} is invalid", value),
-                        }
-                    })?,
+                        })?
+                    }
                     Some(other) => {
                         return Err(ExecutionError::InvalidProjection {
                             place: place.clone(),
@@ -948,7 +962,13 @@ impl Interpreter {
                                 message: format!("Index {} is out of range", index),
                             }
                         })?;
-                        Self::assign_projected_value(child, &projections[1..], value, index_values, place)
+                        Self::assign_projected_value(
+                            child,
+                            &projections[1..],
+                            value,
+                            index_values,
+                            place,
+                        )
                     }
                     _ => Err(ExecutionError::InvalidProjection {
                         place: place.clone(),
