@@ -107,12 +107,125 @@ impl PoloniusFacts {
 #[cfg(test)]
 mod polonius_tests {
     use super::*;
+    use index_vec::IndexVec;
+    use omni_mir::ir::{BlockData, Constant, Local, LocalDecl, Place, Rvalue, Statement, Terminator};
+    use omni_mir::ast::Lit;
+    use omni_mir::{TyCtxt, TyKind};
+
+    fn body_with_statements(statements: Vec<Statement>) -> Body {
+        let mut body = Body::default();
+        let mut locals = IndexVec::new();
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let ref_ty = tcx.intern(TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int_ty,
+        });
+        locals.push(LocalDecl { name: Some("value".into()), ty: Some(int_ty) });
+        locals.push(LocalDecl { name: Some("reference".into()), ty: Some(ref_ty) });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData { statements, terminator: Some(Terminator::Return) });
+        body.local_decls = locals;
+        body.blocks = blocks;
+        body
+    }
+
+    fn reference_statement(destination: Local, borrowed: Place, mutable: bool, ty: omni_mir::Ty) -> Statement {
+        Statement::Assign(
+            Place::local(destination),
+            Rvalue::Reference { place: borrowed, mutable, ty },
+        )
+    }
 
     #[test]
-    fn test_polonius_mir_extraction() {
-        let body = Body::default();
-        let facts = PoloniusFacts::extract_from_mir(&body);
+    fn extraction_has_no_fabricated_loans() {
+        let statement = Statement::Assign(
+            Place::local(Local::from_usize(0)),
+            Rvalue::Use(omni_mir::ir::Operand::Constant(Constant::Lit(Lit::Int(1)))),
+        );
+        let facts = PoloniusFacts::extract_from_mir(&body_with_statements(vec![statement]));
+        assert!(facts.loan_issued.is_empty());
         assert!(facts.borrow_region.is_empty());
+        assert!(facts.killed.is_empty());
+    }
+
+    #[test]
+    fn extraction_emits_one_loan_for_one_reference() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let ref_ty = tcx.intern(TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int_ty,
+        });
+        let facts = PoloniusFacts::extract_from_mir(&body_with_statements(vec![reference_statement(
+            Local::from_usize(1),
+            Place::local(Local::from_usize(0)),
+            true,
+            ref_ty,
+        )]));
+        assert_eq!(facts.loan_issued, vec![(String::from("loan_bb0_0"), String::from("bb0_0"))]);
+        assert_eq!(facts.borrow_region, vec![(String::from("'r_bb0_0"), String::from("bb0_0"))]);
+        assert_eq!(facts.region_live_at, vec![(String::from("'r_bb0_0"), String::from("bb0_0"))]);
+        assert_eq!(facts.killed, vec![(String::from("loan_bb0_0"), String::from("bb0_term"))]);
+    }
+
+    #[test]
+    fn replacing_reference_local_kills_previous_loan_at_replacement_point() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let ref_ty = tcx.intern(TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int_ty,
+        });
+        let statements = vec![
+            reference_statement(
+                Local::from_usize(1),
+                Place::local(Local::from_usize(0)),
+                true,
+                ref_ty,
+            ),
+            Statement::Assign(
+                Place::local(Local::from_usize(1)),
+                Rvalue::Use(omni_mir::ir::Operand::Constant(Constant::Lit(Lit::Int(2)))),
+            ),
+        ];
+        let facts = PoloniusFacts::extract_from_mir(&body_with_statements(statements));
+        assert!(facts.loan_issued.iter().any(|(loan, _)| loan == "loan_bb0_0"));
+        assert_eq!(
+            facts.killed,
+            vec![(String::from("loan_bb0_0"), String::from("bb0_1"))]
+        );
+    }
+
+    #[test]
+    fn dereference_reborrow_records_parent_region_relationship() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let ref_ty = tcx.intern(TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int_ty,
+        });
+        let child = reference_statement(
+            Local::from_usize(1),
+            Place::local(Local::from_usize(0)),
+            true,
+            ref_ty,
+        );
+        let reborrow = reference_statement(
+            Local::from_usize(1),
+            Place::local(Local::from_usize(1)).project(omni_mir::ir::Projection::Deref),
+            true,
+            ref_ty,
+        );
+        let facts = PoloniusFacts::extract_from_mir(&body_with_statements(vec![child, reborrow]));
+        assert_eq!(
+            facts.outlives,
+            vec![(String::from("'r_bb0_0"), String::from("'r_bb0_1"))]
+        );
     }
 }
 
