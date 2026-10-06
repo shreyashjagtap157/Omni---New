@@ -278,18 +278,52 @@ pub enum Rvalue {
     Use(Operand),
     BinaryOp(BinOp, Operand, Operand),
     UnaryOp(UnOp, Operand),
-    Cast { operand: Operand, from: Ty, to: Ty },
-    Aggregate { kind: AggregateKind, operands: Vec<Operand>, ty: Ty },
-    Struct { name: String, fields: Vec<(String, Operand)>, ty: Ty },
-    EnumVariant { enum_name: String, variant: String, operands: Vec<Operand>, ty: Ty },
+    Cast {
+        operand: Operand,
+        from: Ty,
+        to: Ty,
+    },
+    Aggregate {
+        kind: AggregateKind,
+        operands: Vec<Operand>,
+        ty: Ty,
+    },
+    Struct {
+        name: String,
+        fields: Vec<(String, Operand)>,
+        ty: Ty,
+    },
+    EnumVariant {
+        enum_name: String,
+        variant: String,
+        operands: Vec<Operand>,
+        ty: Ty,
+    },
     /// Reifies a borrow of a place as a typed logical reference.
     ///
     /// Native representation is a later ABI concern; MIR keeps the semantic
     /// place, mutability, and resulting reference type explicit.
-    Reference { place: Place, mutable: bool, ty: Ty },
-    Range { start: Operand, end: Operand, inclusive: bool, ty: Ty },
-    Field { base: Operand, field: String, ty: Ty },
-    Index { base: Operand, index: Operand, ty: Ty },
+    Reference {
+        place: Place,
+        mutable: bool,
+        ty: Ty,
+    },
+    Range {
+        start: Operand,
+        end: Operand,
+        inclusive: bool,
+        ty: Ty,
+    },
+    Field {
+        base: Operand,
+        field: String,
+        ty: Ty,
+    },
+    Index {
+        base: Operand,
+        index: Operand,
+        ty: Ty,
+    },
 }
 
 /// A literal scalar value in MIR.
