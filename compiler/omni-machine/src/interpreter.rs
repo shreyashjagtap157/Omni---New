@@ -61,6 +61,8 @@ pub enum Value {
     EnumVariant { enum_name: String, variant: String, fields: Vec<Value> },
     /// Struct value
     Struct { name: String, fields: HashMap<String, Value> },
+    /// Range value preserving its endpoint values and boundary mode.
+    Range { start: Box<Value>, end: Box<Value>, inclusive: bool },
     /// Uninitialized value (for tracking definite initialization)
     Uninit,
 }
@@ -723,14 +725,7 @@ impl Interpreter {
         inclusive: bool,
         _ty: &Ty,
     ) -> Result<Value, ExecutionError> {
-        // For now, just return a tuple representing the range
-        let values = [start, end];
-        let range_value = if inclusive {
-            Value::String(format!("[{:?}..{:?}]", values[0], values[1]))
-        } else {
-            Value::String(format!("[{:?}..{:?})", values[0], values[1]))
-        };
-        Ok(range_value)
+        Ok(Value::Range { start: Box::new(start), end: Box::new(end), inclusive })
     }
 
     /// Execute a field projection
@@ -1494,6 +1489,10 @@ impl Interpreter {
                     .map(|(k, v)| format!("{}: {}", k, self.value_to_string(v)))
                     .collect();
                 format!("{} {{ {} }}", name, field_strs.join(", "))
+            }
+            Value::Range { start, end, inclusive } => {
+                let op = if *inclusive { "..=" } else { ".." };
+                format!("{}{}{}", self.value_to_string(start), op, self.value_to_string(end))
             }
             Value::Uninit => "uninit".to_string(),
         }
