@@ -322,6 +322,38 @@ fn evaluates_boolean_comparisons() {
 }
 
 #[test]
+fn executes_mutable_reference_dereference_and_write() {
+    let mut f = Fixture::new();
+    let reference_ty = {
+        let inner = f.int;
+        f.tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner })
+    };
+    let mut builder = FnBuilder::new(&f, "f", TypeSpec::Int);
+    let ret = builder.return_place;
+    let value_local = builder.local("value", Some(f.int));
+    let ref_local = builder.local("reference", Some(reference_ty));
+    let value_place = Place::local(value_local);
+    let ref_place = Place::local(ref_local);
+    let deref_place = ref_place.project(Projection::Deref);
+    let func = builder.returns(vec![
+        assign(value_place.clone(), Rvalue::Use(const_int(10))),
+        assign(
+            ref_place.clone(),
+            Rvalue::Reference {
+                place: value_place.clone(),
+                mutable: true,
+                ty: reference_ty,
+            },
+        ),
+        assign(deref_place.clone(), Rvalue::Use(const_int(42))),
+        assign(Place::local(ret), Rvalue::Use(copy(deref_place))),
+    ]);
+
+    let mut interp = interpreter(f, vec![func]);
+    assert_eq!(interp.execute_function("f", vec![]).unwrap(), Value::Int(42));
+}
+
+#[test]
 fn evaluates_range_values_without_type_erasing_to_text() {
     let f = Fixture::new();
     let builder = FnBuilder::new(&f, "f", TypeSpec::Range(Box::new(TypeSpec::Int)));
