@@ -589,7 +589,11 @@ impl Interpreter {
     /// Execute a unary operation
     fn execute_unary_op(&self, op: UnOp, operand: Value) -> Result<Value, ExecutionError> {
         match (op, operand) {
-            (UnOp::Neg, Value::Int(i)) => Ok(Value::Int(-i)),
+            (UnOp::Neg, Value::Int(i)) => i.checked_neg().map(Value::Int).ok_or_else(|| {
+                ExecutionError::ArithmeticFault {
+                    operation: format!("negating {i} overflows"),
+                }
+            }),
             (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
             (UnOp::BitNot, Value::Int(i)) => Ok(Value::Int(!i)),
             _ => Err(ExecutionError::InvalidRvalue {
