@@ -158,6 +158,12 @@ fn native_function_abi(
             })?;
             NativeReturnAbi::AggregateAddress
         }
+        omni_mir::TyKind::Reference { .. } => {
+            return Err(format!(
+                "Codegen error: reference return type of '{}' requires pointer storage and ownership lowering",
+                mir_func.name
+            ));
+        }
         other => {
             return Err(format!(
                 "Codegen error: native backend does not yet support return ABI type {:?} in '{}'",
@@ -212,6 +218,12 @@ fn native_function_abi(
                     )
                 })?;
                 NativeParamAbi::AggregateAddress
+            }
+            omni_mir::TyKind::Reference { .. } => {
+                return Err(format!(
+                    "Codegen error: reference parameter {} of '{}' requires pointer storage and ownership lowering",
+                    param_index, mir_func.name
+                ));
             }
             other => {
                 return Err(format!(
