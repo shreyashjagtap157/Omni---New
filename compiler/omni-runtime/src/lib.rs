@@ -26,17 +26,8 @@ pub enum RuntimeError {
     AllocationIdOverflow,
     UnknownAllocation(AllocationId),
     ImmutableAllocation(AllocationId),
-    OutOfBounds {
-        id: AllocationId,
-        offset: usize,
-        size: usize,
-        allocation_size: usize,
-    },
-    UninitializedRead {
-        id: AllocationId,
-        offset: usize,
-        size: usize,
-    },
+    OutOfBounds { id: AllocationId, offset: usize, size: usize, allocation_size: usize },
+    UninitializedRead { id: AllocationId, offset: usize, size: usize },
 }
 
 impl fmt::Display for RuntimeError {
