@@ -461,6 +461,11 @@ impl Interpreter {
                 let val = self.evaluate_operand(operand, function)?;
                 self.execute_unary_op(*op, val)
             }
+            Rvalue::Reference { place, mutable, .. } => Ok(Value::Reference(ReferenceValue {
+                frame: self.call_stack.len(),
+                place: place.clone(),
+                mutable: *mutable,
+            })),
             Rvalue::Cast { operand, from, to } => {
                 let val = self.evaluate_operand(operand, function)?;
                 self.execute_cast(val, from, to)
