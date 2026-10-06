@@ -1420,8 +1420,17 @@ impl Interpreter {
                                         ),
                                     }
                                 })?;
-                                let alloc_id = self.memory.allocate(size, align, true);
-                                Ok(Value::Int(alloc_id as i64))
+                                let alloc_id = self.memory.allocate(size, align, true).map_err(|e| {
+                                    ExecutionError::MemoryAccessError { message: e }
+                                })?;
+                                Ok(Value::Int(
+                                    i64::try_from(alloc_id).map_err(|_| {
+                                        ExecutionError::MemoryAccessError {
+                                            message: "allocation handle does not fit machine integer"
+                                                .to_string(),
+                                        }
+                                    })?,
+                                ))
                             } else {
                                 Err(ExecutionError::InvalidFunctionCall {
                                     function: name.clone(),
@@ -1441,7 +1450,14 @@ impl Interpreter {
                         // Memory deallocation function
                         if args.len() == 1 {
                             if let Value::Int(alloc_id) = &args[0] {
-                                match self.memory.deallocate(*alloc_id as u64) {
+                                let alloc_id = u64::try_from(*alloc_id).map_err(|_| {
+                                    ExecutionError::MemoryAccessError {
+                                        message: format!(
+                                            "dealloc requires a non-negative allocation handle, got {alloc_id}"
+                                        ),
+                                    }
+                                })?;
+                                match self.memory.deallocate(alloc_id) {
                                     Ok(_) => Ok(Value::Unit),
                                     Err(e) => Err(ExecutionError::MemoryAccessError {
                                         message: format!("dealloc failed: {}", e),
@@ -1658,7 +1674,7 @@ pub enum ControlFlow {
 }
 
 /// Memory management for the abstract machine
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Memory {
     allocations: HashMap<u64, Allocation>,
     next_id: u64,
@@ -1672,20 +1688,42 @@ struct Allocation {
     mutable: bool,
 }
 
+impl Default for Memory {
+    fn default() -> Self {
+        Self { allocations: HashMap::new(), next_id: 1 }
+    }
+}
+
 impl Memory {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn allocate(&mut self, size: usize, align: u32, mutable: bool) -> u64 {
+    pub fn allocate(
+        &mut self,
+        size: usize,
+        align: u32,
+        mutable: bool,
+    ) -> Result<u64, String> {
+        if align == 0 || !align.is_power_of_two() {
+            return Err(format!(
+                "allocation alignment must be a positive power of two, got {align}"
+            ));
+        }
+
         let id = self.next_id;
-        self.next_id += 1;
+        if id > i64::MAX as u64 {
+            return Err("allocation identifier space exhausted".to_string());
+        }
+        self.next_id = id
+            .checked_add(1)
+            .ok_or_else(|| "allocation identifier space exhausted".to_string())?;
 
         let alloc =
             Allocation { bytes: vec![0; size], initialized: vec![false; size], align, mutable };
 
         self.allocations.insert(id, alloc);
-        id
+        Ok(id)
     }
 
     pub fn read(&self, id: u64, offset: usize, size: usize) -> Result<&[u8], String> {
@@ -1702,7 +1740,7 @@ impl Memory {
                 return Err("Read from uninitialized memory trap".to_string());
             }
         }
-        Ok(&alloc.bytes[offset..(offset + size)])
+        Ok(&alloc.bytes[offset..end])
     }
 
     pub fn write(&mut self, id: u64, offset: usize, data: &[u8]) -> Result<(), String> {

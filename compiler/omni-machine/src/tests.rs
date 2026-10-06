@@ -1246,7 +1246,7 @@ fn builtin_alloc_returns_a_live_allocation() {
     let Value::Int(handle) = value else {
         panic!("expected an allocation handle, got {value:?}");
     };
-    assert!(handle >= 0, "an allocation handle is a non-negative machine integer");
+    assert!(handle > 0, "an allocation handle must be a positive machine integer");
     assert!(
         interp.allocation_is_live(handle as u64),
         "the returned handle must name a live allocation"
@@ -1295,6 +1295,31 @@ fn builtin_dealloc_frees_an_allocation() {
     assert!(
         !interp.allocation_is_live(handle as u64),
         "the returned handle must have been released before the function returned"
+    );
+}
+
+#[test]
+fn builtin_alloc_rejects_invalid_alignment() {
+    let f = Fixture::new();
+    let mut builder = FnBuilder::new(&f, "f", TypeSpec::Int);
+    let handle = builder.local("handle", Some(f.int));
+    let after = builder.block(vec![], Terminator::Return);
+    let func = builder.finish(
+        vec![],
+        Terminator::Call {
+            func: Operand::Constant(Constant::FnRef("alloc".to_string())),
+            args: vec![const_int(16), const_int(3)],
+            destination: Some(Place::local(handle)),
+            target: after,
+            cleanup: None,
+        },
+    );
+
+    let mut interp = interpreter(f, vec![func]);
+    let err = interp.execute_function("f", vec![]).unwrap_err();
+    assert!(
+        matches!(err, ExecutionError::MemoryAccessError { .. }),
+        "expected MemoryAccessError, got {err:?}"
     );
 }
 
