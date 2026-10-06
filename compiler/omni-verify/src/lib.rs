@@ -37,6 +37,7 @@ impl PoloniusFacts {
 
         let mut facts = Self::default();
         let mut active_by_local: BTreeMap<omni_mir::ir::Local, String> = BTreeMap::new();
+        let mut active_loans = std::collections::BTreeSet::<String>::new();
         let mut region_by_loan: BTreeMap<String, String> = BTreeMap::new();
 
         for (block_idx, block) in body.blocks.iter().enumerate() {
@@ -45,9 +46,29 @@ impl PoloniusFacts {
 
                 match statement {
                     Statement::Assign(destination, rvalue) => {
-                        if destination.projections.is_empty() {
-                            if let Some(previous_loan) = active_by_local.remove(&destination.local)
+                        let parent_loan = match rvalue {
+                            Rvalue::Reference { place: borrowed, .. }
+                                if borrowed.projections.iter().any(|p| {
+                                    matches!(p, Projection::Deref)
+                                }) =>
                             {
+                                active_by_local.get(&borrowed.local).cloned()
+                            }
+                            _ => None,
+                        };
+
+                        // A reborrow keeps its parent loan logically alive while
+                        // the child loan is active. Do not kill that parent merely
+                        // because the child reference overwrites the same local.
+                        let replaces_parent = destination.projections.is_empty()
+                            && parent_loan.is_some()
+                            && active_by_local
+                                .get(&destination.local)
+                                .is_some_and(|current| Some(current) == parent_loan.as_ref());
+
+                        if destination.projections.is_empty() && !replaces_parent {
+                            if let Some(previous_loan) = active_by_local.remove(&destination.local) {
+                                active_loans.remove(&previous_loan);
                                 facts.killed.push((previous_loan, point.clone()));
                             }
                         }
@@ -60,17 +81,14 @@ impl PoloniusFacts {
                             facts.borrow_region.push((region.clone(), point.clone()));
                             facts.region_live_at.push((region.clone(), point.clone()));
 
-                            if borrowed.projections.iter().any(|p| matches!(p, Projection::Deref)) {
-                                if let Some(parent_loan) = active_by_local.get(&borrowed.local) {
-                                    if let Some(parent_region) = region_by_loan.get(parent_loan) {
-                                        facts
-                                            .outlives
-                                            .push((parent_region.clone(), region.clone()));
-                                    }
+                            if let Some(parent_loan) = parent_loan.as_ref() {
+                                if let Some(parent_region) = region_by_loan.get(parent_loan) {
+                                    facts.outlives.push((parent_region.clone(), region.clone()));
                                 }
                             }
 
                             region_by_loan.insert(loan.clone(), region);
+                            active_loans.insert(loan.clone());
                             if destination.projections.is_empty() {
                                 active_by_local.insert(destination.local, loan);
                             }
@@ -78,6 +96,7 @@ impl PoloniusFacts {
                     }
                     Statement::Drop(place) if place.projections.is_empty() => {
                         if let Some(loan) = active_by_local.remove(&place.local) {
+                            active_loans.remove(&loan);
                             facts.killed.push((loan, point.clone()));
                         }
                     }
@@ -87,10 +106,11 @@ impl PoloniusFacts {
 
             if matches!(block.terminator, Some(Terminator::Return)) {
                 let point = format!("bb{}_term", block_idx);
-                for (_, loan) in active_by_local.iter() {
+                for loan in &active_loans {
                     facts.killed.push((loan.clone(), point.clone()));
                 }
                 active_by_local.clear();
+                active_loans.clear();
             }
         }
 
