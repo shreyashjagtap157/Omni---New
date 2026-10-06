@@ -72,8 +72,7 @@ impl HirProgram {
                 if !tcx.is_concrete(ty) {
                     return Err(format!(
                         "HIR construction error: parameter '{}' of '{}' is not concrete",
-                        name,
-                        function.name
+                        name, function.name
                     ));
                 }
                 params.push((name.clone(), spec.clone()));
@@ -104,12 +103,7 @@ impl HirProgram {
 
         functions.sort_by(|a, b| a.name.cmp(&b.name));
 
-        let hir = Self {
-            tcx,
-            functions,
-            struct_defs,
-            enum_defs,
-        };
+        let hir = Self { tcx, functions, struct_defs, enum_defs };
         hir.validate()?;
         Ok(hir)
     }
@@ -122,9 +116,7 @@ impl HirProgram {
         Self::from_monomorphized(program, struct_defs, HashMap::new())
     }
 
-    pub fn from_monomorphized_without_defs(
-        program: &MonomorphizedProgram,
-    ) -> Result<Self, String> {
+    pub fn from_monomorphized_without_defs(program: &MonomorphizedProgram) -> Result<Self, String> {
         Self::from_monomorphized(program, HashMap::new(), HashMap::new())
     }
 
@@ -154,8 +146,7 @@ impl HirProgram {
                 if !self.tcx.is_concrete(ty) {
                     return Err(format!(
                         "HIR validation error: parameter {} of '{}' is not concrete",
-                        index,
-                        function.name
+                        index, function.name
                     ));
                 }
             }
@@ -222,9 +213,10 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
         Expr::EnumVariant { generic_args, args, .. } => {
             !generic_args.is_empty() || args.iter().any(contains_unresolved_syntax)
         }
-        Expr::Tuple(items) | Expr::Array(items) | Expr::Interpolation(items) | Expr::Block(items) => {
-            items.iter().any(contains_unresolved_syntax)
-        }
+        Expr::Tuple(items)
+        | Expr::Array(items)
+        | Expr::Interpolation(items)
+        | Expr::Block(items) => items.iter().any(contains_unresolved_syntax),
         Expr::Range { start, end, .. } => {
             contains_unresolved_syntax(start) || contains_unresolved_syntax(end)
         }
