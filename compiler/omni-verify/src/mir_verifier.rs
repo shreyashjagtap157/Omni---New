@@ -1334,10 +1334,10 @@ impl MirVerifier {
         rvalue: &Rvalue,
     ) -> Result<Ty, MirVerificationError> {
         match rvalue {
-            Rvalue::Use(op) => Self::operand_type(tcx, func, op),
+            Rvalue::Use(op) => Self::operand_type(tcx, defs, func, op),
             Rvalue::BinaryOp(op, lhs, rhs) => {
-                let lhs_ty = Self::operand_type(tcx, func, lhs)?;
-                let rhs_ty = Self::operand_type(tcx, func, rhs)?;
+                let lhs_ty = Self::operand_type(tcx, defs, func, lhs)?;
+                let rhs_ty = Self::operand_type(tcx, defs, func, rhs)?;
                 if lhs_ty != rhs_ty {
                     return Err(MirVerificationError::TypeMismatch {
                         func: func.name.clone(),
@@ -1420,7 +1420,7 @@ impl MirVerifier {
             Rvalue::Aggregate { kind, operands, ty } => {
                 let actual_types = operands
                     .iter()
-                    .map(|operand| Self::operand_type(tcx, func, operand))
+                    .map(|operand| Self::operand_type(tcx, defs, func, operand))
                     .collect::<Result<Vec<_>, _>>()?;
                 match (kind, tcx.get(*ty)) {
                     (AggregateKind::Tuple, TyKind::Tuple(expected)) => {
@@ -1482,8 +1482,8 @@ impl MirVerifier {
                 Ok(*ty)
             }
             Rvalue::Range { start, end, inclusive: _, ty } => {
-                let start_ty = Self::operand_type(tcx, func, start)?;
-                let end_ty = Self::operand_type(tcx, func, end)?;
+                let start_ty = Self::operand_type(tcx, defs, func, start)?;
+                let end_ty = Self::operand_type(tcx, defs, func, end)?;
                 let TyKind::Range(elem_ty) = tcx.get(*ty) else {
                     return Err(MirVerificationError::AggregateTypeMismatch {
                         func: func.name.clone(),
@@ -1522,7 +1522,7 @@ impl MirVerifier {
                             ),
                         });
                     }
-                    let _ = Self::operand_type(tcx, func, operand)?;
+                    let _ = Self::operand_type(tcx, defs, func, operand)?;
                 }
                 Ok(*ty)
             }
@@ -1549,12 +1549,12 @@ impl MirVerifier {
                     }
                 }
                 for operand in operands {
-                    let _ = Self::operand_type(tcx, func, operand)?;
+                    let _ = Self::operand_type(tcx, defs, func, operand)?;
                 }
                 Ok(*ty)
             }
             Rvalue::Field { base, field, ty } => {
-                let base_ty = Self::operand_type(tcx, func, base)?;
+                let base_ty = Self::operand_type(tcx, defs, func, base)?;
                 let expected = match tcx.get(base_ty) {
                     TyKind::Struct(struct_name, args) => {
                         // Same declaration lookup the place-chain check uses:
@@ -1617,8 +1617,8 @@ impl MirVerifier {
                 Ok(*ty)
             }
             Rvalue::Index { base, index, ty } => {
-                let base_ty = Self::operand_type(tcx, func, base)?;
-                let index_ty = Self::operand_type(tcx, func, index)?;
+                let base_ty = Self::operand_type(tcx, defs, func, base)?;
+                let index_ty = Self::operand_type(tcx, defs, func, index)?;
                 if index_ty != tcx.intern(TyKind::Int) {
                     return Err(MirVerificationError::TypeMismatch {
                         func: func.name.clone(),
@@ -1654,7 +1654,7 @@ impl MirVerifier {
             }
 
             Rvalue::Cast { operand, from, to } => {
-                let actual = Self::operand_type(tcx, func, operand)?;
+                let actual = Self::operand_type(tcx, defs, func, operand)?;
                 if actual != *from {
                     return Err(MirVerificationError::TypeMismatch {
                         func: func.name.clone(),
@@ -1672,7 +1672,7 @@ impl MirVerifier {
                 Ok(*to)
             }
             Rvalue::UnaryOp(op, operand) => {
-                let actual = Self::operand_type(tcx, func, operand)?;
+                let actual = Self::operand_type(tcx, defs, func, operand)?;
                 let valid = match op {
                     UnOp::Neg => {
                         actual == tcx.intern(TyKind::Int) || actual == tcx.intern(TyKind::Float)
@@ -1700,12 +1700,14 @@ impl MirVerifier {
 
     fn operand_type(
         tcx: &mut TyCtxt,
+        defs: &std::collections::HashMap<String, omni_types::ast::StructDef>,
         func: &MirFunction,
         operand: &Operand,
     ) -> Result<Ty, MirVerificationError> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => {
-                Self::local_ty(func, place.local, &func.name)
+                let root_ty = Self::local_ty(func, place.local, &func.name)?;
+                Self::place_ty(tcx, defs, func, place, root_ty)
             }
             Operand::Constant(Constant::Lit(lit)) => Ok(Self::literal_type(tcx, lit)),
             Operand::Constant(Constant::FnRef(_)) => {
@@ -1844,7 +1846,7 @@ impl MirVerifier {
 
             let mut tcx = prog.tcx.clone();
             for (arg_index, (arg, param)) in args.iter().zip(&target.params).enumerate() {
-                let actual = Self::operand_type(&mut tcx, func, arg)?;
+                let actual = Self::operand_type(&mut tcx, &prog.struct_defs, func, arg)?;
                 let expected = Self::local_ty(target, *param, &target.name)?;
                 if actual != expected {
                     return Err(MirVerificationError::CallArgumentTypeMismatch {
