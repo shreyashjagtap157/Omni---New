@@ -10,3 +10,4 @@ workspace = true
 [dependencies]
 omni-types = { path = "../omni-types" }
 omni-own = { path = "../omni-own" }
+omni-effects = { path = "../omni-effects" }
