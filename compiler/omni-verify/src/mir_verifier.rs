@@ -1700,7 +1700,7 @@ impl MirVerifier {
 
     fn operand_type(
         tcx: &mut TyCtxt,
-        defs: &std::collections::HashMap<String, omni_types::ast::StructDef>,
+        defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
         func: &MirFunction,
         operand: &Operand,
     ) -> Result<Ty, MirVerificationError> {
