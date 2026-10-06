@@ -897,14 +897,14 @@ impl Interpreter {
                 self.execute_constant_index_projection(base, *index)
             }
             Projection::Index(index_local) => {
-                let index_value =
-                    self.frame_locals(frame)?.get(index_local).ok_or_else(|| {
-                        ExecutionError::MemoryAccessError {
-                            message: format!(
-                                "Index local {:?} not found in frame {}",
-                                index_local, frame
-                            ),
-                        }
+                let index_value = self
+                    .frame_locals(frame)?
+                    .get(index_local)
+                    .ok_or_else(|| ExecutionError::MemoryAccessError {
+                        message: format!(
+                            "Index local {:?} not found in frame {}",
+                            index_local, frame
+                        ),
                     })?
                     .clone();
                 self.execute_index_projection(base, index_value)
