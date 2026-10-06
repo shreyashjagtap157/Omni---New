@@ -118,8 +118,7 @@ impl DropElaborator {
 
         for idx in 0..count {
             let block = BasicBlock::from_usize(idx);
-            if !reachable[idx]
-                || !matches!(body.blocks[block].terminator, Some(Terminator::Return))
+            if !reachable[idx] || !matches!(body.blocks[block].terminator, Some(Terminator::Return))
             {
                 continue;
             }
