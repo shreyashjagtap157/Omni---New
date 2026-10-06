@@ -258,7 +258,7 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
         Expr::If { condition, then_branch, else_branch } => {
             contains_unresolved_syntax(condition)
                 || contains_unresolved_syntax(then_branch)
-                || else_branch.as_ref().is_some_and(contains_unresolved_syntax)
+                || else_branch.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr))
         }
         Expr::Lambda { params, body } => {
             params.iter().any(|(_, spec)| type_spec_is_unresolved(spec))
@@ -273,7 +273,7 @@ fn contains_unresolved_syntax(expr: &Expr) -> bool {
         Expr::For { iterable, body, .. } => {
             contains_unresolved_syntax(iterable) || contains_unresolved_syntax(body)
         }
-        Expr::Break { value, .. } => value.as_ref().is_some_and(contains_unresolved_syntax),
+        Expr::Break { value, .. } => value.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr)),
         Expr::Continue { .. } | Expr::Return(None) | Expr::Literal(_) | Expr::Var(_) => false,
         Expr::Return(Some(expr)) => contains_unresolved_syntax(expr),
     }
