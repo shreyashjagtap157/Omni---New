@@ -6,7 +6,7 @@
 pub mod interpreter;
 
 pub use interpreter::{
-    CallFrame, ControlFlow, Diagnostic, DiagnosticLevel, ExecutionError, Interpreter, PlaceValue,
+    CallFrame, ControlFlow, Diagnostic, DiagnosticLevel, ExecutionError, Interpreter, PlaceValue, ReferenceValue,
     SourceLocation, Value,
 };
 
