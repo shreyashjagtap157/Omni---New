@@ -4,7 +4,6 @@
 //! verified MIR. The native object is renamed only in this test so that a small
 //! Rust harness can provide the host process entry point without changing Omni's
 //! compiler-level `main` convention.
-+
 #[cfg(target_os = "linux")]
 mod linux {
     use std::path::{Path, PathBuf};
