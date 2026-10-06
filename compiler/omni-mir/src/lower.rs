@@ -1282,7 +1282,9 @@ impl<'a> FnMirBuilder<'a> {
                 match op {
                     omni_types::ast::UnOp::Deref => {
                         let inner_place = match inner_op {
-                            crate::ir::Operand::Copy(place) | crate::ir::Operand::Move(place) => place,
+                            crate::ir::Operand::Copy(place) | crate::ir::Operand::Move(place) => {
+                                place
+                            },
                             other => {
                                 let block = self.current_block.ok_or_else(|| {
                                     "MIR lowering error: dereference has no live continuation block"
@@ -1297,10 +1299,7 @@ impl<'a> FnMirBuilder<'a> {
                                 place
                             }
                         };
-                        let ty = self.projected_ty(
-                            inner_ty,
-                            &[crate::ir::Projection::Deref],
-                        )?;
+                        let ty = self.projected_ty(inner_ty, &[crate::ir::Projection::Deref])?;
                         let place = inner_place.project(crate::ir::Projection::Deref);
                         Ok(Some((crate::ir::Operand::Copy(place), ty)))
                     }
