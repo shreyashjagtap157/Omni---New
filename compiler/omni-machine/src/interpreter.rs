@@ -965,10 +965,25 @@ impl Interpreter {
             }
         }
 
+        if place.projections.is_empty() {
+            if frame == self.call_stack.len() {
+                self.locals.insert(place.local, value);
+            } else if let Some(call) = self.call_stack.get_mut(frame) {
+                call.caller_locals.insert(place.local, value);
+            } else {
+                return Err(ExecutionError::MemoryAccessError {
+                    message: format!("Local {:?} not found in frame {}", place.local, frame),
+                });
+            }
+            return Ok(());
+        }
+
         let root = if frame == self.call_stack.len() {
             self.locals.get_mut(&place.local)
         } else {
-            self.call_stack.get_mut(frame).and_then(|call| call.caller_locals.get_mut(&place.local))
+            self.call_stack
+                .get_mut(frame)
+                .and_then(|call| call.caller_locals.get_mut(&place.local))
         }
         .ok_or_else(|| ExecutionError::MemoryAccessError {
             message: format!("Local {:?} not found in frame {}", place.local, frame),
