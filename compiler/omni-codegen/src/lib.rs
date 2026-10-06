@@ -309,15 +309,20 @@ pub fn compile_monomorphized_program_with_structs(
     let mut lowering = omni_mir::lower::LoweringContext::new();
     lowering.set_struct_defs(struct_defs);
     let mir_prog = lowering.lower_monomorphized_program(prog)?;
+    compile_verified_mir_program(prog, &mir_prog)
+}
 
-    omni_verify::MirVerifier::verify_program(&mir_prog)
+/// Emit native code from a caller-supplied MIR program after independent verification.
+pub fn compile_verified_mir_program(
+    prog: &omni_mir::MonomorphizedProgram,
+    mir_prog: &omni_mir::ir::MirProgram,
+) -> Result<Vec<u8>, String> {
+    omni_verify::MirVerifier::verify_program(mir_prog)
         .map_err(|e| format!("Pre-codegen MIR verification failed: {}", e))?;
-
     if mir_prog.functions.is_empty() {
-        return Err("Cannot compile empty monomorphized program".into());
+        return Err("Cannot compile empty MIR program".into());
     }
-
-    compile_mir_program(prog, &mir_prog)
+    compile_mir_program(prog, mir_prog)
 }
 
 fn compile_mir_program(
