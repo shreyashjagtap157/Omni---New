@@ -48,9 +48,10 @@ impl PoloniusFacts {
                     Statement::Assign(destination, rvalue) => {
                         let parent_loan = match rvalue {
                             Rvalue::Reference { place: borrowed, .. }
-                                if borrowed.projections.iter().any(|p| {
-                                    matches!(p, Projection::Deref)
-                                }) =>
+                                if borrowed
+                                    .projections
+                                    .iter()
+                                    .any(|p| matches!(p, Projection::Deref)) =>
                             {
                                 active_by_local.get(&borrowed.local).cloned()
                             }
@@ -67,7 +68,8 @@ impl PoloniusFacts {
                                 .is_some_and(|current| Some(current) == parent_loan.as_ref());
 
                         if destination.projections.is_empty() && !replaces_parent {
-                            if let Some(previous_loan) = active_by_local.remove(&destination.local) {
+                            if let Some(previous_loan) = active_by_local.remove(&destination.local)
+                            {
                                 active_loans.remove(&previous_loan);
                                 facts.killed.push((previous_loan, point.clone()));
                             }
