@@ -1,1 +1,306 @@
-//! High-Level Intermediate Representation (HIR) for Omni.\n//!\n//! HIR is the first canonical semantic representation after front-end analysis.\n//! It sits between the syntax-oriented AST and MIR: generic parameters have\n//! been materialized, method calls have been eliminated by monomorphization,\n//! and function signatures carry canonical interned concrete type handles.\n//! Declarative syntax is retained only as a bridge for the existing MIR builder.\n\nuse std::collections::{HashMap, HashSet};\n\nuse omni_effects::{Capability, EffectRow};\nuse omni_types::ast::{EnumDef, Expr, GenericFnDef, StructDef, TypeSpec};\nuse omni_types::{MonomorphizedProgram, Ty, TyCtxt};\n\n/// A semantically lowered Omni function.\n#[derive(Debug, Clone)]\npub struct HirFunction {\n    pub name: String,\n    /// Declarative signature retained for the current MIR bridge.\n    pub params: Vec<(String, TypeSpec)>,\n    /// Canonical interned parameter types owned by this HIR program's context.\n    pub param_tys: Vec<Ty>,\n    /// Declarative return type retained for the current MIR bridge.\n    pub return_type: TypeSpec,\n    /// Canonical interned return type.\n    pub return_ty: Ty,\n    pub effects: EffectRow,\n    pub capabilities: Vec<Capability>,\n    /// Monomorphized semantic expression tree.\n    pub body: Expr,\n}\n\n/// Program-wide canonical HIR.\n#[derive(Debug, Clone)]\npub struct HirProgram {\n    pub tcx: TyCtxt,\n    pub functions: Vec<HirFunction>,\n    pub struct_defs: HashMap<String, StructDef>,\n    pub enum_defs: HashMap<String, EnumDef>,\n}\n\nimpl HirProgram {\n    /// Construct HIR from a concrete monomorphized program.\n    ///\n    /// The concrete-program gate is enforced here so downstream MIR consumers\n    /// receive a representation with no unresolved type parameters or generic\n    /// call arguments. Function ordering is canonicalized by name.\n    pub fn from_monomorphized(\n        program: &MonomorphizedProgram,\n        struct_defs: HashMap<String, StructDef>,\n        enum_defs: HashMap<String, EnumDef>,\n    ) -> Result<Self, String> {\n        program.assert_concrete_for_mir()?;\n\n        let mut tcx = TyCtxt::new();\n        let env = omni_types::SubstEnv::new();\n        let mut functions = Vec::with_capacity(program.functions.len());\n        let mut seen = HashSet::new();\n\n        for function in &program.functions {\n            if !seen.insert(function.name.clone()) {\n                return Err(format!("HIR construction error: duplicate function '{}'", function.name));\n            }\n\n            let mut params = Vec::with_capacity(function.params.len());\n            let mut param_tys = Vec::with_capacity(function.params.len());\n            for (name, spec) in &function.params {\n                let ty = tcx.lower_type_spec(spec, &env);\n                if !tcx.is_concrete(ty) {\n                    return Err(format!(\n                        "HIR construction error: parameter '{}' of '{}' is not concrete",\n                        name,\n                        function.name\n                    ));\n                }\n                params.push((name.clone(), spec.clone()));\n                param_tys.push(ty);\n            }\n\n            let return_ty = tcx.lower_type_spec(&function.return_type, &env);\n            if !tcx.is_concrete(return_ty) {\n                return Err(format!(\n                    "HIR construction error: return type of '{}' is not concrete",\n                    function.name\n                ));\n            }\n\n            validate_concrete_expr(&function.body, &function.name)?;\n\n            functions.push(HirFunction {\n                name: function.name.clone(),\n                params,\n                param_tys,\n                return_type: function.return_type.clone(),\n                return_ty,\n                effects: function.effects.clone(),\n                capabilities: function.capabilities.clone(),\n                body: function.body.clone(),\n            });\n        }\n\n        functions.sort_by(|a, b| a.name.cmp(&b.name));\n\n        let hir = Self { tcx, functions, struct_defs, enum_defs };\n        hir.validate()?;\n        Ok(hir)\n    }\n\n    pub fn from_monomorphized_without_defs(program: &MonomorphizedProgram) -> Result<Self, String> {\n        Self::from_monomorphized(program, HashMap::new(), HashMap::new())\n    }\n\n    /// Validate the canonical HIR invariants required by MIR.\n    pub fn validate(&self) -> Result<(), String> {\n        let mut names = HashSet::new();\n        for function in &self.functions {\n            if !names.insert(&function.name) {\n                return Err(format!("HIR validation error: duplicate function '{}'", function.name));\n            }\n            if function.params.len() != function.param_tys.len() {\n                return Err(format!(\n                    "HIR validation error: '{}' has mismatched parameter metadata",\n                    function.name\n                ));\n            }\n            if !self.tcx.is_concrete(function.return_ty) {\n                return Err(format!(\n                    "HIR validation error: return type of '{}' is not concrete",\n                    function.name\n                ));\n            }\n            for (index, ty) in function.param_tys.iter().copied().enumerate() {\n                if !self.tcx.is_concrete(ty) {\n                    return Err(format!(\n                        "HIR validation error: parameter {} of '{}' is not concrete",\n                        index,\n                        function.name\n                    ));\n                }\n            }\n            validate_concrete_expr(&function.body, &function.name)?;\n        }\n        Ok(())\n    }\n\n    /// Compatibility bridge used by the current MIR lowering engine.\n    pub fn to_monomorphized_program(&self) -> MonomorphizedProgram {\n        MonomorphizedProgram {\n            functions: self\n                .functions\n                .iter()\n                .map(|function| GenericFnDef {\n                    name: function.name.clone(),\n                    type_params: Vec::new(),\n                    bounds: Vec::new(),\n                    params: function.params.clone(),\n                    return_type: function.return_type.clone(),\n                    effects: function.effects.clone(),\n                    capabilities: function.capabilities.clone(),\n                    body: function.body.clone(),\n                })\n                .collect(),\n        }\n    }\n}\n\nfn validate_concrete_expr(expr: &Expr, function_name: &str) -> Result<(), String> {\n    if contains_unresolved_syntax(expr) {\n        return Err(format!(\n            "HIR validation error: '{}' retains generic call arguments or an unresolved method call",\n            function_name\n        ));\n    }\n    Ok(())\n}\n\nfn contains_unresolved_syntax(expr: &Expr) -> bool {\n    match expr {\n        Expr::Call { generic_args, args, .. } => {\n            !generic_args.is_empty() || args.iter().any(contains_unresolved_syntax)\n        }\n        Expr::MethodCall { .. } => true,\n        Expr::Let { init, body, .. } => contains_unresolved_syntax(init) || contains_unresolved_syntax(body),\n        Expr::Binary { lhs, rhs, .. } => contains_unresolved_syntax(lhs) || contains_unresolved_syntax(rhs),\n        Expr::Unary { expr, .. }\n        | Expr::Field { expr, .. }\n        | Expr::Cast { expr, .. }\n        | Expr::Loop { body: expr, .. }\n        | Expr::UnsafeBlock { body: expr } => contains_unresolved_syntax(expr),\n        Expr::Index { expr, index } => contains_unresolved_syntax(expr) || contains_unresolved_syntax(index),\n        Expr::Struct { generic_args, fields, .. } => {\n            !generic_args.is_empty() || fields.iter().any(|(_, value)| contains_unresolved_syntax(value))\n        }\n        Expr::EnumVariant { generic_args, args, .. } => {\n            !generic_args.is_empty() || args.iter().any(contains_unresolved_syntax)\n        }\n        Expr::Tuple(items) | Expr::Array(items) | Expr::Interpolation(items) | Expr::Block(items) => {\n            items.iter().any(contains_unresolved_syntax)\n        }\n        Expr::Range { start, end, .. } => contains_unresolved_syntax(start) || contains_unresolved_syntax(end),\n        Expr::Match { expr, arms } => {\n            contains_unresolved_syntax(expr)\n                || arms.iter().any(|arm| {\n                    arm.guard.as_ref().is_some_and(contains_unresolved_syntax)\n                        || contains_unresolved_syntax(&arm.body)\n                })\n        }\n        Expr::If { condition, then_branch, else_branch } => {\n            contains_unresolved_syntax(condition)\n                || contains_unresolved_syntax(then_branch)\n                || else_branch.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr))\n        }\n        Expr::Lambda { body, .. } => contains_unresolved_syntax(body),\n        Expr::Assign { target, value } | Expr::CompoundAssign { target, value, .. } => {\n            contains_unresolved_syntax(target) || contains_unresolved_syntax(value)\n        }\n        Expr::While { condition, body, .. } => contains_unresolved_syntax(condition) || contains_unresolved_syntax(body),\n        Expr::For { iterable, body, .. } => contains_unresolved_syntax(iterable) || contains_unresolved_syntax(body),\n        Expr::Break { value, .. } => value.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr)),\n        Expr::Continue { .. } | Expr::Return(None) | Expr::Literal(_) | Expr::Var(_) => false,\n        Expr::Return(Some(expr)) => contains_unresolved_syntax(expr),\n    }\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    fn concrete_program() -> MonomorphizedProgram {\n        MonomorphizedProgram {\n            functions: vec![GenericFnDef {\n                name: "main".to_string(),\n                type_params: vec![],\n                bounds: vec![],\n                params: vec![],\n                return_type: TypeSpec::Int,\n                effects: EffectRow::pure(),\n                capabilities: vec![],\n                body: Expr::Literal(omni_types::ast::Lit::Int(42)),\n            }],\n        }\n    }\n\n    #[test]\n    fn concrete_program_constructs_canonical_hir() {\n        let hir = HirProgram::from_monomorphized_without_defs(&concrete_program()).unwrap();\n        hir.validate().unwrap();\n        assert_eq!(hir.functions.len(), 1);\n        assert!(matches!(hir.tcx.get(hir.functions[0].return_ty), omni_types::TyKind::Int));\n    }\n\n    #[test]\n    fn generic_function_is_rejected_before_hir() {\n        let mut program = concrete_program();\n        program.functions[0].type_params.push("T".to_string());\n        assert!(HirProgram::from_monomorphized_without_defs(&program).is_err());\n    }\n\n    #[test]\n    fn unresolved_method_call_is_rejected() {\n        let mut program = concrete_program();\n        program.functions[0].body = Expr::MethodCall {\n            receiver: Box::new(Expr::Var("x".to_string())),\n            method: "get".to_string(),\n            generic_args: vec![],\n            args: vec![],\n        };\n        assert!(HirProgram::from_monomorphized_without_defs(&program).is_err());\n    }\n}\n
+//! High-Level Intermediate Representation (HIR) for Omni.
+//!
+//! HIR is the first canonical semantic representation after front-end analysis.
+//! It sits between the syntax-oriented AST and MIR: generic parameters have
+//! been materialized, method calls have been eliminated by monomorphization,
+//! and function signatures carry canonical interned concrete type handles.
+//! Declarative syntax is retained only as a bridge for the existing MIR builder.
+
+use std::collections::{HashMap, HashSet};
+
+use omni_effects::{Capability, EffectRow};
+use omni_types::ast::{EnumDef, Expr, GenericFnDef, StructDef, TypeSpec};
+use omni_types::{MonomorphizedProgram, Ty, TyCtxt};
+
+/// A semantically lowered Omni function.
+#[derive(Debug, Clone)]
+pub struct HirFunction {
+    pub name: String,
+    /// Declarative signature retained for the current MIR bridge.
+    pub params: Vec<(String, TypeSpec)>,
+    /// Canonical interned parameter types owned by this HIR program's context.
+    pub param_tys: Vec<Ty>,
+    /// Declarative return type retained for the current MIR bridge.
+    pub return_type: TypeSpec,
+    /// Canonical interned return type.
+    pub return_ty: Ty,
+    pub effects: EffectRow,
+    pub capabilities: Vec<Capability>,
+    /// Monomorphized semantic expression tree.
+    pub body: Expr,
+}
+
+/// Program-wide canonical HIR.
+#[derive(Debug, Clone)]
+pub struct HirProgram {
+    pub tcx: TyCtxt,
+    pub functions: Vec<HirFunction>,
+    pub struct_defs: HashMap<String, StructDef>,
+    pub enum_defs: HashMap<String, EnumDef>,
+}
+
+impl HirProgram {
+    /// Construct HIR from a concrete monomorphized program.
+    ///
+    /// The concrete-program gate is enforced here so downstream MIR consumers
+    /// receive a representation with no unresolved type parameters or generic
+    /// call arguments. Function ordering is canonicalized by name.
+    pub fn from_monomorphized(
+        program: &MonomorphizedProgram,
+        struct_defs: HashMap<String, StructDef>,
+        enum_defs: HashMap<String, EnumDef>,
+    ) -> Result<Self, String> {
+        program.assert_concrete_for_mir()?;
+
+        let mut tcx = TyCtxt::new();
+        let env = omni_types::SubstEnv::new();
+        let mut functions = Vec::with_capacity(program.functions.len());
+        let mut seen = HashSet::new();
+
+        for function in &program.functions {
+            if !seen.insert(function.name.clone()) {
+                return Err(format!(
+                    "HIR construction error: duplicate function '{}'",
+                    function.name
+                ));
+            }
+
+            let mut params = Vec::with_capacity(function.params.len());
+            let mut param_tys = Vec::with_capacity(function.params.len());
+            for (name, spec) in &function.params {
+                let ty = tcx.lower_type_spec(spec, &env);
+                if !tcx.is_concrete(ty) {
+                    return Err(format!(
+                        "HIR construction error: parameter '{}' of '{}' is not concrete",
+                        name,
+                        function.name
+                    ));
+                }
+                params.push((name.clone(), spec.clone()));
+                param_tys.push(ty);
+            }
+
+            let return_ty = tcx.lower_type_spec(&function.return_type, &env);
+            if !tcx.is_concrete(return_ty) {
+                return Err(format!(
+                    "HIR construction error: return type of '{}' is not concrete",
+                    function.name
+                ));
+            }
+
+            validate_concrete_expr(&function.body, &function.name)?;
+
+            functions.push(HirFunction {
+                name: function.name.clone(),
+                params,
+                param_tys,
+                return_type: function.return_type.clone(),
+                return_ty,
+                effects: function.effects.clone(),
+                capabilities: function.capabilities.clone(),
+                body: function.body.clone(),
+            });
+        }
+
+        functions.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let hir = Self {
+            tcx,
+            functions,
+            struct_defs,
+            enum_defs,
+        };
+        hir.validate()?;
+        Ok(hir)
+    }
+
+    /// Compatibility name used by the current driver/frontend integration.
+    pub fn from_monomorphized_program(
+        program: &MonomorphizedProgram,
+        struct_defs: HashMap<String, StructDef>,
+    ) -> Result<Self, String> {
+        Self::from_monomorphized(program, struct_defs, HashMap::new())
+    }
+
+    pub fn from_monomorphized_without_defs(
+        program: &MonomorphizedProgram,
+    ) -> Result<Self, String> {
+        Self::from_monomorphized(program, HashMap::new(), HashMap::new())
+    }
+
+    /// Validate the canonical HIR invariants required by MIR.
+    pub fn validate(&self) -> Result<(), String> {
+        let mut names = HashSet::new();
+        for function in &self.functions {
+            if !names.insert(&function.name) {
+                return Err(format!(
+                    "HIR validation error: duplicate function '{}'",
+                    function.name
+                ));
+            }
+            if function.params.len() != function.param_tys.len() {
+                return Err(format!(
+                    "HIR validation error: '{}' has mismatched parameter metadata",
+                    function.name
+                ));
+            }
+            if !self.tcx.is_concrete(function.return_ty) {
+                return Err(format!(
+                    "HIR validation error: return type of '{}' is not concrete",
+                    function.name
+                ));
+            }
+            for (index, ty) in function.param_tys.iter().copied().enumerate() {
+                if !self.tcx.is_concrete(ty) {
+                    return Err(format!(
+                        "HIR validation error: parameter {} of '{}' is not concrete",
+                        index,
+                        function.name
+                    ));
+                }
+            }
+            validate_concrete_expr(&function.body, &function.name)?;
+        }
+        Ok(())
+    }
+
+    /// Compatibility bridge used by the current MIR lowering engine.
+    pub fn to_monomorphized_program(&self) -> MonomorphizedProgram {
+        MonomorphizedProgram {
+            functions: self
+                .functions
+                .iter()
+                .map(|function| GenericFnDef {
+                    name: function.name.clone(),
+                    type_params: Vec::new(),
+                    bounds: Vec::new(),
+                    params: function.params.clone(),
+                    return_type: function.return_type.clone(),
+                    effects: function.effects.clone(),
+                    capabilities: function.capabilities.clone(),
+                    body: function.body.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
+fn validate_concrete_expr(expr: &Expr, function_name: &str) -> Result<(), String> {
+    if contains_unresolved_syntax(expr) {
+        return Err(format!(
+            "HIR validation error: '{}' retains generic call arguments or an unresolved method call",
+            function_name
+        ));
+    }
+    Ok(())
+}
+
+fn contains_unresolved_syntax(expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { generic_args, args, .. } => {
+            !generic_args.is_empty() || args.iter().any(contains_unresolved_syntax)
+        }
+        Expr::MethodCall { .. } => true,
+        Expr::Let { init, body, .. } => {
+            contains_unresolved_syntax(init) || contains_unresolved_syntax(body)
+        }
+        Expr::Binary { lhs, rhs, .. } => {
+            contains_unresolved_syntax(lhs) || contains_unresolved_syntax(rhs)
+        }
+        Expr::Unary { expr, .. }
+        | Expr::Field { expr, .. }
+        | Expr::Cast { expr, .. }
+        | Expr::Loop { body: expr, .. }
+        | Expr::UnsafeBlock { body: expr } => contains_unresolved_syntax(expr),
+        Expr::Index { expr, index } => {
+            contains_unresolved_syntax(expr) || contains_unresolved_syntax(index)
+        }
+        Expr::Struct { generic_args, fields, .. } => {
+            !generic_args.is_empty()
+                || fields.iter().any(|(_, value)| contains_unresolved_syntax(value))
+        }
+        Expr::EnumVariant { generic_args, args, .. } => {
+            !generic_args.is_empty() || args.iter().any(contains_unresolved_syntax)
+        }
+        Expr::Tuple(items) | Expr::Array(items) | Expr::Interpolation(items) | Expr::Block(items) => {
+            items.iter().any(contains_unresolved_syntax)
+        }
+        Expr::Range { start, end, .. } => {
+            contains_unresolved_syntax(start) || contains_unresolved_syntax(end)
+        }
+        Expr::Match { expr, arms } => {
+            contains_unresolved_syntax(expr)
+                || arms.iter().any(|arm| {
+                    arm.guard.as_ref().is_some_and(contains_unresolved_syntax)
+                        || contains_unresolved_syntax(&arm.body)
+                })
+        }
+        Expr::If { condition, then_branch, else_branch } => {
+            contains_unresolved_syntax(condition)
+                || contains_unresolved_syntax(then_branch)
+                || else_branch.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr))
+        }
+        Expr::Lambda { body, .. } => contains_unresolved_syntax(body),
+        Expr::Assign { target, value } | Expr::CompoundAssign { target, value, .. } => {
+            contains_unresolved_syntax(target) || contains_unresolved_syntax(value)
+        }
+        Expr::While { condition, body, .. } => {
+            contains_unresolved_syntax(condition) || contains_unresolved_syntax(body)
+        }
+        Expr::For { iterable, body, .. } => {
+            contains_unresolved_syntax(iterable) || contains_unresolved_syntax(body)
+        }
+        Expr::Break { value, .. } => {
+            value.as_ref().is_some_and(|expr| contains_unresolved_syntax(expr))
+        }
+        Expr::Continue { .. } | Expr::Return(None) | Expr::Literal(_) | Expr::Var(_) => false,
+        Expr::Return(Some(expr)) => contains_unresolved_syntax(expr),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn concrete_program() -> MonomorphizedProgram {
+        MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "main".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: EffectRow::pure(),
+                capabilities: vec![],
+                body: Expr::Literal(omni_types::ast::Lit::Int(42)),
+            }],
+        }
+    }
+
+    #[test]
+    fn concrete_program_constructs_canonical_hir() {
+        let hir = HirProgram::from_monomorphized_without_defs(&concrete_program()).unwrap();
+        hir.validate().unwrap();
+        assert_eq!(hir.functions.len(), 1);
+        assert!(matches!(hir.tcx.get(hir.functions[0].return_ty), omni_types::TyKind::Int));
+    }
+
+    #[test]
+    fn generic_function_is_rejected_before_hir() {
+        let mut program = concrete_program();
+        program.functions[0].type_params.push("T".to_string());
+        assert!(HirProgram::from_monomorphized_without_defs(&program).is_err());
+    }
+
+    #[test]
+    fn unresolved_method_call_is_rejected() {
+        let mut program = concrete_program();
+        program.functions[0].body = Expr::MethodCall {
+            receiver: Box::new(Expr::Var("x".to_string())),
+            method: "get".to_string(),
+            generic_args: vec![],
+            args: vec![],
+        };
+        assert!(HirProgram::from_monomorphized_without_defs(&program).is_err());
+    }
+}
