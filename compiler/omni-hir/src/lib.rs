@@ -138,3 +138,72 @@ fn validate_expr(expr: &Expr, function: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omni_types::ast::Lit;
+
+    fn concrete_function(name: &str, body: Expr) -> GenericFnDef {
+        GenericFnDef {
+            name: name.to_string(),
+            type_params: Vec::new(),
+            bounds: Vec::new(),
+            params: Vec::new(),
+            return_type: TypeSpec::Int,
+            effects: EffectRow::pure(),
+            capabilities: Vec::new(),
+            body,
+        }
+    }
+
+    #[test]
+    fn constructs_canonical_hir_from_concrete_program() {
+        let program = MonomorphizedProgram {
+            functions: vec![concrete_function("main", Expr::Literal(Lit::Int(7)))],
+        };
+
+        let hir = HirProgram::from_monomorphized_program(&program, HashMap::new())
+            .expect("concrete program must construct HIR");
+
+        assert_eq!(hir.functions.len(), 1);
+        assert_eq!(hir.functions[0].name, "main");
+        assert!(matches!(hir.functions[0].body.as_expr(), Expr::Literal(Lit::Int(7))));
+
+        let round_trip = hir.to_monomorphized_program();
+        assert_eq!(round_trip.functions, program.functions);
+    }
+
+    #[test]
+    fn rejects_unresolved_method_call_at_hir_boundary() {
+        let body = Expr::MethodCall {
+            receiver: Box::new(Expr::Literal(Lit::Int(1))),
+            method: "value".to_string(),
+            generic_args: Vec::new(),
+            args: Vec::new(),
+        };
+        let program = MonomorphizedProgram {
+            functions: vec![concrete_function("main", body)],
+        };
+
+        let error = HirProgram::from_monomorphized_program(&program, HashMap::new())
+            .expect_err("method calls must not cross the HIR boundary");
+
+        assert!(error.contains("unresolved method call reached HIR"));
+    }
+
+    #[test]
+    fn rejects_duplicate_function_names() {
+        let program = MonomorphizedProgram {
+            functions: vec![
+                concrete_function("main", Expr::Literal(Lit::Int(1))),
+                concrete_function("main", Expr::Literal(Lit::Int(2))),
+            ],
+        };
+
+        let error = HirProgram::from_monomorphized_program(&program, HashMap::new())
+            .expect_err("duplicate functions must fail HIR construction");
+
+        assert!(error.contains("duplicate function 'main'"));
+    }
+}
