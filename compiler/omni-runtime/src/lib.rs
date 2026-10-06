@@ -1,98 +1,69 @@
-//! Minimal Stage-1 runtime support for Omni.
+//! Minimal runtime support for Omni's initial native execution vertical slice.
 //!
-//! The runtime owns process state, deterministic buffered host I/O, and a safe
-//! allocation abstraction used by compiler/runtime integration. It intentionally
-//! exposes allocation identities rather than raw host pointers so the runtime
-//! model cannot forge or silently bypass provenance.
+//! The runtime keeps allocation handles opaque at the native boundary. This
+//! deliberately avoids exposing host pointers from the safe Rust runtime while
+//! providing real process-local storage, initialization tracking, deallocation,
+//! minimal stdout, exit, and abort primitives. A later target ABI may replace
+//! the handle representation without changing the higher-level Runtime API.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, Write};
+use std::sync::{Mutex, OnceLock};
 
-/// Lifecycle state of an Omni process/runtime instance.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RuntimeState {
-    Running,
-    Exited(i32),
-    Panicked,
-    Aborted,
-}
+/// Version of the initial runtime ABI surface.
+pub const RUNTIME_ABI_VERSION: u32 = 1;
 
-impl RuntimeState {
-    pub fn is_running(&self) -> bool {
-        matches!(self, Self::Running)
-    }
+/// Zero is never returned as a live allocation identifier.
+pub const INVALID_ALLOCATION_ID: AllocationId = 0;
 
-    pub fn exit_code(&self) -> Option<i32> {
-        match self {
-            Self::Exited(code) => Some(*code),
-            _ => None,
-        }
-    }
-}
+pub type AllocationId = u64;
 
-/// Opaque identity for runtime-managed storage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AllocationId(u64);
-
-impl AllocationId {
-    pub fn get(self) -> u64 {
-        self.0
-    }
-}
-
-/// Runtime failures are explicit and deterministic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeError {
-    NotRunning { state: RuntimeState },
+    InvalidSize(usize),
     InvalidAlignment(u32),
-    AllocationSizeOverflow { size: usize },
+    AllocationIdOverflow,
     UnknownAllocation(AllocationId),
-    OutOfBounds { allocation: AllocationId, offset: usize, size: usize, allocation_size: usize },
-    UninitializedRead { allocation: AllocationId, offset: usize, size: usize },
     ImmutableAllocation(AllocationId),
-    AlreadyTerminated(RuntimeState),
-    HostIo(String),
+    OutOfBounds {
+        id: AllocationId,
+        offset: usize,
+        size: usize,
+        allocation_size: usize,
+    },
+    UninitializedRead {
+        id: AllocationId,
+        offset: usize,
+        size: usize,
+    },
 }
 
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotRunning { state } => write!(f, "runtime is not running: {state:?}"),
-            Self::InvalidAlignment(align) => {
-                write!(f, "invalid allocation alignment {align}; expected a positive power of two")
-            }
-            Self::AllocationSizeOverflow { size } => {
-                write!(f, "allocation size {size} cannot be represented safely")
-            }
-            Self::UnknownAllocation(id) => write!(f, "unknown allocation {}", id.0),
-            Self::OutOfBounds { allocation, offset, size, allocation_size } => write!(
+            Self::InvalidSize(size) => write!(f, "invalid allocation size {size}"),
+            Self::InvalidAlignment(align) => write!(f, "invalid allocation alignment {align}"),
+            Self::AllocationIdOverflow => write!(f, "allocation identifier space exhausted"),
+            Self::UnknownAllocation(id) => write!(f, "unknown allocation {id}"),
+            Self::ImmutableAllocation(id) => write!(f, "allocation {id} is immutable"),
+            Self::OutOfBounds { id, offset, size, allocation_size } => write!(
                 f,
-                "allocation {} access {}..{} exceeds size {}",
-                allocation.0,
-                offset,
-                offset.saturating_add(*size),
-                allocation_size
-            ),
-            Self::UninitializedRead { allocation, offset, size } => write!(
-                f,
-                "allocation {} read {}..{} contains uninitialized bytes",
-                allocation.0,
-                offset,
+                "allocation {id} access [{offset}, {}) exceeds allocation size {allocation_size}",
                 offset.saturating_add(*size)
             ),
-            Self::ImmutableAllocation(id) => {
-                write!(f, "allocation {} is immutable", id.0)
-            }
-            Self::AlreadyTerminated(state) => write!(f, "runtime is already terminated: {state:?}"),
-            Self::HostIo(message) => write!(f, "host I/O failure: {message}"),
+            Self::UninitializedRead { id, offset, size } => write!(
+                f,
+                "allocation {id} read [{offset}, {}) touches uninitialized bytes",
+                offset.saturating_add(*size)
+            ),
         }
     }
 }
 
 impl std::error::Error for RuntimeError {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Allocation {
     bytes: Vec<u8>,
     initialized: Vec<bool>,
@@ -100,18 +71,14 @@ struct Allocation {
     mutable: bool,
 }
 
-/// Minimal deterministic runtime state.
+/// Process-local runtime state.
 ///
-/// Host output is buffered first so abstract-machine and test callers can
-/// observe exactly what the runtime would emit without depending on host
-/// scheduling or terminal buffering.
-#[derive(Debug, Clone)]
+/// This is intentionally safe Rust state rather than a direct host-pointer
+/// wrapper. Allocation identities are opaque and stable until deallocation.
+#[derive(Debug)]
 pub struct Runtime {
-    state: RuntimeState,
+    next_id: AllocationId,
     allocations: BTreeMap<AllocationId, Allocation>,
-    next_allocation: u64,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
 }
 
 impl Default for Runtime {
@@ -121,153 +88,36 @@ impl Default for Runtime {
 }
 
 impl Runtime {
-    /// Construct a fresh running runtime.
     pub fn new() -> Self {
-        Self {
-            state: RuntimeState::Running,
-            allocations: BTreeMap::new(),
-            next_allocation: 0,
-            stdout: Vec::new(),
-            stderr: Vec::new(),
-        }
+        Self { next_id: 1, allocations: BTreeMap::new() }
     }
 
-    /// Reinitialize process-scope runtime state.
-    pub fn startup(&mut self) {
-        self.state = RuntimeState::Running;
-        self.allocations.clear();
-        self.stdout.clear();
-        self.stderr.clear();
-    }
-
-    pub fn state(&self) -> &RuntimeState {
-        &self.state
-    }
-
-    pub fn is_running(&self) -> bool {
-        self.state.is_running()
-    }
-
-    /// Request orderly process termination.
-    pub fn exit(&mut self, code: i32) -> Result<(), RuntimeError> {
-        if !self.state.is_running() {
-            return Err(RuntimeError::AlreadyTerminated(self.state.clone()));
-        }
-        self.state = RuntimeState::Exited(code);
-        self.allocations.clear();
-        Ok(())
-    }
-
-    /// Enter the runtime panic state.
-    pub fn panic(&mut self) -> Result<(), RuntimeError> {
-        if !self.state.is_running() {
-            return Err(RuntimeError::AlreadyTerminated(self.state.clone()));
-        }
-        self.state = RuntimeState::Panicked;
-        self.allocations.clear();
-        Ok(())
-    }
-
-    /// Enter the process-abort state.
-    pub fn abort(&mut self) -> Result<(), RuntimeError> {
-        if !self.state.is_running() {
-            return Err(RuntimeError::AlreadyTerminated(self.state.clone()));
-        }
-        self.state = RuntimeState::Aborted;
-        self.allocations.clear();
-        Ok(())
-    }
-
-    /// Buffer stdout bytes.
-    pub fn write_stdout(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
-        self.ensure_running()?;
-        self.stdout.extend_from_slice(bytes);
-        Ok(())
-    }
-
-    /// Buffer stderr bytes.
-    pub fn write_stderr(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
-        self.ensure_running()?;
-        self.stderr.extend_from_slice(bytes);
-        Ok(())
-    }
-
-    pub fn stdout(&self) -> &[u8] {
-        &self.stdout
-    }
-
-    pub fn stderr(&self) -> &[u8] {
-        &self.stderr
-    }
-
-    pub fn take_stdout(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.stdout)
-    }
-
-    pub fn take_stderr(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.stderr)
-    }
-
-    /// Flush buffered stdout to the host process.
-    pub fn flush_stdout(&mut self) -> Result<(), RuntimeError> {
-        self.ensure_running()?;
-        io::stdout()
-            .write_all(&self.stdout)
-            .and_then(|_| io::stdout().flush())
-            .map_err(|e| RuntimeError::HostIo(e.to_string()))?;
-        self.stdout.clear();
-        Ok(())
-    }
-
-    /// Flush buffered stderr to the host process.
-    pub fn flush_stderr(&mut self) -> Result<(), RuntimeError> {
-        self.ensure_running()?;
-        io::stderr()
-            .write_all(&self.stderr)
-            .and_then(|_| io::stderr().flush())
-            .map_err(|e| RuntimeError::HostIo(e.to_string()))?;
-        self.stderr.clear();
-        Ok(())
-    }
-
-    /// Allocate runtime-managed storage with explicit alignment.
     pub fn allocate(
         &mut self,
         size: usize,
         align: u32,
         mutable: bool,
     ) -> Result<AllocationId, RuntimeError> {
-        self.ensure_running()?;
-        if align == 0 || !align.is_power_of_two() {
-            return Err(RuntimeError::InvalidAlignment(align));
-        }
-
-        let initialized = vec![false; size];
-        let bytes = vec![0u8; size];
-        let id = AllocationId(self.next_allocation);
-        self.next_allocation = self
-            .next_allocation
-            .checked_add(1)
-            .ok_or(RuntimeError::AllocationSizeOverflow { size })?;
-        self.allocations.insert(id, Allocation { bytes, initialized, align, mutable });
+        validate_alignment(align)?;
+        let id = self.next_id;
+        self.next_id = id.checked_add(1).ok_or(RuntimeError::AllocationIdOverflow)?;
+        self.allocations.insert(
+            id,
+            Allocation {
+                bytes: vec![0; size],
+                initialized: vec![false; size],
+                align,
+                mutable,
+            },
+        );
         Ok(id)
     }
 
     pub fn deallocate(&mut self, id: AllocationId) -> Result<(), RuntimeError> {
-        self.ensure_running()?;
-        if self.allocations.remove(&id).is_none() {
-            return Err(RuntimeError::UnknownAllocation(id));
-        }
-        Ok(())
-    }
-
-    pub fn allocation_is_live(&self, id: AllocationId) -> bool {
-        self.allocations.contains_key(&id)
-    }
-
-    pub fn allocation_info(&self, id: AllocationId) -> Result<(usize, u32, bool), RuntimeError> {
-        let allocation = self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
-        Ok((allocation.bytes.len(), allocation.align, allocation.mutable))
+        self.allocations
+            .remove(&id)
+            .map(|_| ())
+            .ok_or(RuntimeError::UnknownAllocation(id))
     }
 
     pub fn read(
@@ -277,9 +127,9 @@ impl Runtime {
         size: usize,
     ) -> Result<Vec<u8>, RuntimeError> {
         let allocation = self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
-        Self::checked_range(id, allocation.bytes.len(), offset, size)?;
-        if allocation.initialized[offset..offset + size].iter().any(|initialized| !initialized) {
-            return Err(RuntimeError::UninitializedRead { allocation: id, offset, size });
+        check_range(id, offset, size, allocation.bytes.len())?;
+        if !allocation.initialized[offset..offset + size].iter().all(|initialized| *initialized) {
+            return Err(RuntimeError::UninitializedRead { id, offset, size });
         }
         Ok(allocation.bytes[offset..offset + size].to_vec())
     }
@@ -290,61 +140,127 @@ impl Runtime {
         offset: usize,
         data: &[u8],
     ) -> Result<(), RuntimeError> {
-        self.ensure_running()?;
         let allocation =
             self.allocations.get_mut(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
         if !allocation.mutable {
             return Err(RuntimeError::ImmutableAllocation(id));
         }
-        Self::checked_range(id, allocation.bytes.len(), offset, data.len())?;
+        check_range(id, offset, data.len(), allocation.bytes.len())?;
         allocation.bytes[offset..offset + data.len()].copy_from_slice(data);
         allocation.initialized[offset..offset + data.len()].fill(true);
         Ok(())
     }
 
-    pub fn is_initialized(&self, id: AllocationId, offset: usize) -> Result<bool, RuntimeError> {
-        let allocation = self.allocations.get(&id).ok_or(RuntimeError::UnknownAllocation(id))?;
-        if offset >= allocation.bytes.len() {
-            return Err(RuntimeError::OutOfBounds {
-                allocation: id,
-                offset,
-                size: 1,
-                allocation_size: allocation.bytes.len(),
-            });
-        }
-        Ok(allocation.initialized[offset])
+    pub fn is_live(&self, id: AllocationId) -> bool {
+        self.allocations.contains_key(&id)
     }
 
-    fn ensure_running(&self) -> Result<(), RuntimeError> {
-        if self.state.is_running() {
-            Ok(())
-        } else {
-            Err(RuntimeError::NotRunning { state: self.state.clone() })
-        }
+    pub fn allocation_info(&self, id: AllocationId) -> Option<(usize, u32, bool)> {
+        self.allocations
+            .get(&id)
+            .map(|allocation| (allocation.bytes.len(), allocation.align, allocation.mutable))
     }
+}
 
-    fn checked_range(
-        id: AllocationId,
-        allocation_size: usize,
-        offset: usize,
-        size: usize,
-    ) -> Result<(), RuntimeError> {
-        let end = offset.checked_add(size).ok_or(RuntimeError::OutOfBounds {
-            allocation: id,
-            offset,
-            size,
-            allocation_size,
-        })?;
-        if end > allocation_size {
-            return Err(RuntimeError::OutOfBounds {
-                allocation: id,
-                offset,
-                size,
-                allocation_size,
-            });
-        }
-        Ok(())
+fn validate_alignment(align: u32) -> Result<(), RuntimeError> {
+    if align == 0 || !align.is_power_of_two() {
+        return Err(RuntimeError::InvalidAlignment(align));
     }
+    Ok(())
+}
+
+fn check_range(
+    id: AllocationId,
+    offset: usize,
+    size: usize,
+    allocation_size: usize,
+) -> Result<(), RuntimeError> {
+    let end = offset.checked_add(size).ok_or(RuntimeError::OutOfBounds {
+        id,
+        offset,
+        size,
+        allocation_size,
+    })?;
+    if end > allocation_size {
+        return Err(RuntimeError::OutOfBounds { id, offset, size, allocation_size });
+    }
+    Ok(())
+}
+
+fn global_runtime() -> &'static Mutex<Runtime> {
+    static RUNTIME: OnceLock<Mutex<Runtime>> = OnceLock::new();
+    RUNTIME.get_or_init(|| Mutex::new(Runtime::new()))
+}
+
+/// Opaque allocation entry point.
+///
+/// The handle 0 is reserved for failure. Successful handles are positive.
+/// This is an internal runtime ABI, not the final published Omni pointer ABI.
+#[no_mangle]
+pub extern "C" fn omni_rt_alloc(size: i64, align: i64) -> i64 {
+    let Ok(size) = usize::try_from(size) else {
+        return INVALID_ALLOCATION_ID as i64;
+    };
+    let Ok(align) = u32::try_from(align) else {
+        return INVALID_ALLOCATION_ID as i64;
+    };
+    let Ok(mut runtime) = global_runtime().lock() else {
+        return INVALID_ALLOCATION_ID as i64;
+    };
+    runtime
+        .allocate(size, align, true)
+        .ok()
+        .and_then(|id| i64::try_from(id).ok())
+        .unwrap_or(INVALID_ALLOCATION_ID as i64)
+}
+
+/// Deallocate an opaque runtime allocation. Returns zero on success and -1 on failure.
+#[no_mangle]
+pub extern "C" fn omni_rt_dealloc(id: i64) -> i32 {
+    let Ok(id) = u64::try_from(id) else {
+        return -1;
+    };
+    let Ok(mut runtime) = global_runtime().lock() else {
+        return -1;
+    };
+    match runtime.deallocate(id) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Write one byte to stdout. Returns zero on success and -1 on host I/O failure.
+#[no_mangle]
+pub extern "C" fn omni_rt_write_stdout_byte(byte: i64) -> i32 {
+    let Ok(byte) = u8::try_from(byte) else {
+        return -1;
+    };
+    let mut stdout = io::stdout().lock();
+    match stdout.write_all(&[byte]).and_then(|_| stdout.flush()) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Flush stdout. Returns zero on success and -1 on host I/O failure.
+#[no_mangle]
+pub extern "C" fn omni_rt_flush_stdout() -> i32 {
+    match io::stdout().lock().flush() {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Terminate with the supplied platform process exit status.
+#[no_mangle]
+pub extern "C" fn omni_rt_exit(code: i32) -> ! {
+    std::process::exit(code)
+}
+
+/// Terminate immediately under the runtime abort policy.
+#[no_mangle]
+pub extern "C" fn omni_rt_abort() -> ! {
+    std::process::abort()
 }
 
 #[cfg(test)]
@@ -352,44 +268,68 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lifecycle_is_explicit() {
+    fn allocate_write_read_and_deallocate_are_real() {
         let mut runtime = Runtime::new();
-        assert!(runtime.is_running());
-        runtime.exit(7).unwrap();
-        assert_eq!(runtime.state(), &RuntimeState::Exited(7));
-        assert_eq!(runtime.exit(8), Err(RuntimeError::AlreadyTerminated(RuntimeState::Exited(7))));
+        let id = runtime.allocate(8, 8, true).expect("allocation");
+        assert!(runtime.is_live(id));
+        assert_eq!(runtime.allocation_info(id), Some((8, 8, true)));
+        assert_eq!(
+            runtime.read(id, 0, 1),
+            Err(RuntimeError::UninitializedRead { id, offset: 0, size: 1 })
+        );
+
+        runtime.write(id, 2, &[0xAA, 0x55]).expect("write");
+        assert_eq!(runtime.read(id, 2, 2).expect("read"), vec![0xAA, 0x55]);
+
+        runtime.deallocate(id).expect("deallocate");
+        assert!(!runtime.is_live(id));
     }
 
     #[test]
-    fn allocation_tracks_initialization_and_mutability() {
+    fn invalid_alignment_is_rejected() {
         let mut runtime = Runtime::new();
-        let id = runtime.allocate(4, 8, true).unwrap();
-        assert_eq!(runtime.allocation_info(id).unwrap(), (4, 8, true));
-        assert!(matches!(runtime.read(id, 0, 1), Err(RuntimeError::UninitializedRead { .. })));
-        runtime.write(id, 1, &[10, 20]).unwrap();
-        assert_eq!(runtime.read(id, 1, 2).unwrap(), vec![10, 20]);
-        assert!(!runtime.is_initialized(id, 0).unwrap());
-        assert!(runtime.is_initialized(id, 1).unwrap());
+        assert_eq!(runtime.allocate(1, 0, true), Err(RuntimeError::InvalidAlignment(0)));
+        assert_eq!(runtime.allocate(1, 3, true), Err(RuntimeError::InvalidAlignment(3)));
     }
 
     #[test]
-    fn immutable_and_bounds_fail_closed() {
+    fn bounds_and_mutability_are_enforced() {
         let mut runtime = Runtime::new();
-        let id = runtime.allocate(2, 1, false).unwrap();
-        assert!(matches!(runtime.write(id, 0, &[1]), Err(RuntimeError::ImmutableAllocation(_))));
-        assert!(matches!(runtime.read(id, 1, 2), Err(RuntimeError::OutOfBounds { .. })));
+        let id = runtime.allocate(4, 4, false).expect("allocation");
+        assert_eq!(
+            runtime.write(id, 0, &[1]),
+            Err(RuntimeError::ImmutableAllocation(id))
+        );
+        assert!(matches!(
+            runtime.read(id, 3, 2),
+            Err(RuntimeError::OutOfBounds { id: observed, .. }) if observed == id
+        ));
+        assert_eq!(runtime.deallocate(id), Ok(()));
+        assert_eq!(runtime.deallocate(id), Err(RuntimeError::UnknownAllocation(id)));
     }
 
     #[test]
-    fn buffered_io_is_observable_and_deterministic() {
+    fn zero_sized_allocations_remain_live_and_distinct() {
         let mut runtime = Runtime::new();
-        runtime.write_stdout(b"hello").unwrap();
-        runtime.write_stderr(b"oops").unwrap();
-        assert_eq!(runtime.stdout(), b"hello");
-        assert_eq!(runtime.stderr(), b"oops");
-        assert_eq!(runtime.take_stdout(), b"hello");
-        assert_eq!(runtime.take_stderr(), b"oops");
-        assert!(runtime.stdout().is_empty());
-        assert!(runtime.stderr().is_empty());
+        let first = runtime.allocate(0, 1, true).expect("first allocation");
+        let second = runtime.allocate(0, 1, true).expect("second allocation");
+        assert_ne!(first, second);
+        assert!(runtime.is_live(first));
+        assert!(runtime.is_live(second));
+        assert_eq!(runtime.write(first, 0, &[]), Ok(()));
+    }
+
+    #[test]
+    fn c_abi_allocation_round_trip_is_real() {
+        let id = omni_rt_alloc(16, 8);
+        assert!(id > 0);
+        assert_eq!(omni_rt_dealloc(id), 0);
+        assert_eq!(omni_rt_dealloc(id), -1);
+    }
+
+    #[test]
+    fn runtime_abi_version_is_explicit() {
+        assert_eq!(RUNTIME_ABI_VERSION, 1);
+        assert_eq!(INVALID_ALLOCATION_ID, 0);
     }
 }

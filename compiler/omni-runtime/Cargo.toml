@@ -6,3 +6,6 @@ publish = false
 
 [lints]
 workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
