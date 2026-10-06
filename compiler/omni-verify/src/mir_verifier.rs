@@ -789,6 +789,9 @@ impl MirVerifier {
                 }
                 Ok(())
             }
+            Rvalue::Reference { place, .. } => {
+                Self::require_assigned(func, block, place.local, assigned)
+            }
             Rvalue::Range { start, end, .. } => {
                 Self::check_operand_initialized(func, block, start, assigned)?;
                 Self::check_operand_initialized(func, block, end, assigned)
@@ -820,7 +823,13 @@ impl MirVerifier {
         for block in func.body.blocks.iter() {
             for statement in &block.statements {
                 match statement {
-                    Statement::Assign(place, _) | Statement::Drop(place) => {
+                    Statement::Assign(place, rvalue) => {
+                        Self::check_projection_chain(&mut tcx, defs, func, place)?;
+                        if let Rvalue::Reference { place: borrowed, .. } = rvalue {
+                            Self::check_projection_chain(&mut tcx, defs, func, borrowed)?;
+                        }
+                    }
+                    Statement::Drop(place) => {
                         Self::check_projection_chain(&mut tcx, defs, func, place)?;
                     }
                     Statement::Assume(_) => {}
