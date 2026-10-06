@@ -6,8 +6,8 @@
 pub mod interpreter;
 
 pub use interpreter::{
-    CallFrame, ControlFlow, Diagnostic, DiagnosticLevel, ExecutionError, Interpreter, PlaceValue, ReferenceValue,
-    SourceLocation, Value,
+    CallFrame, ControlFlow, Diagnostic, DiagnosticLevel, ExecutionError, Interpreter, PlaceValue,
+    ReferenceValue, SourceLocation, Value,
 };
 
 #[cfg(test)]
