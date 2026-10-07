@@ -816,4 +816,3 @@ mod tests {
             .expect("full scalar range should cover Unicode scalar values");
     }
 }
-
