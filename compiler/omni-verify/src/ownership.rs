@@ -1,4 +1,6 @@
 //! CFG-aware affine ownership and initialization verification for MIR.
+use std::collections::{BTreeMap, BTreeSet};
+
 use omni_mir::ir::{
     BasicBlock, Constant, Local, MirFunction, MirProgram, Operand, Place, Projection, Rvalue,
     Statement, Terminator,
