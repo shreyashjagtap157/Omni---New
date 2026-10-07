@@ -1,6 +1,6 @@
 //! Polonius Fact Generation and Linear Borrow Checking Engine (OWN-0005).
 
-use omni_mir::ir::{Body, BasicBlock, Terminator};
+use omni_mir::ir::{BasicBlock, Body, Terminator};
 use polonius_engine::{Algorithm, AllFacts, FactTypes, Output};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -137,10 +137,7 @@ impl PoloniusFacts {
     /// The current fact vocabulary intentionally starts with explicit loans,
     /// kills, outlives relations, and CFG edges. The existing ownership checker
     /// remains authoritative until path invalidation facts are complete.
-    pub fn run_engine(
-        &self,
-        body: &Body,
-    ) -> Output<OmniFactTypes> {
+    pub fn run_engine(&self, body: &Body) -> Output<OmniFactTypes> {
         let mut point_ids = BTreeMap::<String, usize>::new();
         let mut origin_ids = BTreeMap::<String, usize>::new();
         let mut loan_ids = BTreeMap::<String, usize>::new();
@@ -176,11 +173,7 @@ impl PoloniusFacts {
                 .find(|(_, issued_point)| issued_point == point)
                 .map(|(loan, _)| loan)
             {
-                facts.loan_issued_at.push((
-                    origin_ids[region],
-                    loan_ids[loan],
-                    point_ids[point],
-                ));
+                facts.loan_issued_at.push((origin_ids[region], loan_ids[loan], point_ids[point]));
             }
         }
 
@@ -200,10 +193,7 @@ impl PoloniusFacts {
 
         for (block, data) in body.blocks.iter_enumerated() {
             for statement_index in 0..data.statements.len() {
-                let _ = intern(
-                    &mut point_ids,
-                    &format!("bb{}_{}", block.index(), statement_index),
-                );
+                let _ = intern(&mut point_ids, &format!("bb{}_{}", block.index(), statement_index));
             }
             let _ = intern(&mut point_ids, &format!("bb{}_term", block.index()));
         }
@@ -232,7 +222,9 @@ impl PoloniusFacts {
                         }
                     }
                     Terminator::SwitchInt { targets, otherwise, .. } => {
-                        for target in targets.iter().map(|(_, block)| block).chain(std::iter::once(otherwise)) {
+                        for target in
+                            targets.iter().map(|(_, block)| block).chain(std::iter::once(otherwise))
+                        {
                             if let Some(to) = block_entry(*target, body, &mut point_ids) {
                                 facts.cfg_edge.push((from, to));
                             }
@@ -260,11 +252,7 @@ impl PoloniusFacts {
                 .find(|(region, _)| region == child)
                 .map(|(_, point)| point);
             if let Some(point) = point {
-                facts.subset_base.push((
-                    origin_ids[child],
-                    origin_ids[parent],
-                    point_ids[point],
-                ));
+                facts.subset_base.push((origin_ids[child], origin_ids[parent], point_ids[point]));
             }
         }
 
