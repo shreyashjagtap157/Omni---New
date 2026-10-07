@@ -121,10 +121,7 @@ impl PoloniusFacts {
                                     active_loans.remove(&previous_loan);
                                     region_by_loan.remove(&previous_loan);
                                     origin_by_local.remove(&destination.local);
-                                    push_unique(
-                                        &mut facts.killed,
-                                        (previous_loan, point.clone()),
-                                    );
+                                    push_unique(&mut facts.killed, (previous_loan, point.clone()));
                                 }
                             }
                             push_unique(
@@ -139,10 +136,7 @@ impl PoloniusFacts {
 
                             push_unique(&mut facts.loan_issued, (loan.clone(), point.clone()));
                             push_unique(&mut facts.borrow_region, (region.clone(), point.clone()));
-                            push_unique(
-                                &mut facts.region_live_at,
-                                (region.clone(), point.clone()),
-                            );
+                            push_unique(&mut facts.region_live_at, (region.clone(), point.clone()));
 
                             if let Some(parent_loan) = parent_loan.as_ref() {
                                 if let Some(parent_region) = region_by_loan.get(parent_loan) {
