@@ -341,6 +341,5 @@ pub enum Operand {
     Constant(Constant),
 }
 
-/// A formal assumption for the mechanical verifier.
-#[derive(Debug, Clone)]
-pub struct Assumption {}
+/// The verified unsafe-assumption token is defined in the dedicated assumption module.
+pub use crate::assume::{Assumption, AssumptionId};
