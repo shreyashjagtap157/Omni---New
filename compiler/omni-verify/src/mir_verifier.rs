@@ -2077,10 +2077,7 @@ mod tests {
                     "x remains initialized",
                     vec![Place::local(x)],
                 )),
-                Statement::Assign(
-                    Place::local(ret),
-                    Rvalue::Use(Operand::Copy(Place::local(x))),
-                ),
+                Statement::Assign(Place::local(ret), Rvalue::Use(Operand::Copy(Place::local(x)))),
             ],
             terminator: Some(Terminator::Return),
         });
