@@ -768,6 +768,81 @@ mod tests {
     }
 
     #[test]
+    fn reborrow_keeps_parent_loan_live_until_child_last_use() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let mutable_ref = tcx.intern(omni_mir::TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int,
+        });
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("r".into()), ty: Some(mutable_ref) });
+        locals.push(LocalDecl { name: Some("s".into()), ty: Some(mutable_ref) });
+        locals.push(LocalDecl { name: Some("value".into()), ty: Some(int) });
+
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(
+                    Place::local(Local::from_usize(1)),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(1)))),
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(2)),
+                    Rvalue::Reference {
+                        place: Place::local(Local::from_usize(1)),
+                        mutable: true,
+                        ty: mutable_ref,
+                    },
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(3)),
+                    Rvalue::Reference {
+                        place: Place {
+                            local: Local::from_usize(2),
+                            projections: vec![Projection::Deref],
+                        },
+                        mutable: true,
+                        ty: mutable_ref,
+                    },
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(4)),
+                    Rvalue::Use(Operand::Copy(Place::local(Local::from_usize(3)))),
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(0)),
+                    Rvalue::Use(Operand::Copy(Place::local(Local::from_usize(1)))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "reborrow_liveness".into(),
+                params: vec![],
+                return_place: Local::from_usize(0),
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body {
+                    blocks,
+                    local_decls: locals,
+                    unsafe_blocks: Vec::new(),
+                },
+            }],
+        );
+
+        let error = verify_program(&program).expect_err(
+            "parent mutable loan must still conflict while child reborrow remains live",
+        );
+        assert!(error.message.contains("borrow conflict"), "unexpected ownership error: {error:?}");
+    }
+
+    #[test]
     fn duplicate_mir_local_names_remain_distinct_ownership_places() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
