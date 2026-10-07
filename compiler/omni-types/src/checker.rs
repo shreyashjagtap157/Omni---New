@@ -1010,20 +1010,6 @@ impl TypeChecker {
                 Ok(unit_ty)
             }
             Expr::Match { expr, arms } => {
-                for arm in arms {
-                    if matches!(
-                        arm.pattern,
-                        crate::ast::Pattern::Range {
-                            end: crate::ast::PatternRangeBoundary::Unbounded,
-                            ..
-                        }
-                    ) {
-                        return Err(TypeError::UnsupportedPattern(
-                            "unbounded range patterns are parsed but not yet type-checked".into(),
-                        ));
-                    }
-                }
-
                 let scrutinee_ty = self.infer_expr(expr, env, local_vars)?;
                 let mut pat_checker =
                     crate::pattern::PatternChecker::new(&mut self.tcx, &self.enum_defs);
