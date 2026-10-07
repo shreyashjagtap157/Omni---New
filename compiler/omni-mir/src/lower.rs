@@ -3123,9 +3123,8 @@ mod tests {
             }],
         };
 
-        let mir = ctx
-            .lower_monomorphized_program(&program)
-            .expect("numeric range match should lower");
+        let mir =
+            ctx.lower_monomorphized_program(&program).expect("numeric range match should lower");
         let function = &mir.functions[0];
         assert!(function.body.blocks.iter().any(|block| {
             block.statements.iter().any(|statement| {
@@ -3242,5 +3241,4 @@ mod tests {
             })
         }));
     }
-
 }
