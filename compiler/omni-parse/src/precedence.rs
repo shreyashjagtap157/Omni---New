@@ -61,24 +61,26 @@ pub const fn binding_power(kind: TokenKind) -> BindingPower {
         TokenKind::Punct(Punct::AmpAmp) => (8, 9),
         // 5. null coalescing.
         TokenKind::Punct(Punct::QuestionQuestion) => (10, 11),
+        // 5b. pipeline operator (Candidate 3 Section 0.7: below ??, above comparison).
+        TokenKind::Punct(Punct::PipeArrow) => (11, 12),
         // 6. comparison.
         TokenKind::Punct(
             Punct::EqEq | Punct::NotEq | Punct::Lt | Punct::Le | Punct::Gt | Punct::Ge,
-        ) => (12, 13),
+        ) => (13, 14),
         // 7. bitwise OR.
-        TokenKind::Punct(Punct::Pipe) => (14, 15),
+        TokenKind::Punct(Punct::Pipe) => (15, 16),
         // 8. bitwise XOR.
-        TokenKind::Punct(Punct::Caret) => (16, 17),
+        TokenKind::Punct(Punct::Caret) => (17, 18),
         // 9. bitwise AND.
-        TokenKind::Punct(Punct::Amp) => (18, 19),
+        TokenKind::Punct(Punct::Amp) => (19, 20),
         // 10. shifts.
-        TokenKind::Punct(Punct::Shl | Punct::Shr) => (20, 21),
+        TokenKind::Punct(Punct::Shl | Punct::Shr) => (21, 22),
         // 11. additive.
-        TokenKind::Punct(Punct::Plus | Punct::Minus) => (22, 23),
+        TokenKind::Punct(Punct::Plus | Punct::Minus) => (23, 24),
         // 12. multiplicative.
-        TokenKind::Punct(Punct::Star | Punct::Slash | Punct::Percent) => (24, 25),
+        TokenKind::Punct(Punct::Star | Punct::Slash | Punct::Percent) => (25, 26),
         // 13. casts. `as` is a keyword token.
-        TokenKind::Keyword(Kw::As) => (26, 27),
+        TokenKind::Keyword(Kw::As) => (27, 28),
         _ => NO_BINDING,
     }
 }
@@ -212,21 +214,22 @@ mod tests {
     /// states, not merely that the numbers are distinct.
     #[test]
     fn precedence_matches_the_normative_grammar() {
-        // (token, label) in the exact order of the EBNF precedence section.
-        let ladder: [(TokenKind, &str); 13] = [
+        // (token, label) in the exact order of the Candidate 3 precedence section.
+        let ladder: [(TokenKind, &str); 14] = [
             (TokenKind::Punct(Punct::Eq), "1. assignment"),
             (TokenKind::Punct(Punct::DotDot), "2. range"),
             (TokenKind::Punct(Punct::PipePipe), "3. logical or"),
             (TokenKind::Punct(Punct::AmpAmp), "4. logical and"),
             (TokenKind::Punct(Punct::QuestionQuestion), "5. null coalescing"),
-            (TokenKind::Punct(Punct::EqEq), "6. comparison"),
-            (TokenKind::Punct(Punct::Pipe), "7. bitwise or"),
-            (TokenKind::Punct(Punct::Caret), "8. bitwise xor"),
-            (TokenKind::Punct(Punct::Amp), "9. bitwise and"),
-            (TokenKind::Punct(Punct::Shl), "10. shift"),
-            (TokenKind::Punct(Punct::Plus), "11. additive"),
-            (TokenKind::Punct(Punct::Star), "12. multiplicative"),
-            (TokenKind::Keyword(Kw::As), "13. cast"),
+            (TokenKind::Punct(Punct::PipeArrow), "6. pipeline"),
+            (TokenKind::Punct(Punct::EqEq), "7. comparison"),
+            (TokenKind::Punct(Punct::Pipe), "8. bitwise or"),
+            (TokenKind::Punct(Punct::Caret), "9. bitwise xor"),
+            (TokenKind::Punct(Punct::Amp), "10. bitwise and"),
+            (TokenKind::Punct(Punct::Shl), "11. shift"),
+            (TokenKind::Punct(Punct::Plus), "12. additive"),
+            (TokenKind::Punct(Punct::Star), "13. multiplicative"),
+            (TokenKind::Keyword(Kw::As), "14. cast"),
         ];
         let mut prev = 0u8;
         for (kind, label) in ladder {
@@ -272,6 +275,7 @@ mod tests {
             Punct::AmpAmp,
             Punct::PipePipe,
             Punct::QuestionQuestion,
+            Punct::PipeArrow,
             Punct::DotDot,
             Punct::DotDotEq,
         ] {
@@ -293,7 +297,7 @@ mod tests {
             (2, 1),
             "assignment must be right-associative"
         );
-        for p in [Punct::Plus, Punct::Star, Punct::AmpAmp, Punct::Pipe, Punct::EqEq] {
+        for p in [Punct::Plus, Punct::Star, Punct::AmpAmp, Punct::Pipe, Punct::EqEq, Punct::PipeArrow] {
             let (l, r) = binding_power(TokenKind::Punct(p));
             assert_eq!(l + 1, r, "{p:?} must be left-associative");
         }
@@ -312,15 +316,12 @@ mod tests {
         }
     }
 
-    /// `|>` is Candidate 2's pipeline operator and must never acquire a binding
-    /// power, or the parser would silently implement semantics that are not in
-    /// force.
     #[test]
-    fn candidate_two_operators_stay_unbound() {
-        for p in [Punct::PipeArrow, Punct::QuestionDot] {
+    fn question_dot_stays_unbound() {
+        for p in [Punct::QuestionDot] {
             assert!(
                 !is_infix_operator(TokenKind::Punct(p)),
-                "{p:?} is Candidate 2 and must stay unbound while that gate is disabled"
+                "{p:?} is a postfix operator and must stay unbound as infix"
             );
             assert!(!is_comparison_operator(TokenKind::Punct(p)));
             assert!(!is_assignment_operator(TokenKind::Punct(p)));

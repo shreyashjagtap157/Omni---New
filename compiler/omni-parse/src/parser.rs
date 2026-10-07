@@ -141,6 +141,9 @@ pub struct Parser<'a> {
     /// iterable is followed by the loop body block, so `for x in xs { .. }`
     /// must not parse `xs { .. }` as a struct expression.
     no_struct_literal: bool,
+    /// Permits parsing a command call `name arg, arg` (ERR3-0035).
+    /// Command calls are legal only at statement start, or as the right side of `let`, `=`, `return`, `|>`.
+    allow_command_call: bool,
     /// First source position at which each Stage-0-classified feature was
     /// exercised. A `BTreeMap` keyed by feature name keeps the emitted set
     /// deterministic and deduplicated without depending on visit order.
@@ -168,6 +171,7 @@ impl<'a> Parser<'a> {
             pos: 0,
             split_token: None,
             no_struct_literal: false,
+            allow_command_call: false,
             feature_uses: BTreeMap::new(),
         }
     }
@@ -383,7 +387,23 @@ impl<'a> Parser<'a> {
         if self.at_kw(Kw::Where) {
             n.children.push(Child::Node(self.parse_where_clause()));
         }
-        n.children.push(Child::Node(self.parse_block()));
+        if self.at_punct(Punct::Eq) {
+            // Expression-bodied function: fn add(a, b) = a + b (ERR3-0040)
+            let eq = self.bump_child();
+            let expr = self.parse_expression();
+            let mut block = Node::new(SyntaxKind::Block);
+            block.children.push(eq);
+            block.children.push(Child::Node(Node {
+                kind: SyntaxKind::FinalExpr,
+                children: vec![Child::Node(expr)],
+            }));
+            if self.at_punct(Punct::Semicolon) {
+                block.children.push(self.bump_child());
+            }
+            n.children.push(Child::Node(block));
+        } else {
+            n.children.push(Child::Node(self.parse_block()));
+        }
         n
     }
 
@@ -1214,7 +1234,7 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_ident_node(&mut self, msg: &str) -> Child {
-        if self.at_ident() {
+        if self.at_ident_or_contextual() {
             Child::Node(Node::new(SyntaxKind::NameRef).with_token(self.bump_index()))
         } else {
             Child::Node(self.error_node(msg))
@@ -1232,7 +1252,10 @@ impl<'a> Parser<'a> {
                 // bare items; the leading `#` is consumed by the item parser.
                 n.children.push(Child::Node(self.parse_item_stmt()));
             } else {
+                let prev_cmd = self.allow_command_call;
+                self.allow_command_call = true;
                 let expr = self.parse_expression();
+                self.allow_command_call = prev_cmd;
                 if self.at_punct(Punct::Semicolon) {
                     let stmt_kind = if expr.kind == SyntaxKind::MacroInvocation {
                         SyntaxKind::MacroStmt
@@ -1302,7 +1325,10 @@ impl<'a> Parser<'a> {
             n.children.push(Child::Node(self.parse_type()));
         }
         n.children.push(self.expect_punct(Punct::Eq));
+        let prev_cmd = self.allow_command_call;
+        self.allow_command_call = true;
         n.children.push(Child::Node(self.parse_expression()));
+        self.allow_command_call = prev_cmd;
         n.children.push(self.expect_punct(Punct::Semicolon));
         n
     }
@@ -1311,7 +1337,10 @@ impl<'a> Parser<'a> {
         let mut n = Node::new(SyntaxKind::ReturnExpr);
         n.children.push(self.expect_kw(Kw::Return));
         if !self.at_punct(Punct::Semicolon) {
+            let prev_cmd = self.allow_command_call;
+            self.allow_command_call = true;
             n.children.push(Child::Node(self.parse_expression()));
+            self.allow_command_call = prev_cmd;
         }
         n.children.push(self.expect_punct(Punct::Semicolon));
         n
@@ -1385,7 +1414,7 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 let mut id = None;
-                if self.at_ident() {
+                if self.at_ident_or_contextual() {
                     id = Some(self.bump_index());
                 }
                 let Some(name) = id else {
@@ -1434,6 +1463,27 @@ impl<'a> Parser<'a> {
                 }
                 continue;
             }
+            if self.at_punct(Punct::QuestionDot) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
+                let qdot = self.bump_child();
+                let mut id = None;
+                if self.at_ident_or_contextual() {
+                    id = Some(self.bump_index());
+                }
+                let Some(name) = id else {
+                    let mut n = Node::new(SyntaxKind::QuestionDotExpr);
+                    n.children.push(Child::Node(lhs));
+                    n.children.push(qdot);
+                    n.children.push(Child::Node(self.error_node("expected field name after '?.'")));
+                    lhs = n;
+                    continue;
+                };
+                let mut n = Node::new(SyntaxKind::QuestionDotExpr);
+                n.children.push(Child::Node(lhs));
+                n.children.push(qdot);
+                n.children.push(Child::Token(name));
+                lhs = n;
+                continue;
+            }
             if self.at_punct(Punct::LBracket) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp
             {
                 let mut n = Node::new(SyntaxKind::IndexExpr);
@@ -1473,11 +1523,19 @@ impl<'a> Parser<'a> {
                 bin_kind = SyntaxKind::AssignExpr;
             } else if matches!(op, Punct::DotDot | Punct::DotDotEq) {
                 bin_kind = SyntaxKind::RangeExpr;
+            } else if matches!(op, Punct::PipeArrow) {
+                bin_kind = SyntaxKind::PipelineExpr;
             }
             let mut bin = Node::new(bin_kind);
             bin.children.push(Child::Node(lhs));
             bin.children.push(self.bump_child());
+            let is_pipeline_or_assign = bin_kind == SyntaxKind::PipelineExpr || bin_kind == SyntaxKind::AssignExpr;
+            let prev_cmd = self.allow_command_call;
+            if is_pipeline_or_assign {
+                self.allow_command_call = true;
+            }
             bin.children.push(Child::Node(self.parse_expr_bp(right_bp)));
+            self.allow_command_call = prev_cmd;
             lhs = bin;
         }
         lhs
@@ -1542,6 +1600,25 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Punct(Punct::LBrace)) => self.parse_block_expr(),
             Some(TokenKind::Punct(Punct::LParen)) => self.parse_paren_expr(),
             Some(TokenKind::Punct(Punct::LBracket)) => self.parse_array_expr(),
+            Some(TokenKind::Punct(Punct::Dot)) => {
+                // Projection shorthand .field in pipeline stage args (ERR3-0033)
+                let dot = self.bump_child();
+                let mut n = Node::new(SyntaxKind::FieldExpr);
+                n.children.push(dot);
+                if self.at_ident() {
+                    n.children.push(Child::Token(self.bump_index()));
+                } else {
+                    n.children.push(Child::Node(self.error_node("expected field name after leading '.'")));
+                }
+                n
+            }
+            Some(TokenKind::Punct(Punct::Underscore)) => {
+                // Pipeline argument placeholder `_` (ERR3-0030)
+                let underscore = self.bump_child();
+                let mut n = Node::new(SyntaxKind::PlaceholderExpr);
+                n.children.push(underscore);
+                n
+            }
             Some(TokenKind::Punct(Punct::Pipe)) => self.parse_closure_expr(),
             // `self` arrives as a keyword token, not an identifier, so it needs
             // its own arm. `path_segment = identifier [ "<" type_args ">" ]` does
@@ -1562,7 +1639,10 @@ impl<'a> Parser<'a> {
             }
             Some(TokenKind::Ident) => {
                 let path = self.parse_path_expr_or_macro();
-                if self.at_punct(Punct::LBrace) && !self.no_struct_literal {
+                if self.allow_command_call && self.looks_like_command_call_arg() {
+                    self.allow_command_call = false;
+                    self.parse_command_call(path)
+                } else if self.at_punct(Punct::LBrace) && !self.no_struct_literal {
                     self.parse_struct_expr_from_path(path)
                 } else {
                     path
@@ -1582,6 +1662,44 @@ impl<'a> Parser<'a> {
             }
             _ => self.error_node("expected expression"),
         }
+    }
+
+    /// Checks if the current token matches the starting token of a command-call argument (ERR3-0035).
+    /// The first argument token must be a literal, identifier, string, `.name`, closure, `{`, or `-`
+    /// immediately followed by a digit. Tokens `( [ < * & +` after the name are never an argument start.
+    fn looks_like_command_call_arg(&self) -> bool {
+        match self.current_kind() {
+            Some(TokenKind::Ident) => true,
+            Some(
+                TokenKind::Int
+                | TokenKind::Float
+                | TokenKind::Char
+                | TokenKind::Byte
+                | TokenKind::String
+                | TokenKind::RawString
+                | TokenKind::InterpolatedString,
+            ) => true,
+            Some(TokenKind::Keyword(Kw::True | Kw::False)) => true,
+            Some(TokenKind::Punct(Punct::Dot)) => true, // .name projection
+            Some(TokenKind::Punct(Punct::Pipe)) => true, // closure |x| ...
+            Some(TokenKind::Punct(Punct::LBrace)) => true, // block / struct
+            _ => false,
+        }
+    }
+
+    /// Parses a command call `name arg1, arg2` (ERR3-0035).
+    fn parse_command_call(&mut self, callee: Node) -> Node {
+        let mut n = Node::new(SyntaxKind::CommandCallExpr);
+        n.children.push(Child::Node(callee));
+        loop {
+            n.children.push(Child::Node(self.parse_expr_bp(crate::precedence::UNARY_BINDING_POWER.saturating_add(1))));
+            if self.at_punct(Punct::Comma) {
+                n.children.push(self.bump_child());
+            } else {
+                break;
+            }
+        }
+        n
     }
 
     fn parse_block_expr(&mut self) -> Node {
@@ -2454,6 +2572,15 @@ impl<'a> Parser<'a> {
     }
     fn at_ident(&self) -> bool {
         self.current_kind() == Some(TokenKind::Ident)
+    }
+    /// Returns true if the current token is an identifier or a contextual keyword
+    /// that is admitted as an identifier in named item/member positions (ERR3-0016, ERR3-0093).
+    fn at_ident_or_contextual(&self) -> bool {
+        match self.current_kind() {
+            Some(TokenKind::Ident) => true,
+            Some(TokenKind::Keyword(Kw::Where | Kw::In)) => true,
+            _ => false,
+        }
     }
     fn eof(&self) -> bool {
         self.split_token.is_none()

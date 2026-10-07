@@ -439,10 +439,10 @@ name = "omni-driver"
 version = "0.0.0"
 dependencies = [
  "omni-canon",
- "omni-hir",
  "omni-codegen",
  "omni-effects",
  "omni-evidence",
+ "omni-hir",
  "omni-machine",
  "omni-mir",
  "omni-names",
@@ -501,8 +501,8 @@ name = "omni-mir"
 version = "0.0.0"
 dependencies = [
  "index_vec",
- "omni-hir",
  "omni-effects",
+ "omni-hir",
  "omni-types",
 ]
 

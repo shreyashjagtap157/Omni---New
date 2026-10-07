@@ -1330,17 +1330,28 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         }
         omni_syntax::SyntaxKind::FieldExpr => {
             let mut children = node.children();
-            let base = children
-                .next()
-                .ok_or_else(|| "Semantic frontend error: field has no base".to_string())?;
+            let base_opt = children.next();
             let field = node
                 .children_with_tokens()
                 .filter_map(|e| e.into_token())
-                .filter(|t| t.kind() == omni_syntax::SyntaxKind::Ident)
+                .filter(|t| matches!(t.kind(), omni_syntax::SyntaxKind::Ident | omni_syntax::SyntaxKind::Keyword))
                 .last()
                 .map(|t| t.text().to_string())
                 .ok_or_else(|| "Semantic frontend error: field has no name".to_string())?;
-            Ok(Expr::Field { expr: Box::new(expr_from_node(&base)?), field })
+            if let Some(base) = base_opt {
+                Ok(Expr::Field { expr: Box::new(expr_from_node(&base)?), field })
+            } else {
+                // Projection shorthand .field denotes closure |it| it.field (ERR3-0033)
+                let it_var = "it".to_string();
+                let body = Expr::Field {
+                    expr: Box::new(Expr::Var(it_var.clone())),
+                    field,
+                };
+                Ok(Expr::Lambda {
+                    params: vec![(it_var, TypeSpec::GenericParam("Infer".into()))],
+                    body: Box::new(body),
+                })
+            }
         }
         omni_syntax::SyntaxKind::IndexExpr => {
             let mut children = node.children();
@@ -1567,7 +1578,7 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             let method = node
                 .children_with_tokens()
                 .filter_map(|e| e.into_token())
-                .find(|t| t.kind() == omni_syntax::SyntaxKind::Ident)
+                .find(|t| matches!(t.kind(), omni_syntax::SyntaxKind::Ident | omni_syntax::SyntaxKind::Keyword))
                 .map(|t| t.text().to_string())
                 .ok_or_else(|| {
                     "Semantic frontend error: method call has no method name".to_string()
@@ -1596,6 +1607,60 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 generic_args,
                 args,
             })
+        }
+        omni_syntax::SyntaxKind::PlaceholderExpr => {
+            // Placeholder `_` used in pipeline stages (ERR3-0030)
+            Ok(Expr::Var("_".to_string()))
+        }
+        omni_syntax::SyntaxKind::PipelineExpr => {
+            let parts = node.children().collect::<Vec<_>>();
+            if parts.len() != 2 {
+                return Err("Semantic frontend error: pipeline expression must have lhs and rhs".into());
+            }
+            let lhs = expr_from_node(&parts[0])?;
+            // Normative Pipeline Lowering (ERR3-0030):
+            // `x |> f` -> `f(x)`
+            // `x |> f(a, b)` -> `f(x, a, b)`
+            // `x |> f(a, _, b)` -> `f(a, x, b)`
+            match expr_from_node(&parts[1])? {
+                Expr::Call { func, generic_args, mut args } => {
+                    if let Some(pos) = args.iter().position(|a| matches!(a, Expr::Var(v) if v == "_")) {
+                        args[pos] = lhs;
+                    } else {
+                        args.insert(0, lhs);
+                    }
+                    Ok(Expr::Call { func, generic_args, args })
+                }
+                Expr::Var(func) => {
+                    Ok(Expr::Call {
+                        func,
+                        generic_args: Vec::new(),
+                        args: vec![lhs],
+                    })
+                }
+                Expr::MethodCall { receiver, method, generic_args, mut args } => {
+                    if let Some(pos) = args.iter().position(|a| matches!(a, Expr::Var(v) if v == "_")) {
+                        args[pos] = lhs;
+                    } else {
+                        args.insert(0, lhs);
+                    }
+                    Ok(Expr::MethodCall { receiver, method, generic_args, args })
+                }
+                other => Err(format!(
+                    "Semantic frontend error: invalid pipeline target expression: {:?}",
+                    other
+                )),
+            }
+        }
+        omni_syntax::SyntaxKind::CommandCallExpr => {
+            // Command call `name arg1, arg2` (ERR3-0035) lowers to Expr::Call
+            let mut children = node.children();
+            let callee = children
+                .next()
+                .ok_or_else(|| "Semantic frontend error: command call has no callee".to_string())?;
+            let (func, generic_args) = call_target_from_cst(&callee)?;
+            let args = children.map(|n| expr_from_node(&n)).collect::<Result<Vec<_>, _>>()?;
+            Ok(Expr::Call { func, generic_args, args })
         }
         omni_syntax::SyntaxKind::AwaitExpr
         | omni_syntax::SyntaxKind::MacroInvocation
@@ -2906,5 +2971,53 @@ mod tests {
                 main.body.blocks.len()
             );
         }
+    }
+
+    #[test]
+    fn pipeline_operator_executes_on_abstract_machine() {
+        let source = "fn double(x: i64) -> i64 { return x * 2; } \
+                      fn add(x: i64, y: i64) -> i64 { return x + y; } \
+                      fn main() -> i64 { \
+                          let result = 5 |> double |> add(10); \
+                          return result; \
+                      }";
+        let value = compile_source_to_interpreter_value(source, manifest())
+            .expect("pipeline operator execution on machine");
+        assert_eq!(value, 20); // (5 * 2) + 10 = 20
+    }
+
+    #[test]
+    fn expression_bodied_function_executes() {
+        let source = "fn add(a: i64, b: i64) -> i64 = a + b; \
+                      fn main() -> i64 { \
+                          return add(20, 22); \
+                      }";
+        let value = compile_source_to_interpreter_value(source, manifest())
+            .expect("expression bodied function execution");
+        assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn pipeline_operator_with_placeholder_executes() {
+        let source = "fn sub(a: i64, b: i64) -> i64 = a - b; \
+                      fn main() -> i64 { \
+                          let result = 10 |> sub(30, _); \
+                          return result; \
+                      }";
+        let value = compile_source_to_interpreter_value(source, manifest())
+            .expect("pipeline operator with placeholder execution");
+        assert_eq!(value, 20); // 30 - 10 = 20
+    }
+
+    #[test]
+    fn contextual_keyword_as_identifier_executes() {
+        let source = "struct Point { where: i64, in: i64 } \
+                      fn main() -> i64 { \
+                          let p = Point { where: 15, in: 25 }; \
+                          return p.where + p.in; \
+                      }";
+        let value = compile_source_to_interpreter_value(source, manifest())
+            .expect("contextual keywords where and in as struct fields");
+        assert_eq!(value, 40);
     }
 }

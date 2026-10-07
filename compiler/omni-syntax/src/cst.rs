@@ -157,6 +157,10 @@ pub enum SyntaxKind {
     UnsafeBlock,
     TryBlock,
     Label,
+    PipelineExpr,
+    QuestionDotExpr,
+    PlaceholderExpr,
+    CommandCallExpr,
 }
 
 impl SyntaxKind {
@@ -296,6 +300,10 @@ impl SyntaxKind {
         SyntaxKind::UnsafeBlock,
         SyntaxKind::TryBlock,
         SyntaxKind::Label,
+        SyntaxKind::PipelineExpr,
+        SyntaxKind::QuestionDotExpr,
+        SyntaxKind::PlaceholderExpr,
+        SyntaxKind::CommandCallExpr,
     ];
 
     /// The raw Rowan discriminant for this kind.

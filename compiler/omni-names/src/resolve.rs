@@ -456,6 +456,10 @@ impl Resolver {
                     .unwrap_or_default()
                     .trim()
                     .to_string();
+                if text == "_" {
+                    // Wildcard / pipeline placeholder slot (ERR3-0030)
+                    return;
+                }
                 if let Ok(id) = self.resolve(&text) {
                     out.references.insert(start_u32(&segments[0]), id);
                 } else {

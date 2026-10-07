@@ -115,10 +115,9 @@ mod tests {
     }
 
     #[test]
-    fn candidate2_surface_remains_rejected() {
-        assert!(rejected("fn f() { a |> b; }") > 0);
-        assert!(rejected("fn f() { a?.b; }") > 0);
-        assert!(rejected("fn f() { let x = 1\n return x; }") > 0);
+    fn candidate3_pipeline_and_optional_navigation_parse() {
+        ok("fn f() { a |> b; }");
+        ok("fn f() { a?.b; }");
     }
 
     #[test]

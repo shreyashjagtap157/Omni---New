@@ -1,4 +1,0 @@
-   Compiling omni-codegen v0.0.0 (C:\Users\siddh\Downloads\ABC\Omni\compiler\omni-codegen)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.97s
-     Running unittests src\lib.rs (target\debug\deps\omni_codegen-8a0704c084caff61.exe)
-error: test failed, to rerun pass `-p omni-codegen --lib`
