@@ -123,23 +123,18 @@ impl DropElaborator {
                 continue;
             }
 
-            let mut to_drop = linear_initialization_order(
-                body,
-                block,
-                &predecessors,
-                params,
-            )
-            .unwrap_or_else(|| {
-                out_states[idx]
-                    .iter()
-                    .copied()
-                    .filter(|local| *local != return_place)
-                    .collect::<Vec<_>>()
-            })
-            .into_iter()
-            .filter(|local| out_states[idx].contains(local) && *local != return_place)
-            .rev()
-            .collect::<Vec<_>>();
+            let mut to_drop = linear_initialization_order(body, block, &predecessors, params)
+                .unwrap_or_else(|| {
+                    out_states[idx]
+                        .iter()
+                        .copied()
+                        .filter(|local| *local != return_place)
+                        .collect::<Vec<_>>()
+                })
+                .into_iter()
+                .filter(|local| out_states[idx].contains(local) && *local != return_place)
+                .rev()
+                .collect::<Vec<_>>();
 
             let existing = body.blocks[block]
                 .statements
