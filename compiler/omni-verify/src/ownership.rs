@@ -167,11 +167,8 @@ fn transfer_block(
                 {
                     let region = format!("{}:bb{}:{}", function.name, block.index(), context);
                     if let Rvalue::Reference { place, .. } = rvalue {
-                        let parents = state
-                            .reference_loans
-                            .get(&place.local)
-                            .cloned()
-                            .unwrap_or_default();
+                        let parents =
+                            state.reference_loans.get(&place.local).cloned().unwrap_or_default();
                         state.loan_parents.insert(region.clone(), parents);
                     }
                     state.reference_loans.entry(destination.local).or_default().insert(region);
