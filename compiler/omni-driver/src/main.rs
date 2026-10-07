@@ -1792,14 +1792,14 @@ fn match_arm_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast:
             (pattern_from_cst(&inner)?, Some(expr_from_node(&guard)?), body)
         }
         _ => match rest.as_slice() {
-            [body] => (pattern_from_cst(&pattern_node)?, None, body.clone()),
+            [body] => (pattern_from_cst(&pattern_node)?, None, body),
             [guard, body] => {
-                (pattern_from_cst(&pattern_node)?, Some(expr_from_node(guard)?), body.clone())
+                (pattern_from_cst(&pattern_node)?, Some(expr_from_node(guard)?), body)
             }
             _ => return Err("Semantic frontend error: malformed match arm".into()),
         },
     };
-    Ok(omni_types::ast::MatchArm { pattern, guard, body: expr_from_node(&body)? })
+    Ok(omni_types::ast::MatchArm { pattern, guard, body: expr_from_node(body)? })
 }
 
 fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::Pattern, String> {
