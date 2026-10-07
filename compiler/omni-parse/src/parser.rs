@@ -1463,7 +1463,9 @@ impl<'a> Parser<'a> {
                 }
                 continue;
             }
-            if self.at_punct(Punct::QuestionDot) && crate::precedence::POSTFIX_BINDING_POWER >= min_bp {
+            if self.at_punct(Punct::QuestionDot)
+                && crate::precedence::POSTFIX_BINDING_POWER >= min_bp
+            {
                 let qdot = self.bump_child();
                 let mut id = None;
                 if self.at_ident_or_contextual() {
@@ -1529,7 +1531,8 @@ impl<'a> Parser<'a> {
             let mut bin = Node::new(bin_kind);
             bin.children.push(Child::Node(lhs));
             bin.children.push(self.bump_child());
-            let is_pipeline_or_assign = bin_kind == SyntaxKind::PipelineExpr || bin_kind == SyntaxKind::AssignExpr;
+            let is_pipeline_or_assign =
+                bin_kind == SyntaxKind::PipelineExpr || bin_kind == SyntaxKind::AssignExpr;
             let prev_cmd = self.allow_command_call;
             if is_pipeline_or_assign {
                 self.allow_command_call = true;
