@@ -927,11 +927,6 @@ impl<'a> FnMirBuilder<'a> {
         if arms.is_empty() {
             return Ok(None);
         }
-        if arms.iter().any(|arm| arm.guard.is_some()) {
-            return Err(
-                "MIR lowering error: guarded match arms require guard-aware dispatch".into()
-            );
-        }
 
         let (scrutinee_op, scrutinee_ty) = self
             .lower_expr(scrutinee)?
@@ -958,26 +953,55 @@ impl<'a> FnMirBuilder<'a> {
         let otherwise = self.new_block();
         let join = self.new_block();
 
-        let mut targets = Vec::new();
-        let mut wildcard_target = None;
+        // Lower match dispatch as an ordered decision chain. This represents
+        // ranges and guards directly in CFG form instead of trying to encode
+        // intervals as a finite SwitchInt value list.
+        let mut test_block = entry;
         for (index, arm) in arms.iter().enumerate() {
-            self.collect_match_targets(
+            let failure_block =
+                if index + 1 < arms.len() { self.new_block() } else { otherwise };
+            let pattern_success =
+                if arm.guard.is_some() { self.new_block() } else { arm_blocks[index] };
+
+            self.current_block = Some(test_block);
+            self.lower_match_pattern_branch(
+                &scrutinee_place,
                 &arm.pattern,
-                arm_blocks[index],
-                &mut targets,
-                &mut wildcard_target,
+                pattern_success,
+                failure_block,
             )?;
+
+            if let Some(guard) = &arm.guard {
+                self.current_block = Some(pattern_success);
+                let (guard_op, guard_ty) = self
+                    .lower_expr(guard)?
+                    .ok_or_else(|| "MIR lowering error: match guard is Unit".to_string())?;
+                let bool_ty = self.tcx.intern(TyKind::Bool);
+                if guard_ty != bool_ty {
+                    return Err(format!(
+                        "MIR lowering error: match guard has type {:?}, expected {:?}",
+                        guard_ty, bool_ty
+                    ));
+                }
+                let guard_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: match guard terminated control flow unexpectedly"
+                        .to_string()
+                })?;
+                self.blocks[guard_block].terminator = Some(crate::ir::Terminator::SwitchInt {
+                    discr: guard_op,
+                    targets: vec![(1, arm_blocks[index])],
+                    otherwise: failure_block,
+                });
+            }
+
+            test_block = failure_block;
         }
-        let otherwise_block = wildcard_target.unwrap_or(otherwise);
-        self.blocks[entry].terminator = Some(crate::ir::Terminator::SwitchInt {
-            discr: crate::ir::Operand::Copy(scrutinee_place.clone()),
-            targets,
-            otherwise: otherwise_block,
-        });
+
+        self.blocks[otherwise].terminator = Some(crate::ir::Terminator::Unreachable);
 
         let mut result_ty = None;
         let mut result_local = None;
-        let mut any_arm_diverged = false;
+        let mut all_arm_diverged = true;
 
         for (index, arm) in arms.iter().enumerate() {
             self.current_block = Some(arm_blocks[index]);
@@ -988,11 +1012,10 @@ impl<'a> FnMirBuilder<'a> {
 
             let body = self.lower_expr(&arm.body)?;
             self.scope = saved_scope;
-            // Each arm is an independent path: a `return` in one arm must not
-            // mark the other arms, or the code after the `match`, as diverged.
+
             let arm_diverged = self.diverged;
             self.diverged = false;
-            any_arm_diverged |= arm_diverged;
+            all_arm_diverged &= arm_diverged;
 
             if let Some((_, ty)) = &body {
                 if let Some(expected) = result_ty {
@@ -1004,8 +1027,7 @@ impl<'a> FnMirBuilder<'a> {
                     }
                 } else {
                     result_ty = Some(*ty);
-                    let local = self.new_temp(Some("_match_tmp".to_string()), *ty);
-                    result_local = Some(local);
+                    result_local = Some(self.new_temp(Some("_match_tmp".to_string()), *ty));
                 }
             } else if result_ty.is_none() {
                 result_ty = Some(self.tcx.intern(TyKind::Unit));
@@ -1021,28 +1043,18 @@ impl<'a> FnMirBuilder<'a> {
                         self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
                     }
                 }
-            } else if let Some(block) = self.current_block {
-                if self.blocks[block].terminator.is_none() {
-                    self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
+            } else if !arm_diverged {
+                if let Some(block) = self.current_block {
+                    if self.blocks[block].terminator.is_none() {
+                        self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(join));
+                    }
                 }
             }
         }
 
-        // The implicit `otherwise` block only needs an `Unreachable` terminator
-        // when it is still the switch's fallthrough target. When an arm supplies
-        // the wildcard, `otherwise_block` points at that arm instead and `otherwise`
-        // is left with no predecessor edge; it must still be terminated, or the
-        // verifier rejects the function with "BasicBlock N lacks a valid
-        // terminator".
-        if self.blocks[otherwise].terminator.is_none() {
-            self.blocks[otherwise].terminator = Some(crate::ir::Terminator::Unreachable);
-        }
-
-        // The `match` itself diverges only when *every* arm transfers control
-        // away and there is no fallthrough target; otherwise the join block is
-        // reachable and execution continues after the `match`.
-        self.diverged = any_arm_diverged && wildcard_target.is_none();
+        self.diverged = all_arm_diverged;
         self.current_block = Some(join);
+
         match result_local {
             Some(local) => Ok(Some((
                 crate::ir::Operand::Copy(crate::ir::Place::local(local)),
@@ -1052,44 +1064,199 @@ impl<'a> FnMirBuilder<'a> {
         }
     }
 
-    fn collect_match_targets(
-        &self,
+    fn lower_match_pattern_branch(
+        &mut self,
+        scrutinee: &crate::ir::Place,
         pattern: &omni_types::ast::Pattern,
-        target: crate::ir::BasicBlock,
-        targets: &mut Vec<(u64, crate::ir::BasicBlock)>,
-        wildcard_target: &mut Option<crate::ir::BasicBlock>,
+        success: crate::ir::BasicBlock,
+        failure: crate::ir::BasicBlock,
     ) -> Result<(), String> {
         match pattern {
             omni_types::ast::Pattern::Wildcard | omni_types::ast::Pattern::Binding(_) => {
-                if wildcard_target.replace(target).is_some() {
-                    return Err("MIR lowering error: multiple wildcard match arms".into());
-                }
-            }
-            omni_types::ast::Pattern::Or(patterns) => {
-                for pattern in patterns {
-                    self.collect_match_targets(pattern, target, targets, wildcard_target)?;
-                }
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: pattern has no current dispatch block".to_string()
+                })?;
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(success));
+                Ok(())
             }
             omni_types::ast::Pattern::Lit(lit) => {
-                let value = match lit {
-                    omni_types::ast::Lit::Bool(v) => u64::from(*v),
-                    omni_types::ast::Lit::Int(v) => *v as u64,
-                    omni_types::ast::Lit::Byte(v) => u64::from(*v),
-                    omni_types::ast::Lit::Char(v) => *v as u64,
-                    _ => return Err(format!(
-                        "MIR lowering error: literal pattern {:?} is not representable by SwitchInt",
-                        lit
-                    )),
-                };
-                targets.push((value, target));
+                self.emit_match_literal_branch(scrutinee, lit, success, failure)
             }
-            other => {
-                return Err(format!(
-                    "MIR lowering error: match pattern {:?} requires aggregate/discriminant lowering",
-                    other
-                ));
+            omni_types::ast::Pattern::Range { start, end } => {
+                self.emit_match_range_branch(scrutinee, start, end, success, failure)
             }
+            omni_types::ast::Pattern::Or(patterns) => {
+                if patterns.is_empty() {
+                    return Err("MIR lowering error: empty or-pattern".into());
+                }
+                let mut next_failure = failure;
+                for (index, alternative) in patterns.iter().enumerate().rev() {
+                    let alternative_block = if index == 0 {
+                        self.current_block.ok_or_else(|| {
+                            "MIR lowering error: or-pattern has no current dispatch block"
+                                .to_string()
+                        })?
+                    } else {
+                        let block = self.new_block();
+                        // The previous alternative's failure edge enters this
+                        // block, where the next alternative is tested.
+                        self.current_block = Some(block);
+                        block
+                    };
+                    if index > 0 {
+                        self.current_block = Some(alternative_block);
+                    }
+                    self.lower_match_pattern_branch(
+                        scrutinee,
+                        alternative,
+                        success,
+                        next_failure,
+                    )?;
+                    next_failure = alternative_block;
+                }
+                Ok(())
+            }
+            other => Err(format!(
+                "MIR lowering error: match pattern {:?} requires aggregate/discriminant lowering",
+                other
+            )),
         }
+    }
+
+    fn emit_match_literal_branch(
+        &mut self,
+        scrutinee: &crate::ir::Place,
+        lit: &omni_types::ast::Lit,
+        success: crate::ir::BasicBlock,
+        failure: crate::ir::BasicBlock,
+    ) -> Result<(), String> {
+        let block = self.current_block.ok_or_else(|| {
+            "MIR lowering error: literal pattern has no current dispatch block".to_string()
+        })?;
+        let bool_ty = self.tcx.intern(TyKind::Bool);
+        let test_local = self.new_temp(Some("_match_test".to_string()), bool_ty);
+        self.blocks[block].statements.push(crate::ir::Statement::Assign(
+            crate::ir::Place::local(test_local),
+            crate::ir::Rvalue::BinaryOp(
+                crate::ir::BinOp::Eq,
+                crate::ir::Operand::Copy(scrutinee.clone()),
+                crate::ir::Operand::Constant(crate::ir::Constant::Lit(lit.clone())),
+            ),
+        ));
+        self.blocks[block].terminator = Some(crate::ir::Terminator::SwitchInt {
+            discr: crate::ir::Operand::Copy(crate::ir::Place::local(test_local)),
+            targets: vec![(1, success)],
+            otherwise: failure,
+        });
+        Ok(())
+    }
+
+    fn emit_match_range_branch(
+        &mut self,
+        scrutinee: &crate::ir::Place,
+        start: &omni_types::ast::PatternRangeBoundary,
+        end: &omni_types::ast::PatternRangeBoundary,
+        success: crate::ir::BasicBlock,
+        failure: crate::ir::BasicBlock,
+    ) -> Result<(), String> {
+        let bool_ty = self.tcx.intern(TyKind::Bool);
+
+        if !matches!(start, omni_types::ast::PatternRangeBoundary::Unbounded) {
+            let next = if matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded) {
+                success
+            } else {
+                self.new_block()
+            };
+            self.current_block = self.current_block.or(Some(
+                self.blocks.iter_enumerated().last().map(|(bb, _)| bb).unwrap_or_else(|| {
+                    crate::ir::BasicBlock::from(0)
+                }),
+            ));
+            self.emit_match_range_bound(scrutinee, start, true, next, failure, bool_ty)?;
+        } else if matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded) {
+            let block = self.current_block.ok_or_else(|| {
+                "MIR lowering error: unbounded range has no current dispatch block".to_string()
+            })?;
+            self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(success));
+        }
+
+        if !matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded) {
+            let block = self.current_block;
+            if !matches!(start, omni_types::ast::PatternRangeBoundary::Unbounded) {
+                let target_block = self
+                    .blocks
+                    .iter_enumerated()
+                    .find_map(|(bb, data)| {
+                        matches!(
+                            data.terminator,
+                            Some(crate::ir::Terminator::Goto(target)) if target != success
+                        )
+                        .then_some(bb)
+                    })
+                    .ok_or_else(|| "MIR lowering error: missing range upper-bound block".to_string())?;
+                self.current_block = Some(target_block);
+            } else if block.is_none() {
+                return Err("MIR lowering error: range has no current dispatch block".into());
+            }
+            let _ = block;
+            self.emit_match_range_bound(scrutinee, end, false, success, failure, bool_ty)?;
+        }
+        Ok(())
+    }
+
+    fn emit_match_range_bound(
+        &mut self,
+        scrutinee: &crate::ir::Place,
+        boundary: &omni_types::ast::PatternRangeBoundary,
+        lower_bound: bool,
+        success: crate::ir::BasicBlock,
+        failure: crate::ir::BasicBlock,
+        bool_ty: Ty,
+    ) -> Result<(), String> {
+        let literal = match boundary {
+            omni_types::ast::PatternRangeBoundary::Inclusive(lit)
+            | omni_types::ast::PatternRangeBoundary::Exclusive(lit) => lit,
+            omni_types::ast::PatternRangeBoundary::Unbounded => {
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: unbounded range bound has no current dispatch block"
+                        .to_string()
+                })?;
+                self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(success));
+                return Ok(());
+            }
+        };
+
+        let op = if lower_bound {
+            match boundary {
+                omni_types::ast::PatternRangeBoundary::Inclusive(_) => crate::ir::BinOp::Ge,
+                omni_types::ast::PatternRangeBoundary::Exclusive(_) => crate::ir::BinOp::Gt,
+                omni_types::ast::PatternRangeBoundary::Unbounded => unreachable!(),
+            }
+        } else {
+            match boundary {
+                omni_types::ast::PatternRangeBoundary::Inclusive(_) => crate::ir::BinOp::Le,
+                omni_types::ast::PatternRangeBoundary::Exclusive(_) => crate::ir::BinOp::Lt,
+                omni_types::ast::PatternRangeBoundary::Unbounded => unreachable!(),
+            }
+        };
+
+        let block = self.current_block.ok_or_else(|| {
+            "MIR lowering error: range bound has no current dispatch block".to_string()
+        })?;
+        let test_local = self.new_temp(Some("_match_range_test".to_string()), bool_ty);
+        self.blocks[block].statements.push(crate::ir::Statement::Assign(
+            crate::ir::Place::local(test_local),
+            crate::ir::Rvalue::BinaryOp(
+                op,
+                crate::ir::Operand::Copy(scrutinee.clone()),
+                crate::ir::Operand::Constant(crate::ir::Constant::Lit(literal.clone())),
+            ),
+        ));
+        self.blocks[block].terminator = Some(crate::ir::Terminator::SwitchInt {
+            discr: crate::ir::Operand::Copy(crate::ir::Place::local(test_local)),
+            targets: vec![(1, success)],
+            otherwise: failure,
+        });
         Ok(())
     }
 
