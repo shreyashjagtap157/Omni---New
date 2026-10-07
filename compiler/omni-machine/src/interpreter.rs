@@ -1152,14 +1152,12 @@ impl Interpreter {
                     message: format!("Array index {} out of range", index),
                 })
             }
-            Value::String(s) => {
-                s.chars().nth(index).map(Value::Char).ok_or_else(|| {
-                    ExecutionError::InvalidProjection {
-                        place: place.clone(),
-                        message: format!("String index {} out of range", index),
-                    }
-                })
-            }
+            Value::String(s) => s.chars().nth(index).map(Value::Char).ok_or_else(|| {
+                ExecutionError::InvalidProjection {
+                    place: place.clone(),
+                    message: format!("String index {} out of range", index),
+                }
+            }),
             _ => Err(ExecutionError::InvalidProjection {
                 place: place.clone(),
                 message: format!(
@@ -1440,17 +1438,16 @@ impl Interpreter {
                                         ),
                                     }
                                 })?;
-                                let alloc_id = self.memory.allocate(size, align, true).map_err(|e| {
-                                    ExecutionError::MemoryAccessError { message: e }
-                                })?;
-                                Ok(Value::Int(
-                                    i64::try_from(alloc_id).map_err(|_| {
-                                        ExecutionError::MemoryAccessError {
-                                            message: "allocation handle does not fit machine integer"
-                                                .to_string(),
-                                        }
-                                    })?,
-                                ))
+                                let alloc_id =
+                                    self.memory.allocate(size, align, true).map_err(|e| {
+                                        ExecutionError::MemoryAccessError { message: e }
+                                    })?;
+                                Ok(Value::Int(i64::try_from(alloc_id).map_err(|_| {
+                                    ExecutionError::MemoryAccessError {
+                                        message: "allocation handle does not fit machine integer"
+                                            .to_string(),
+                                    }
+                                })?))
                             } else {
                                 Err(ExecutionError::InvalidFunctionCall {
                                     function: name.clone(),
@@ -1719,12 +1716,7 @@ impl Memory {
         Self::default()
     }
 
-    pub fn allocate(
-        &mut self,
-        size: usize,
-        align: u32,
-        mutable: bool,
-    ) -> Result<u64, String> {
+    pub fn allocate(&mut self, size: usize, align: u32, mutable: bool) -> Result<u64, String> {
         if align == 0 || !align.is_power_of_two() {
             return Err(format!(
                 "allocation alignment must be a positive power of two, got {align}"
@@ -1735,9 +1727,8 @@ impl Memory {
         if id > i64::MAX as u64 {
             return Err("allocation identifier space exhausted".to_string());
         }
-        self.next_id = id
-            .checked_add(1)
-            .ok_or_else(|| "allocation identifier space exhausted".to_string())?;
+        self.next_id =
+            id.checked_add(1).ok_or_else(|| "allocation identifier space exhausted".to_string())?;
 
         let alloc =
             Allocation { bytes: vec![0; size], initialized: vec![false; size], align, mutable };
