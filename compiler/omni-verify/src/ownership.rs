@@ -517,7 +517,6 @@ fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Loc
     }
 }
 
-
 fn transfer_rvalue(
     function: &MirFunction,
     block: BasicBlock,
