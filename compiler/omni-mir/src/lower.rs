@@ -3097,7 +3097,9 @@ mod tests {
                     arms: vec![
                         omni_types::ast::MatchArm {
                             pattern: omni_types::ast::Pattern::Range {
-                                start: omni_types::ast::PatternRangeBoundary::Inclusive(Lit::Int(0)),
+                                start: omni_types::ast::PatternRangeBoundary::Inclusive(Lit::Int(
+                                    0,
+                                )),
                                 end: omni_types::ast::PatternRangeBoundary::Exclusive(Lit::Int(10)),
                             },
                             guard: None,
@@ -3171,9 +3173,7 @@ mod tests {
             }],
         };
 
-        let mir = ctx
-            .lower_monomorphized_program(&program)
-            .expect("guarded match should lower");
+        let mir = ctx.lower_monomorphized_program(&program).expect("guarded match should lower");
         let function = &mir.functions[0];
         assert!(function.body.blocks.iter().any(|block| {
             matches!(block.terminator, Some(crate::ir::Terminator::SwitchInt { .. }))
