@@ -572,10 +572,9 @@ fn numeric_pattern_ranges(pattern: &Pattern, domain: (Numeric, Numeric)) -> Vec<
                 })
                 .unwrap_or_default()
         }
-        Pattern::Or(patterns) => patterns
-            .iter()
-            .flat_map(|pattern| numeric_pattern_ranges(pattern, domain))
-            .collect(),
+        Pattern::Or(patterns) => {
+            patterns.iter().flat_map(|pattern| numeric_pattern_ranges(pattern, domain)).collect()
+        }
         _ => Vec::new(),
     }
 }
