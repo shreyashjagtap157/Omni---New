@@ -3,6 +3,7 @@ use omni_mir::ir::{
     BasicBlock, Constant, Local, MirFunction, MirProgram, Operand, Place, Projection, Rvalue,
     Statement, Terminator,
 };
+use std::collections::{BTreeMap, BTreeSet};
 use omni_own::{
     AccessKind, OwnershipError, OwnershipState, Place as OwnershipPlace,
     Projection as OwnershipProjection,
@@ -19,16 +20,28 @@ pub(crate) struct OwnershipVerificationError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct FlowState {
     ownership: OwnershipState,
+    /// Reference locals may denote different loans after a CFG join, so keep
+    /// the complete may-live region set for each local.
+    reference_loans: BTreeMap<Local, BTreeSet<String>>,
 }
 
 impl FlowState {
     fn new() -> Self {
-        Self { ownership: OwnershipState::new() }
+        Self { ownership: OwnershipState::new(), reference_loans: BTreeMap::new() }
     }
 
     fn join(states: &[Self]) -> Self {
         let inputs = states.iter().map(|state| &state.ownership).collect::<Vec<_>>();
-        Self { ownership: OwnershipState::join_all(&inputs) }
+        let mut reference_loans = BTreeMap::new();
+        for state in states {
+            for (&local, loans) in &state.reference_loans {
+                reference_loans.entry(local).or_insert_with(BTreeSet::new).extend(loans.iter().cloned());
+            }
+        }
+        Self {
+            ownership: OwnershipState::join_all(&inputs),
+            reference_loans,
+        }
     }
 }
 
@@ -123,7 +136,18 @@ fn transfer_block(
         let context = format!("statement {}", statement_index);
         match statement {
             Statement::Assign(destination, rvalue) => {
+                if destination.projections.is_empty() {
+                    if let Some(old_loans) = state.reference_loans.remove(&destination.local) {
+                        for region in old_loans {
+                            let _ = state.ownership.end_loan(&region);
+                        }
+                    }
+                }
                 transfer_rvalue(function, block, &context, rvalue, &mut state)?;
+                if destination.projections.is_empty() && matches!(rvalue, Rvalue::Reference { .. }) {
+                    let region = format!("{}:bb{}:{}", function.name, block.index(), context);
+                    state.reference_loans.entry(destination.local).or_default().insert(region);
+                }
                 assign_place(function, block, &context, destination, &mut state)?;
             }
             Statement::Drop(place) => {
@@ -240,8 +264,14 @@ fn transfer_rvalue(
             Ok(())
         }
         Rvalue::Reference { place, mutable, .. } => {
-            let access = if *mutable { AccessKind::BorrowMut } else { AccessKind::BorrowShared };
-            transfer_place_access(function, block, context, place, access, state)
+            let ownership_place = ownership_place(function, place);
+            let region = format!("{}:bb{}:{}", function.name, block.index(), context);
+            let result = if *mutable {
+                state.ownership.borrow_mut(ownership_place, region)
+            } else {
+                state.ownership.borrow_shared(ownership_place, region)
+            };
+            result.map_err(|error| violation(function, block, context, error))
         }
         Rvalue::Range { start, end, .. } => {
             transfer_operand(function, block, &format!("{context} range start"), start, state)?;
@@ -267,7 +297,15 @@ fn transfer_operand(
             transfer_place_access(function, block, context, place, AccessKind::Read, state)
         }
         Operand::Move(place) => {
-            transfer_place_access(function, block, context, place, AccessKind::Move, state)
+            transfer_place_access(function, block, context, place, AccessKind::Move, state)?;
+            if place.projections.is_empty() {
+                if let Some(loans) = state.reference_loans.remove(&place.local) {
+                    for region in loans {
+                        let _ = state.ownership.end_loan(&region);
+                    }
+                }
+            }
+            Ok(())
         }
         Operand::Constant(Constant::Lit(_)) | Operand::Constant(Constant::FnRef(_)) => Ok(()),
     }
