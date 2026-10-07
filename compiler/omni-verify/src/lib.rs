@@ -1,144 +1,3 @@
-fn local_key(local: omni_mir::ir::Local) -> String {
-    format!("local{}", local.index())
-}
-
-fn push_unique<T: PartialEq>(facts: &mut Vec<T>, value: T) {
-    if !facts.contains(&value) {
-        facts.push(value);
-    }
-}
-
-fn places_conflict(a: &omni_mir::ir::Place, b: &omni_mir::ir::Place) -> bool {
-    if a.local != b.local {
-        return false;
-    }
-    let shared = a.projections.len().min(b.projections.len());
-    a.projections[..shared] == b.projections[..shared]
-}
-
-fn record_place_use(
-    place: &omni_mir::ir::Place,
-    point: &str,
-    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
-    facts: &mut PoloniusFacts,
-    is_drop: bool,
-) {
-    push_unique(
-        &mut facts.var_used_at,
-        (local_key(place.local), point.to_string()),
-    );
-    if place.projections.iter().any(|projection| matches!(projection, omni_mir::ir::Projection::Deref))
-    {
-        if let Some(origin) = origin_by_local.get(&place.local) {
-            push_unique(
-                &mut facts.deref_origin,
-                (local_key(place.local), origin.clone()),
-            );
-            push_unique(
-                &mut facts.region_live_at,
-                (origin.clone(), point.to_string()),
-            );
-        }
-    } else if is_drop {
-        if let Some(origin) = origin_by_local.get(&place.local) {
-            push_unique(
-                &mut facts.deref_origin,
-                (local_key(place.local), origin.clone()),
-            );
-            push_unique(
-                &mut facts.region_live_at,
-                (origin.clone(), point.to_string()),
-            );
-        }
-    }
-}
-
-fn record_place_write(
-    destination: &omni_mir::ir::Place,
-    point: &str,
-    active_loans: &BTreeMap<String, omni_mir::ir::Place>,
-    facts: &mut PoloniusFacts,
-) {
-    for (loan, borrowed_place) in active_loans {
-        if places_conflict(destination, borrowed_place) {
-            push_unique(
-                &mut facts.invalidated,
-                (loan.clone(), point.to_string()),
-            );
-        }
-    }
-}
-
-fn record_operand_use(
-    operand: &omni_mir::ir::Operand,
-    point: &str,
-    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
-    active_loans: &BTreeMap<String, omni_mir::ir::Place>,
-    facts: &mut PoloniusFacts,
-) {
-    match operand {
-        omni_mir::ir::Operand::Copy(place) => {
-            record_place_use(place, point, origin_by_local, facts, false);
-        }
-        omni_mir::ir::Operand::Move(place) => {
-            record_place_use(place, point, origin_by_local, facts, false);
-            for (loan, borrowed_place) in active_loans {
-                if places_conflict(place, borrowed_place) {
-                    push_unique(
-                        &mut facts.invalidated,
-                        (loan.clone(), point.to_string()),
-                    );
-                }
-            }
-        }
-        omni_mir::ir::Operand::Constant(_) => {}
-    }
-}
-
-fn record_rvalue_uses(
-    rvalue: &omni_mir::ir::Rvalue,
-    point: &str,
-    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
-    facts: &mut PoloniusFacts,
-) {
-    use omni_mir::ir::Rvalue;
-    match rvalue {
-        Rvalue::Use(operand)
-        | Rvalue::UnaryOp(_, operand)
-        | Rvalue::Cast { operand, .. } => {
-            record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
-        }
-        Rvalue::BinaryOp(_, lhs, rhs) => {
-            record_operand_use(lhs, point, origin_by_local, &BTreeMap::new(), facts);
-            record_operand_use(rhs, point, origin_by_local, &BTreeMap::new(), facts);
-        }
-        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
-            for operand in operands {
-                record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
-            }
-        }
-        Rvalue::Struct { fields, .. } => {
-            for (_, operand) in fields {
-                record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
-            }
-        }
-        Rvalue::Reference { place, .. } => {
-            record_place_use(place, point, origin_by_local, facts, false);
-        }
-        Rvalue::Range { start, end, .. } => {
-            record_operand_use(start, point, origin_by_local, &BTreeMap::new(), facts);
-            record_operand_use(end, point, origin_by_local, &BTreeMap::new(), facts);
-        }
-        Rvalue::Field { base, .. } => {
-            record_operand_use(base, point, origin_by_local, &BTreeMap::new(), facts);
-        }
-        Rvalue::Index { base, index, .. } => {
-            record_operand_use(base, point, origin_by_local, &BTreeMap::new(), facts);
-            record_operand_use(index, point, origin_by_local, &BTreeMap::new(), facts);
-        }
-    }
-}
-
 //! Polonius Fact Generation and Linear Borrow Checking Engine (OWN-0005).
 
 use omni_mir::ir::{BasicBlock, Body, Terminator};
@@ -562,6 +421,148 @@ impl PoloniusFacts {
         }
     }
 }
+
+fn local_key(local: omni_mir::ir::Local) -> String {
+    format!("local{}", local.index())
+}
+
+fn push_unique<T: PartialEq>(facts: &mut Vec<T>, value: T) {
+    if !facts.contains(&value) {
+        facts.push(value);
+    }
+}
+
+fn places_conflict(a: &omni_mir::ir::Place, b: &omni_mir::ir::Place) -> bool {
+    if a.local != b.local {
+        return false;
+    }
+    let shared = a.projections.len().min(b.projections.len());
+    a.projections[..shared] == b.projections[..shared]
+}
+
+fn record_place_use(
+    place: &omni_mir::ir::Place,
+    point: &str,
+    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
+    facts: &mut PoloniusFacts,
+    is_drop: bool,
+) {
+    push_unique(
+        &mut facts.var_used_at,
+        (local_key(place.local), point.to_string()),
+    );
+    if place.projections.iter().any(|projection| matches!(projection, omni_mir::ir::Projection::Deref))
+    {
+        if let Some(origin) = origin_by_local.get(&place.local) {
+            push_unique(
+                &mut facts.deref_origin,
+                (local_key(place.local), origin.clone()),
+            );
+            push_unique(
+                &mut facts.region_live_at,
+                (origin.clone(), point.to_string()),
+            );
+        }
+    } else if is_drop {
+        if let Some(origin) = origin_by_local.get(&place.local) {
+            push_unique(
+                &mut facts.deref_origin,
+                (local_key(place.local), origin.clone()),
+            );
+            push_unique(
+                &mut facts.region_live_at,
+                (origin.clone(), point.to_string()),
+            );
+        }
+    }
+}
+
+fn record_place_write(
+    destination: &omni_mir::ir::Place,
+    point: &str,
+    active_loans: &BTreeMap<String, omni_mir::ir::Place>,
+    facts: &mut PoloniusFacts,
+) {
+    for (loan, borrowed_place) in active_loans {
+        if places_conflict(destination, borrowed_place) {
+            push_unique(
+                &mut facts.invalidated,
+                (loan.clone(), point.to_string()),
+            );
+        }
+    }
+}
+
+fn record_operand_use(
+    operand: &omni_mir::ir::Operand,
+    point: &str,
+    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
+    active_loans: &BTreeMap<String, omni_mir::ir::Place>,
+    facts: &mut PoloniusFacts,
+) {
+    match operand {
+        omni_mir::ir::Operand::Copy(place) => {
+            record_place_use(place, point, origin_by_local, facts, false);
+        }
+        omni_mir::ir::Operand::Move(place) => {
+            record_place_use(place, point, origin_by_local, facts, false);
+            for (loan, borrowed_place) in active_loans {
+                if places_conflict(place, borrowed_place) {
+                    push_unique(
+                        &mut facts.invalidated,
+                        (loan.clone(), point.to_string()),
+                    );
+                }
+            }
+        }
+        omni_mir::ir::Operand::Constant(_) => {}
+    }
+}
+
+fn record_rvalue_uses(
+    rvalue: &omni_mir::ir::Rvalue,
+    point: &str,
+    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
+    facts: &mut PoloniusFacts,
+) {
+    use omni_mir::ir::Rvalue;
+    match rvalue {
+        Rvalue::Use(operand)
+        | Rvalue::UnaryOp(_, operand)
+        | Rvalue::Cast { operand, .. } => {
+            record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+        Rvalue::BinaryOp(_, lhs, rhs) => {
+            record_operand_use(lhs, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(rhs, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
+            for operand in operands {
+                record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
+            }
+        }
+        Rvalue::Struct { fields, .. } => {
+            for (_, operand) in fields {
+                record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
+            }
+        }
+        Rvalue::Reference { place, .. } => {
+            record_place_use(place, point, origin_by_local, facts, false);
+        }
+        Rvalue::Range { start, end, .. } => {
+            record_operand_use(start, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(end, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+        Rvalue::Field { base, .. } => {
+            record_operand_use(base, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+        Rvalue::Index { base, index, .. } => {
+            record_operand_use(base, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(index, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod polonius_tests {
