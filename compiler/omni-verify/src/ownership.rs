@@ -5,7 +5,6 @@ use omni_mir::ir::{
     BasicBlock, Constant, Local, MirFunction, MirProgram, Operand, Place, Projection, Rvalue,
     Statement, Terminator,
 };
-use std::collections::{BTreeMap, BTreeSet};
 use omni_own::{
     AccessKind, OwnershipError, OwnershipState, Place as OwnershipPlace,
     Projection as OwnershipProjection,
