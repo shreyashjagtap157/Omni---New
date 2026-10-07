@@ -1772,20 +1772,34 @@ fn call_target_from_cst(node: &omni_syntax::SyntaxNode) -> Result<(String, Vec<T
 
 fn match_arm_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::MatchArm, String> {
     let mut children = node.children();
-    let pattern = children
+    let pattern_node = children
         .next()
         .ok_or_else(|| "Semantic frontend error: match arm has no pattern".to_string())?;
     let rest = children.collect::<Vec<_>>();
-    let (guard, body) = match rest.as_slice() {
-        [body] => (None, body),
-        [guard, body] => (Some(guard), body),
-        _ => return Err("Semantic frontend error: malformed match arm".into()),
+    let (pattern, guard, body) = match pattern_node.kind() {
+        omni_syntax::SyntaxKind::GuardPattern => {
+            let mut parts = pattern_node.children();
+            let inner = parts.next().ok_or_else(|| {
+                "Semantic frontend error: guard pattern has no underlying pattern".to_string()
+            })?;
+            let guard = parts.next().ok_or_else(|| {
+                "Semantic frontend error: guard pattern has no guard expression".to_string()
+            })?;
+            let body = match rest.as_slice() {
+                [body] => body,
+                _ => return Err("Semantic frontend error: malformed guarded match arm".into()),
+            };
+            (pattern_from_cst(&inner)?, Some(expr_from_node(&guard)?), *body)
+        }
+        _ => match rest.as_slice() {
+            [body] => (pattern_from_cst(&pattern_node)?, None, *body),
+            [guard, body] => {
+                (pattern_from_cst(&pattern_node)?, Some(expr_from_node(guard)?), *body)
+            }
+            _ => return Err("Semantic frontend error: malformed match arm".into()),
+        },
     };
-    Ok(omni_types::ast::MatchArm {
-        pattern: pattern_from_cst(&pattern)?,
-        guard: guard.map(expr_from_node).transpose()?,
-        body: expr_from_node(body)?,
-    })
+    Ok(omni_types::ast::MatchArm { pattern, guard, body: expr_from_node(body)? })
 }
 
 fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::Pattern, String> {
