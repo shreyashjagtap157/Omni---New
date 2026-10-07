@@ -1,3 +1,144 @@
+fn local_key(local: omni_mir::ir::Local) -> String {
+    format!("local{}", local.index())
+}
+
+fn push_unique<T: PartialEq>(facts: &mut Vec<T>, value: T) {
+    if !facts.contains(&value) {
+        facts.push(value);
+    }
+}
+
+fn places_conflict(a: &omni_mir::ir::Place, b: &omni_mir::ir::Place) -> bool {
+    if a.local != b.local {
+        return false;
+    }
+    let shared = a.projections.len().min(b.projections.len());
+    a.projections[..shared] == b.projections[..shared]
+}
+
+fn record_place_use(
+    place: &omni_mir::ir::Place,
+    point: &str,
+    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
+    facts: &mut PoloniusFacts,
+    is_drop: bool,
+) {
+    push_unique(
+        &mut facts.var_used_at,
+        (local_key(place.local), point.to_string()),
+    );
+    if place.projections.iter().any(|projection| matches!(projection, omni_mir::ir::Projection::Deref))
+    {
+        if let Some(origin) = origin_by_local.get(&place.local) {
+            push_unique(
+                &mut facts.deref_origin,
+                (local_key(place.local), origin.clone()),
+            );
+            push_unique(
+                &mut facts.region_live_at,
+                (origin.clone(), point.to_string()),
+            );
+        }
+    } else if is_drop {
+        if let Some(origin) = origin_by_local.get(&place.local) {
+            push_unique(
+                &mut facts.deref_origin,
+                (local_key(place.local), origin.clone()),
+            );
+            push_unique(
+                &mut facts.region_live_at,
+                (origin.clone(), point.to_string()),
+            );
+        }
+    }
+}
+
+fn record_place_write(
+    destination: &omni_mir::ir::Place,
+    point: &str,
+    active_loans: &BTreeMap<String, omni_mir::ir::Place>,
+    facts: &mut PoloniusFacts,
+) {
+    for (loan, borrowed_place) in active_loans {
+        if places_conflict(destination, borrowed_place) {
+            push_unique(
+                &mut facts.invalidated,
+                (loan.clone(), point.to_string()),
+            );
+        }
+    }
+}
+
+fn record_operand_use(
+    operand: &omni_mir::ir::Operand,
+    point: &str,
+    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
+    active_loans: &BTreeMap<String, omni_mir::ir::Place>,
+    facts: &mut PoloniusFacts,
+) {
+    match operand {
+        omni_mir::ir::Operand::Copy(place) => {
+            record_place_use(place, point, origin_by_local, facts, false);
+        }
+        omni_mir::ir::Operand::Move(place) => {
+            record_place_use(place, point, origin_by_local, facts, false);
+            for (loan, borrowed_place) in active_loans {
+                if places_conflict(place, borrowed_place) {
+                    push_unique(
+                        &mut facts.invalidated,
+                        (loan.clone(), point.to_string()),
+                    );
+                }
+            }
+        }
+        omni_mir::ir::Operand::Constant(_) => {}
+    }
+}
+
+fn record_rvalue_uses(
+    rvalue: &omni_mir::ir::Rvalue,
+    point: &str,
+    origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
+    facts: &mut PoloniusFacts,
+) {
+    use omni_mir::ir::Rvalue;
+    match rvalue {
+        Rvalue::Use(operand)
+        | Rvalue::UnaryOp(_, operand)
+        | Rvalue::Cast { operand, .. } => {
+            record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+        Rvalue::BinaryOp(_, lhs, rhs) => {
+            record_operand_use(lhs, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(rhs, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
+            for operand in operands {
+                record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
+            }
+        }
+        Rvalue::Struct { fields, .. } => {
+            for (_, operand) in fields {
+                record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
+            }
+        }
+        Rvalue::Reference { place, .. } => {
+            record_place_use(place, point, origin_by_local, facts, false);
+        }
+        Rvalue::Range { start, end, .. } => {
+            record_operand_use(start, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(end, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+        Rvalue::Field { base, .. } => {
+            record_operand_use(base, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+        Rvalue::Index { base, index, .. } => {
+            record_operand_use(base, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(index, point, origin_by_local, &BTreeMap::new(), facts);
+        }
+    }
+}
+
 //! Polonius Fact Generation and Linear Borrow Checking Engine (OWN-0005).
 
 use omni_mir::ir::{BasicBlock, Body, Terminator};
@@ -51,6 +192,11 @@ pub struct PoloniusFacts {
     pub region_live_at: Vec<(String, String)>, // (region, point)
     pub killed: Vec<(String, String)>,         // (loan, point)
     pub outlives: Vec<(String, String)>,       // (region1, region2)
+    pub var_used_at: Vec<(String, String)>,    // (variable, point)
+    pub var_defined_at: Vec<(String, String)>, // (variable, point)
+    pub var_dropped_at: Vec<(String, String)>, // (variable, point)
+    pub deref_origin: Vec<(String, String)>,   // (variable, region)
+    pub invalidated: Vec<(String, String)>,    // (loan, point)
 }
 
 impl PoloniusFacts {
@@ -66,12 +212,13 @@ impl PoloniusFacts {
     /// inference belongs to the ownership/lifetime pass; this layer provides a
     /// faithful fact projection of the MIR events that already exist.
     pub fn extract_from_mir(body: &Body) -> Self {
-        use omni_mir::ir::{Projection, Rvalue, Statement, Terminator};
-        use std::collections::BTreeMap;
+        use omni_mir::ir::{Operand, Projection, Rvalue, Statement, Terminator};
+        use std::collections::{BTreeMap, BTreeSet};
 
         let mut facts = Self::default();
         let mut active_by_local: BTreeMap<omni_mir::ir::Local, String> = BTreeMap::new();
-        let mut active_loans = std::collections::BTreeSet::<String>::new();
+        let mut active_loans: BTreeMap<String, omni_mir::ir::Place> = BTreeMap::new();
+        let mut origin_by_local: BTreeMap<omni_mir::ir::Local, String> = BTreeMap::new();
         let mut region_by_loan: BTreeMap<String, String> = BTreeMap::new();
 
         for (block_idx, block) in body.blocks.iter().enumerate() {
@@ -80,6 +227,37 @@ impl PoloniusFacts {
 
                 match statement {
                     Statement::Assign(destination, rvalue) => {
+                        record_rvalue_uses(
+                            rvalue,
+                            &point,
+                            &origin_by_local,
+                            &mut facts,
+                        );
+                        record_place_write(
+                            destination,
+                            &point,
+                            &active_loans,
+                            &mut facts,
+                        );
+
+                        if destination.projections.is_empty() {
+                            if let Some(previous_loan) =
+                                active_by_local.remove(&destination.local)
+                            {
+                                active_loans.remove(&previous_loan);
+                                region_by_loan.remove(&previous_loan);
+                                origin_by_local.remove(&destination.local);
+                                push_unique(
+                                    &mut facts.killed,
+                                    (previous_loan, point.clone()),
+                                );
+                            }
+                            push_unique(
+                                &mut facts.var_defined_at,
+                                (local_key(destination.local), point.clone()),
+                            );
+                        }
+
                         let parent_loan = match rvalue {
                             Rvalue::Reference { place: borrowed, .. }
                                 if borrowed
@@ -92,62 +270,156 @@ impl PoloniusFacts {
                             _ => None,
                         };
 
-                        // A reborrow keeps its parent loan logically alive while
-                        // the child loan is active. Do not kill that parent merely
-                        // because the child reference overwrites the same local.
-                        let replaces_parent = destination.projections.is_empty()
-                            && parent_loan.is_some()
-                            && active_by_local
-                                .get(&destination.local)
-                                .is_some_and(|current| Some(current) == parent_loan.as_ref());
-
-                        if destination.projections.is_empty() && !replaces_parent {
-                            if let Some(previous_loan) = active_by_local.remove(&destination.local)
-                            {
-                                active_loans.remove(&previous_loan);
-                                facts.killed.push((previous_loan, point.clone()));
-                            }
-                        }
-
-                        if let Rvalue::Reference { place: _borrowed, .. } = rvalue {
+                        if let Rvalue::Reference { place: borrowed, .. } = rvalue {
                             let loan = format!("loan_bb{}_{}", block_idx, stmt_idx);
                             let region = format!("'r_bb{}_{}", block_idx, stmt_idx);
 
-                            facts.loan_issued.push((loan.clone(), point.clone()));
-                            facts.borrow_region.push((region.clone(), point.clone()));
-                            facts.region_live_at.push((region.clone(), point.clone()));
+                            push_unique(
+                                &mut facts.loan_issued,
+                                (loan.clone(), point.clone()),
+                            );
+                            push_unique(
+                                &mut facts.borrow_region,
+                                (region.clone(), point.clone()),
+                            );
 
                             if let Some(parent_loan) = parent_loan.as_ref() {
-                                if let Some(parent_region) = region_by_loan.get(parent_loan) {
-                                    facts.outlives.push((parent_region.clone(), region.clone()));
+                                if let Some(parent_region) =
+                                    region_by_loan.get(parent_loan)
+                                {
+                                    push_unique(
+                                        &mut facts.outlives,
+                                        (parent_region.clone(), region.clone()),
+                                    );
                                 }
                             }
 
-                            region_by_loan.insert(loan.clone(), region);
-                            active_loans.insert(loan.clone());
+                            region_by_loan.insert(loan.clone(), region.clone());
                             if destination.projections.is_empty() {
-                                active_by_local.insert(destination.local, loan);
+                                active_by_local.insert(destination.local, loan.clone());
+                                active_loans.insert(loan, borrowed.clone());
+                                origin_by_local.insert(destination.local, region);
                             }
                         }
                     }
-                    Statement::Drop(place) if place.projections.is_empty() => {
-                        if let Some(loan) = active_by_local.remove(&place.local) {
-                            active_loans.remove(&loan);
-                            facts.killed.push((loan, point.clone()));
+                    Statement::Drop(place) => {
+                        record_place_use(
+                            place,
+                            &point,
+                            &origin_by_local,
+                            &mut facts,
+                            true,
+                        );
+                        push_unique(
+                            &mut facts.var_dropped_at,
+                            (local_key(place.local), point.clone()),
+                        );
+
+                        if place.projections.is_empty() {
+                            if let Some(loan) = active_by_local.remove(&place.local) {
+                                active_loans.remove(&loan);
+                                region_by_loan.remove(&loan);
+                                origin_by_local.remove(&place.local);
+                                push_unique(&mut facts.killed, (loan, point.clone()));
+                            }
                         }
                     }
-                    _ => {}
+                    Statement::BoundsCheck { index, .. } => {
+                        let place = omni_mir::ir::Place::local(*index);
+                        record_place_use(
+                            &place,
+                            &point,
+                            &origin_by_local,
+                            &mut facts,
+                            false,
+                        );
+                    }
+                    Statement::Assume(_) => {}
                 }
             }
 
-            if matches!(block.terminator, Some(Terminator::Return)) {
+            if let Some(terminator) = block.terminator.as_ref() {
                 let point = format!("bb{}_term", block_idx);
-                for loan in &active_loans {
-                    facts.killed.push((loan.clone(), point.clone()));
+                match terminator {
+                    Terminator::SwitchInt { discr, .. } => {
+                        record_operand_use(
+                            discr,
+                            &point,
+                            &origin_by_local,
+                            &active_loans,
+                            &mut facts,
+                        );
+                    }
+                    Terminator::Call {
+                        func,
+                        args,
+                        destination,
+                        ..
+                    } => {
+                        record_operand_use(
+                            func,
+                            &point,
+                            &origin_by_local,
+                            &active_loans,
+                            &mut facts,
+                        );
+                        for argument in args {
+                            record_operand_use(
+                                argument,
+                                &point,
+                                &origin_by_local,
+                                &active_loans,
+                                &mut facts,
+                            );
+                        }
+                        if let Some(destination) = destination {
+                            record_place_write(
+                                destination,
+                                &point,
+                                &active_loans,
+                                &mut facts,
+                            );
+                            if destination.projections.is_empty() {
+                                push_unique(
+                                    &mut facts.var_defined_at,
+                                    (local_key(destination.local), point.clone()),
+                                );
+                            }
+                        }
+                    }
+                    Terminator::Return => {
+                        let place = omni_mir::ir::Place::local(
+                            body.local_decls.last().map(|_| {
+                                omni_mir::ir::Local::from_usize(
+                                    body.local_decls.len().saturating_sub(1),
+                                )
+                            }).unwrap_or_else(|| omni_mir::ir::Local::from_usize(0)),
+                        );
+                        record_place_use(
+                            &place,
+                            &point,
+                            &origin_by_local,
+                            &mut facts,
+                            false,
+                        );
+
+                        for loan in active_loans.keys().cloned().collect::<BTreeSet<_>>() {
+                            push_unique(&mut facts.killed, (loan.clone(), point.clone()));
+                        }
+                        active_by_local.clear();
+                        active_loans.clear();
+                        origin_by_local.clear();
+                    }
+                    Terminator::Goto(_) | Terminator::Unreachable => {}
                 }
-                active_by_local.clear();
-                active_loans.clear();
             }
+        }
+
+        // The explicit region-live vector remains useful as an extraction-side
+        // witness; the Polonius engine derives origin liveness from variable
+        // liveness plus dereference-origin facts.
+        for (local, region) in &origin_by_local {
+            let _ = (local, region);
         }
 
         facts
