@@ -193,10 +193,14 @@ impl LoweringContext {
     }
 }
 
-fn simple_pattern_binding(pattern: &omni_types::ast::Pattern) -> Option<String> {
+fn pattern_binding_names(pattern: &omni_types::ast::Pattern) -> Vec<String> {
     match pattern {
-        omni_types::ast::Pattern::Binding(name) => Some(name.clone()),
-        _ => None,
+        omni_types::ast::Pattern::Binding(name) => vec![name.clone()],
+        omni_types::ast::Pattern::Or(patterns) => patterns
+            .iter()
+            .flat_map(pattern_binding_names)
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -1005,7 +1009,7 @@ impl<'a> FnMirBuilder<'a> {
         for (index, arm) in arms.iter().enumerate() {
             self.current_block = Some(arm_blocks[index]);
             let saved_scope = self.scope.clone();
-            if let Some(name) = simple_pattern_binding(&arm.pattern) {
+            for name in pattern_binding_names(&arm.pattern) {
                 self.scope.insert(name, scrutinee_place.local);
             }
 
@@ -3138,6 +3142,50 @@ mod tests {
                         _,
                         crate::ir::Rvalue::BinaryOp(crate::ir::BinOp::Lt, _, _)
                     )
+                )
+            })
+        }));
+    }
+
+    #[test]
+    fn test_mir_lowering_or_pattern_preserves_scalar_binding() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "or_binding".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Match {
+                    expr: Box::new(Expr::Literal(Lit::Int(7))),
+                    arms: vec![
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Or(vec![
+                                omni_types::ast::Pattern::Binding("value".to_string()),
+                                omni_types::ast::Pattern::Binding("value".to_string()),
+                            ]),
+                            guard: None,
+                            body: Expr::Var("value".to_string()),
+                        },
+                    ],
+                },
+            }],
+        };
+
+        let mir = ctx
+            .lower_monomorphized_program(&program)
+            .expect("scalar or-pattern binding should lower");
+        let function = &mir.functions[0];
+        assert!(function.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(_, crate::ir::Rvalue::Use(
+                        crate::ir::Operand::Copy(_)
+                    ))
                 )
             })
         }));
