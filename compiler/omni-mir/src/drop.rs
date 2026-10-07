@@ -123,7 +123,7 @@ impl DropElaborator {
                 continue;
             }
 
-            let mut to_drop = linear_initialization_order(body, block, &predecessors, params)
+            let to_drop = linear_initialization_order(body, block, &predecessors, params)
                 .unwrap_or_else(|| {
                     out_states[idx]
                         .iter()
@@ -216,7 +216,7 @@ fn transfer_order_terminator(term: &Terminator, order: &mut Vec<Local>) {
         for arg in args {
             transfer_order_operand(arg, order);
         }
-        if let Some(destination) = destination.filter(|place| place.is_local()) {
+        if let Some(destination) = destination.as_ref().filter(|place| place.is_local()) {
             order.retain(|local| *local != destination.local);
             order.push(destination.local);
         }
