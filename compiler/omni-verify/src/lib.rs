@@ -46,14 +46,14 @@ implements!("OWN-0005");
 /// Polonius-compatible fact structures for linear borrow checking
 #[derive(Debug, Clone, Default)]
 pub struct PoloniusFacts {
-    pub loan_issued: Vec<(String, String)>,    // (loan, point)
-    pub borrow_region: Vec<(String, String)>,  // (region, point)
-    pub region_live_at: Vec<(String, String)>, // (region, point)
-    pub killed: Vec<(String, String)>,         // (loan, point)
-    pub outlives: Vec<(String, String)>,       // (region1, region2)
-    pub var_used_at: Vec<(String, String)>,    // (variable, point)
-    pub var_defined_at: Vec<(String, String)>, // (variable, point)
-    pub var_dropped_at: Vec<(String, String)>, // (variable, point)
+    pub loan_issued: Vec<(String, String)>,       // (loan, point)
+    pub borrow_region: Vec<(String, String)>,     // (region, point)
+    pub region_live_at: Vec<(String, String)>,    // (region, point)
+    pub killed: Vec<(String, String)>,            // (loan, point)
+    pub outlives: Vec<(String, String)>,          // (region1, region2)
+    pub var_used_at: Vec<(String, String)>,       // (variable, point)
+    pub var_defined_at: Vec<(String, String)>,    // (variable, point)
+    pub var_dropped_at: Vec<(String, String)>,    // (variable, point)
     pub deref_origin: Vec<(String, String)>,      // (variable, region)
     pub drop_deref_origin: Vec<(String, String)>, // (variable, region)
     pub invalidated: Vec<(String, String)>,       // (loan, point)
@@ -94,24 +94,15 @@ impl PoloniusFacts {
                             &active_loans,
                             &mut facts,
                         );
-                        record_place_write(
-                            destination,
-                            &point,
-                            &active_loans,
-                            &mut facts,
-                        );
+                        record_place_write(destination, &point, &active_loans, &mut facts);
 
                         if destination.projections.is_empty() {
-                            if let Some(previous_loan) =
-                                active_by_local.remove(&destination.local)
+                            if let Some(previous_loan) = active_by_local.remove(&destination.local)
                             {
                                 active_loans.remove(&previous_loan);
                                 region_by_loan.remove(&previous_loan);
                                 origin_by_local.remove(&destination.local);
-                                push_unique(
-                                    &mut facts.killed,
-                                    (previous_loan, point.clone()),
-                                );
+                                push_unique(&mut facts.killed, (previous_loan, point.clone()));
                             }
                             push_unique(
                                 &mut facts.var_defined_at,
@@ -135,19 +126,11 @@ impl PoloniusFacts {
                             let loan = format!("loan_bb{}_{}", block_idx, stmt_idx);
                             let region = format!("'r_bb{}_{}", block_idx, stmt_idx);
 
-                            push_unique(
-                                &mut facts.loan_issued,
-                                (loan.clone(), point.clone()),
-                            );
-                            push_unique(
-                                &mut facts.borrow_region,
-                                (region.clone(), point.clone()),
-                            );
+                            push_unique(&mut facts.loan_issued, (loan.clone(), point.clone()));
+                            push_unique(&mut facts.borrow_region, (region.clone(), point.clone()));
 
                             if let Some(parent_loan) = parent_loan.as_ref() {
-                                if let Some(parent_region) =
-                                    region_by_loan.get(parent_loan)
-                                {
+                                if let Some(parent_region) = region_by_loan.get(parent_loan) {
                                     push_unique(
                                         &mut facts.outlives,
                                         (parent_region.clone(), region.clone()),
@@ -164,13 +147,7 @@ impl PoloniusFacts {
                         }
                     }
                     Statement::Drop(place) => {
-                        record_place_use(
-                            place,
-                            &point,
-                            &origin_by_local,
-                            &mut facts,
-                            true,
-                        );
+                        record_place_use(place, &point, &origin_by_local, &mut facts, true);
                         push_unique(
                             &mut facts.var_dropped_at,
                             (local_key(place.local), point.clone()),
@@ -187,13 +164,7 @@ impl PoloniusFacts {
                     }
                     Statement::BoundsCheck { index, .. } => {
                         let place = omni_mir::ir::Place::local(*index);
-                        record_place_use(
-                            &place,
-                            &point,
-                            &origin_by_local,
-                            &mut facts,
-                            false,
-                        );
+                        record_place_use(&place, &point, &origin_by_local, &mut facts, false);
                     }
                     Statement::Assume(_) => {}
                 }
@@ -211,12 +182,7 @@ impl PoloniusFacts {
                             &mut facts,
                         );
                     }
-                    Terminator::Call {
-                        func,
-                        args,
-                        destination,
-                        ..
-                    } => {
+                    Terminator::Call { func, args, destination, .. } => {
                         record_operand_use(
                             func,
                             &point,
@@ -234,12 +200,7 @@ impl PoloniusFacts {
                             );
                         }
                         if let Some(destination) = destination {
-                            record_place_write(
-                                destination,
-                                &point,
-                                &active_loans,
-                                &mut facts,
-                            );
+                            record_place_write(destination, &point, &active_loans, &mut facts);
                             if destination.projections.is_empty() {
                                 push_unique(
                                     &mut facts.var_defined_at,
@@ -357,12 +318,10 @@ impl PoloniusFacts {
             facts.var_dropped_at.push((variable_ids[variable], point_ids[point]));
         }
         for (variable, origin) in &self.deref_origin {
-            facts.use_of_var_derefs_origin
-                .push((variable_ids[variable], origin_ids[origin]));
+            facts.use_of_var_derefs_origin.push((variable_ids[variable], origin_ids[origin]));
         }
         for (variable, origin) in &self.drop_deref_origin {
-            facts.drop_of_var_derefs_origin
-                .push((variable_ids[variable], origin_ids[origin]));
+            facts.drop_of_var_derefs_origin.push((variable_ids[variable], origin_ids[origin]));
         }
 
         let block_entry =
@@ -479,32 +438,20 @@ fn record_place_use(
     facts: &mut PoloniusFacts,
     is_drop: bool,
 ) {
-    push_unique(
-        &mut facts.var_used_at,
-        (local_key(place.local), point.to_string()),
-    );
-    if place.projections.iter().any(|projection| matches!(projection, omni_mir::ir::Projection::Deref))
+    push_unique(&mut facts.var_used_at, (local_key(place.local), point.to_string()));
+    if place
+        .projections
+        .iter()
+        .any(|projection| matches!(projection, omni_mir::ir::Projection::Deref))
     {
         if let Some(origin) = origin_by_local.get(&place.local) {
-            push_unique(
-                &mut facts.deref_origin,
-                (local_key(place.local), origin.clone()),
-            );
-            push_unique(
-                &mut facts.region_live_at,
-                (origin.clone(), point.to_string()),
-            );
+            push_unique(&mut facts.deref_origin, (local_key(place.local), origin.clone()));
+            push_unique(&mut facts.region_live_at, (origin.clone(), point.to_string()));
         }
     } else if is_drop {
         if let Some(origin) = origin_by_local.get(&place.local) {
-            push_unique(
-                &mut facts.drop_deref_origin,
-                (local_key(place.local), origin.clone()),
-            );
-            push_unique(
-                &mut facts.region_live_at,
-                (origin.clone(), point.to_string()),
-            );
+            push_unique(&mut facts.drop_deref_origin, (local_key(place.local), origin.clone()));
+            push_unique(&mut facts.region_live_at, (origin.clone(), point.to_string()));
         }
     }
 }
@@ -517,10 +464,7 @@ fn record_place_write(
 ) {
     for (loan, borrowed_place) in active_loans {
         if places_conflict(destination, borrowed_place) {
-            push_unique(
-                &mut facts.invalidated,
-                (loan.clone(), point.to_string()),
-            );
+            push_unique(&mut facts.invalidated, (loan.clone(), point.to_string()));
         }
     }
 }
@@ -540,10 +484,7 @@ fn record_operand_use(
             record_place_use(place, point, origin_by_local, facts, false);
             for (loan, borrowed_place) in active_loans {
                 if places_conflict(place, borrowed_place) {
-                    push_unique(
-                        &mut facts.invalidated,
-                        (loan.clone(), point.to_string()),
-                    );
+                    push_unique(&mut facts.invalidated, (loan.clone(), point.to_string()));
                 }
             }
         }
@@ -560,9 +501,7 @@ fn record_rvalue_uses(
 ) {
     use omni_mir::ir::Rvalue;
     match rvalue {
-        Rvalue::Use(operand)
-        | Rvalue::UnaryOp(_, operand)
-        | Rvalue::Cast { operand, .. } => {
+        Rvalue::Use(operand) | Rvalue::UnaryOp(_, operand) | Rvalue::Cast { operand, .. } => {
             record_operand_use(operand, point, origin_by_local, active_loans, facts);
         }
         Rvalue::BinaryOp(_, lhs, rhs) => {
@@ -595,7 +534,6 @@ fn record_rvalue_uses(
         }
     }
 }
-
 
 #[cfg(test)]
 mod polonius_tests {
@@ -688,8 +626,7 @@ mod polonius_tests {
     fn engine_rejects_write_while_borrow_will_be_dereferenced() {
         let mut tcx = TyCtxt::new();
         let int_ty = tcx.intern(TyKind::Int);
-        let ref_ty =
-            tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner: int_ty });
+        let ref_ty = tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner: int_ty });
         let deref_place =
             Place::local(Local::from_usize(1)).project(omni_mir::ir::Projection::Deref);
         let body = body_with_statements(vec![
@@ -710,9 +647,10 @@ mod polonius_tests {
         ]);
 
         let facts = PoloniusFacts::extract_from_mir(&body);
-        assert!(facts.invalidated.iter().any(|(loan, point)| {
-            loan == "loan_bb0_0" && point == "bb0_1"
-        }));
+        assert!(facts
+            .invalidated
+            .iter()
+            .any(|(loan, point)| { loan == "loan_bb0_0" && point == "bb0_1" }));
         let output = facts.run_engine(&body);
         assert!(
             !output.errors.is_empty(),
