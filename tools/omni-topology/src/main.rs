@@ -80,7 +80,7 @@ fn feeds(crate_name: &str) -> Option<&'static [&'static str]> {
     match crate_name {
         "omni-machine" => Some(&["omni-mir"]),
         "omni-codegen" => Some(&["omni-mir", "omni-verify"]),
-        "omni-verify" => Some(&["omni-mir"]),
+        "omni-verify" => Some(&["omni-mir", "omni-own"]),
         _ => None,
     }
 }
