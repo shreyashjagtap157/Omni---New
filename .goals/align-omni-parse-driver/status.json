@@ -1,0 +1,10 @@
+{
+  "goal_id": "align-omni-parse-driver",
+  "status": "building",
+  "iteration": 1,
+  "builder_model": "GPT:5.6-Luna",
+  "inspector_model": "GPT:5.6-Sol",
+  "initial_sha": "c825ba6",
+  "created_at": "2026-10-07T00:00:00Z",
+  "history": []
+}
