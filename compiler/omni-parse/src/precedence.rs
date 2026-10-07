@@ -320,7 +320,8 @@ mod tests {
 
     #[test]
     fn question_dot_stays_unbound() {
-        for p in [Punct::QuestionDot] {
+        {
+            let p = Punct::QuestionDot;
             assert!(
                 !is_infix_operator(TokenKind::Punct(p)),
                 "{p:?} is a postfix operator and must stay unbound as infix"
