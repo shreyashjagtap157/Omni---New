@@ -332,8 +332,11 @@ impl OwnershipState {
             }
         }
 
-        for (region, loan) in &states[0].loans {
-            if states.iter().skip(1).all(|state| state.loans.get(region) == Some(loan)) {
+        // Loans are a may-live property at a CFG join: if any predecessor
+        // still carries a loan, the merged state must retain it so a conflicting
+        // access cannot become valid merely by taking another path.
+        for state in states {
+            for (region, loan) in &state.loans {
                 joined.loans.insert(region.clone(), loan.clone());
             }
         }
@@ -503,6 +506,25 @@ mod tests {
         checker.declare_initialized("x");
         checker.issue_shared(x.clone(), "r1").expect("shared loan");
         let error = checker.issue_mut(x, "r2").expect_err("mutable conflict");
+        assert!(matches!(error, OwnershipError::MutableBorrowConflict { .. }));
+    }
+
+    #[test]
+    fn branch_local_borrow_remains_live_at_join() {
+        let mut checker = OwnershipChecker::new();
+        let x = Place::root("x");
+        checker.declare_initialized("x");
+
+        let mut borrowed = checker.state.clone();
+        borrowed
+            .borrow_mut(x.clone(), "branch")
+            .expect("mutable borrow in one branch");
+        let unborrowed = OwnershipState::new();
+        let joined = OwnershipState::join_all(&[&borrowed, &unborrowed]);
+
+        let error = joined
+            .ensure_access_allowed(&x, AccessKind::Write)
+            .expect_err("join must conservatively retain a branch-local loan");
         assert!(matches!(error, OwnershipError::MutableBorrowConflict { .. }));
     }
 
