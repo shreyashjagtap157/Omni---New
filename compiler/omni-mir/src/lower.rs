@@ -1089,30 +1089,23 @@ impl<'a> FnMirBuilder<'a> {
                 if patterns.is_empty() {
                     return Err("MIR lowering error: empty or-pattern".into());
                 }
-                let mut next_failure = failure;
-                for (index, alternative) in patterns.iter().enumerate().rev() {
-                    let alternative_block = if index == 0 {
-                        self.current_block.ok_or_else(|| {
-                            "MIR lowering error: or-pattern has no current dispatch block"
-                                .to_string()
-                        })?
-                    } else {
-                        let block = self.new_block();
-                        // The previous alternative's failure edge enters this
-                        // block, where the next alternative is tested.
-                        self.current_block = Some(block);
-                        block
-                    };
-                    if index > 0 {
-                        self.current_block = Some(alternative_block);
-                    }
+
+                let mut test_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: or-pattern has no current dispatch block".to_string()
+                })?;
+                for (index, alternative) in patterns.iter().enumerate() {
+                    self.current_block = Some(test_block);
+                    let alternative_failure =
+                        if index + 1 == patterns.len() { failure } else { self.new_block() };
                     self.lower_match_pattern_branch(
                         scrutinee,
                         alternative,
                         success,
-                        next_failure,
+                        alternative_failure,
                     )?;
-                    next_failure = alternative_block;
+                    if index + 1 < patterns.len() {
+                        test_block = alternative_failure;
+                    }
                 }
                 Ok(())
             }
@@ -1159,49 +1152,30 @@ impl<'a> FnMirBuilder<'a> {
         success: crate::ir::BasicBlock,
         failure: crate::ir::BasicBlock,
     ) -> Result<(), String> {
-        let bool_ty = self.tcx.intern(TyKind::Bool);
+        let start_bounded =
+            !matches!(start, omni_types::ast::PatternRangeBoundary::Unbounded);
+        let end_bounded =
+            !matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded);
 
-        if !matches!(start, omni_types::ast::PatternRangeBoundary::Unbounded) {
-            let next = if matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded) {
-                success
-            } else {
-                self.new_block()
-            };
-            self.current_block = self.current_block.or(Some(
-                self.blocks.iter_enumerated().last().map(|(bb, _)| bb).unwrap_or_else(|| {
-                    crate::ir::BasicBlock::from(0)
-                }),
-            ));
-            self.emit_match_range_bound(scrutinee, start, true, next, failure, bool_ty)?;
-        } else if matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded) {
+        if !start_bounded && !end_bounded {
             let block = self.current_block.ok_or_else(|| {
                 "MIR lowering error: unbounded range has no current dispatch block".to_string()
             })?;
             self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(success));
+            return Ok(());
         }
 
-        if !matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded) {
-            let block = self.current_block;
-            if !matches!(start, omni_types::ast::PatternRangeBoundary::Unbounded) {
-                let target_block = self
-                    .blocks
-                    .iter_enumerated()
-                    .find_map(|(bb, data)| {
-                        matches!(
-                            data.terminator,
-                            Some(crate::ir::Terminator::Goto(target)) if target != success
-                        )
-                        .then_some(bb)
-                    })
-                    .ok_or_else(|| "MIR lowering error: missing range upper-bound block".to_string())?;
-                self.current_block = Some(target_block);
-            } else if block.is_none() {
-                return Err("MIR lowering error: range has no current dispatch block".into());
+        if start_bounded {
+            let start_target = if end_bounded { self.new_block() } else { success };
+            self.emit_match_range_bound(scrutinee, start, true, start_target, failure)?;
+            if end_bounded {
+                self.current_block = Some(start_target);
+            } else {
+                return Ok(());
             }
-            let _ = block;
-            self.emit_match_range_bound(scrutinee, end, false, success, failure, bool_ty)?;
         }
-        Ok(())
+
+        self.emit_match_range_bound(scrutinee, end, false, success, failure)
     }
 
     fn emit_match_range_bound(
@@ -1211,7 +1185,6 @@ impl<'a> FnMirBuilder<'a> {
         lower_bound: bool,
         success: crate::ir::BasicBlock,
         failure: crate::ir::BasicBlock,
-        bool_ty: Ty,
     ) -> Result<(), String> {
         let literal = match boundary {
             omni_types::ast::PatternRangeBoundary::Inclusive(lit)
@@ -1243,6 +1216,7 @@ impl<'a> FnMirBuilder<'a> {
         let block = self.current_block.ok_or_else(|| {
             "MIR lowering error: range bound has no current dispatch block".to_string()
         })?;
+        let bool_ty = self.tcx.intern(TyKind::Bool);
         let test_local = self.new_temp(Some("_match_range_test".to_string()), bool_ty);
         self.blocks[block].statements.push(crate::ir::Statement::Assign(
             crate::ir::Place::local(test_local),
