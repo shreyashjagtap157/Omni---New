@@ -761,9 +761,7 @@ mod tests {
             }),
         ];
 
-        checker
-            .check_match(ty, &arms)
-            .expect("guarded overlap must not make the arm unreachable");
+        checker.check_match(ty, &arms).expect("guarded overlap must not make the arm unreachable");
     }
 
     #[test]
