@@ -815,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn mutable_reference_conflicts_with_subsequent_write() {
+    fn mutable_reference_conflicts_when_write_precedes_last_use() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let reference =
@@ -828,6 +828,10 @@ mod tests {
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![
                 Statement::Assign(
+                    Place::local(Local::from_usize(0)),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(2)))),
+                ),
+                Statement::Assign(
                     Place::local(Local::from_usize(1)),
                     Rvalue::Reference {
                         place: Place::local(Local::from_usize(0)),
@@ -836,12 +840,8 @@ mod tests {
                     },
                 ),
                 Statement::Assign(
-                    Place::local(Local::from_usize(0)),
-                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(2)))),
-                ),
-                Statement::Assign(
                     Place::local(Local::from_usize(2)),
-                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(0)))),
+                    Rvalue::Use(Operand::Copy(Place::local(Local::from_usize(1)))),
                 ),
             ],
             terminator: Some(Terminator::Return),
@@ -850,14 +850,15 @@ mod tests {
             tcx,
             vec![MirFunction {
                 name: "main".into(),
-                params: vec![Local::from_usize(0)],
+                params: vec![],
                 return_place: Local::from_usize(2),
                 return_type: TypeSpec::Int,
                 body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
             }],
         );
 
-        let error = verify_program(&program).expect_err("active mutable borrow must block write");
+        let error =
+            verify_program(&program).expect_err("write before the reference's last use must fail");
         assert!(error.message.contains("borrow conflict"), "unexpected ownership error: {error:?}");
     }
 
