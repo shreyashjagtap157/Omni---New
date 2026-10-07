@@ -518,7 +518,7 @@ fn numeric_pattern_for_type(pattern: &Pattern, kind: &TyKind) -> bool {
         }
         Pattern::Or(patterns) => {
             patterns.iter().all(|pattern| numeric_pattern_for_type(pattern, kind))
-        },
+        }
         _ => false,
     }
 }
@@ -545,7 +545,7 @@ fn numeric_pattern_ranges(pattern: &Pattern, domain: (Numeric, Numeric)) -> Vec<
     match pattern {
         Pattern::Wildcard | Pattern::Binding(_) => {
             vec![NumericRange { lo: domain.0, hi: domain.1 }]
-        },
+        }
         Pattern::Lit(lit) => lit_numeric(lit)
             .and_then(|value| NumericRange::new(value, value))
             .into_iter()
