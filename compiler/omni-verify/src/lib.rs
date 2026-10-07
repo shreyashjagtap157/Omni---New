@@ -1,6 +1,19 @@
 //! Polonius Fact Generation and Linear Borrow Checking Engine (OWN-0005).
 
-use omni_mir::ir::Body;
+use omni_mir::ir::{Body, BasicBlock, Terminator};
+use polonius_engine::{Algorithm, AllFacts, FactTypes, Output};
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Debug, Clone, Copy)]
+pub struct OmniFactTypes;
+
+impl FactTypes for OmniFactTypes {
+    type Origin = usize;
+    type Loan = usize;
+    type Point = usize;
+    type Variable = usize;
+    type Path = usize;
+}
 
 #[macro_export]
 macro_rules! implements {
@@ -119,6 +132,145 @@ impl PoloniusFacts {
         facts
     }
 
+    /// Run the actual Polonius engine over the facts extracted from this body.
+    ///
+    /// The current fact vocabulary intentionally starts with explicit loans,
+    /// kills, outlives relations, and CFG edges. The existing ownership checker
+    /// remains authoritative until path invalidation facts are complete.
+    pub fn run_engine(
+        &self,
+        body: &Body,
+    ) -> Output<OmniFactTypes> {
+        let mut point_ids = BTreeMap::<String, usize>::new();
+        let mut origin_ids = BTreeMap::<String, usize>::new();
+        let mut loan_ids = BTreeMap::<String, usize>::new();
+
+        let intern = |map: &mut BTreeMap<String, usize>, key: &str| -> usize {
+            let next = map.len();
+            *map.entry(key.to_string()).or_insert(next)
+        };
+
+        for (loan, point) in &self.loan_issued {
+            let _ = intern(&mut loan_ids, loan);
+            let _ = intern(&mut point_ids, point);
+        }
+        for (loan, point) in &self.killed {
+            let _ = intern(&mut loan_ids, loan);
+            let _ = intern(&mut point_ids, point);
+        }
+        for (region, point) in &self.borrow_region {
+            let _ = intern(&mut origin_ids, region);
+            let _ = intern(&mut point_ids, point);
+        }
+        for (parent, child) in &self.outlives {
+            let _ = intern(&mut origin_ids, parent);
+            let _ = intern(&mut origin_ids, child);
+        }
+
+        let mut facts = AllFacts::<OmniFactTypes>::default();
+
+        for (region, point) in &self.borrow_region {
+            if let Some(loan) = self
+                .loan_issued
+                .iter()
+                .find(|(_, issued_point)| issued_point == point)
+                .map(|(loan, _)| loan)
+            {
+                facts.loan_issued_at.push((
+                    origin_ids[region],
+                    loan_ids[loan],
+                    point_ids[point],
+                ));
+            }
+        }
+
+        for (loan, point) in &self.killed {
+            facts.loan_killed_at.push((loan_ids[loan], point_ids[point]));
+        }
+
+        let block_entry = |block: BasicBlock, body: &Body, points: &mut BTreeMap<String, usize>| {
+            if body.blocks[block].statements.is_empty() {
+                let key = format!("bb{}_term", block.index());
+                Some(intern(points, &key))
+            } else {
+                let key = format!("bb{}_0", block.index());
+                Some(intern(points, &key))
+            }
+        };
+
+        for (block, data) in body.blocks.iter_enumerated() {
+            for statement_index in 0..data.statements.len() {
+                let _ = intern(
+                    &mut point_ids,
+                    &format!("bb{}_{}", block.index(), statement_index),
+                );
+            }
+            let _ = intern(&mut point_ids, &format!("bb{}_term", block.index()));
+        }
+
+        for (block, data) in body.blocks.iter_enumerated() {
+            for statement_index in 0..data.statements.len() {
+                let from = point_ids[&format!("bb{}_{}", block.index(), statement_index)];
+                let to = if statement_index + 1 < data.statements.len() {
+                    point_ids[&format!("bb{}_{}", block.index(), statement_index + 1)]
+                } else {
+                    point_ids[&format!("bb{}_term", block.index())]
+                };
+                facts.cfg_edge.push((from, to));
+            }
+
+            if data.statements.is_empty() {
+                let _ = block_entry(block, body, &mut point_ids);
+            }
+
+            if let Some(term) = data.terminator.as_ref() {
+                let from = point_ids[&format!("bb{}_term", block.index())];
+                match term {
+                    Terminator::Goto(target) => {
+                        if let Some(to) = block_entry(*target, body, &mut point_ids) {
+                            facts.cfg_edge.push((from, to));
+                        }
+                    }
+                    Terminator::SwitchInt { targets, otherwise, .. } => {
+                        for target in targets.iter().map(|(_, block)| block).chain(std::iter::once(otherwise)) {
+                            if let Some(to) = block_entry(*target, body, &mut point_ids) {
+                                facts.cfg_edge.push((from, to));
+                            }
+                        }
+                    }
+                    Terminator::Call { target, cleanup, .. } => {
+                        if let Some(to) = block_entry(*target, body, &mut point_ids) {
+                            facts.cfg_edge.push((from, to));
+                        }
+                        if let Some(cleanup) = cleanup {
+                            if let Some(to) = block_entry(*cleanup, body, &mut point_ids) {
+                                facts.cfg_edge.push((from, to));
+                            }
+                        }
+                    }
+                    Terminator::Return | Terminator::Unreachable => {}
+                }
+            }
+        }
+
+        for (parent, child) in &self.outlives {
+            let point = self
+                .borrow_region
+                .iter()
+                .find(|(region, _)| region == child)
+                .map(|(_, point)| point);
+            if let Some(point) = point {
+                facts.subset_base.push((
+                    origin_ids[child],
+                    origin_ids[parent],
+                    point_ids[point],
+                ));
+            }
+        }
+
+        Output::compute(&facts, Algorithm::Naive, false)
+    }
+
     pub fn emit_fact(&mut self, category: &str, entity: &str, point: &str) {
         match category {
             "borrow_region" => self.borrow_region.push((entity.into(), point.into())),
@@ -194,6 +346,26 @@ mod polonius_tests {
         assert_eq!(facts.borrow_region, vec![(String::from("'r_bb0_0"), String::from("bb0_0"))]);
         assert_eq!(facts.region_live_at, vec![(String::from("'r_bb0_0"), String::from("bb0_0"))]);
         assert_eq!(facts.killed, vec![(String::from("loan_bb0_0"), String::from("bb0_term"))]);
+    }
+
+    #[test]
+    fn engine_accepts_extracted_simple_borrow_facts() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let ref_ty = tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner: int_ty });
+        let body = body_with_statements(vec![reference_statement(
+            Local::from_usize(1),
+            Place::local(Local::from_usize(0)),
+            true,
+            ref_ty,
+        )]);
+        let facts = PoloniusFacts::extract_from_mir(&body);
+        let output = facts.run_engine(&body);
+        assert!(
+            output.errors.is_empty(),
+            "simple MIR borrow facts must be accepted by Polonius: {:?}",
+            output.errors
+        );
     }
 
     #[test]
