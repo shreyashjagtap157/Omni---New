@@ -87,6 +87,23 @@ impl PoloniusFacts {
 
                 match statement {
                     Statement::Assign(destination, rvalue) => {
+                        let parent_loan = match rvalue {
+                            Rvalue::Reference { place: borrowed, .. }
+                                if borrowed
+                                    .projections
+                                    .iter()
+                                    .any(|p| matches!(p, Projection::Deref)) =>
+                            {
+                                active_by_local.get(&borrowed.local).cloned()
+                            }
+                            _ => None,
+                        };
+                        let replaces_parent = destination.projections.is_empty()
+                            && parent_loan.is_some()
+                            && active_by_local
+                                .get(&destination.local)
+                                .is_some_and(|current| Some(current) == parent_loan.as_ref());
+
                         record_rvalue_uses(
                             rvalue,
                             &point,
@@ -97,12 +114,18 @@ impl PoloniusFacts {
                         record_place_write(destination, &point, &active_loans, &mut facts);
 
                         if destination.projections.is_empty() {
-                            if let Some(previous_loan) = active_by_local.remove(&destination.local)
-                            {
-                                active_loans.remove(&previous_loan);
-                                region_by_loan.remove(&previous_loan);
-                                origin_by_local.remove(&destination.local);
-                                push_unique(&mut facts.killed, (previous_loan, point.clone()));
+                            if !replaces_parent {
+                                if let Some(previous_loan) =
+                                    active_by_local.remove(&destination.local)
+                                {
+                                    active_loans.remove(&previous_loan);
+                                    region_by_loan.remove(&previous_loan);
+                                    origin_by_local.remove(&destination.local);
+                                    push_unique(
+                                        &mut facts.killed,
+                                        (previous_loan, point.clone()),
+                                    );
+                                }
                             }
                             push_unique(
                                 &mut facts.var_defined_at,
@@ -110,7 +133,7 @@ impl PoloniusFacts {
                             );
                         }
 
-                        let parent_loan = match rvalue {
+                        if let Rvalue::Reference { place: borrowed, .. } = rvalue {
                             Rvalue::Reference { place: borrowed, .. }
                                 if borrowed
                                     .projections
@@ -128,6 +151,10 @@ impl PoloniusFacts {
 
                             push_unique(&mut facts.loan_issued, (loan.clone(), point.clone()));
                             push_unique(&mut facts.borrow_region, (region.clone(), point.clone()));
+                            push_unique(
+                                &mut facts.region_live_at,
+                                (region.clone(), point.clone()),
+                            );
 
                             if let Some(parent_loan) = parent_loan.as_ref() {
                                 if let Some(parent_region) = region_by_loan.get(parent_loan) {
