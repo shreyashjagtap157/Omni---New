@@ -54,8 +54,9 @@ pub struct PoloniusFacts {
     pub var_used_at: Vec<(String, String)>,    // (variable, point)
     pub var_defined_at: Vec<(String, String)>, // (variable, point)
     pub var_dropped_at: Vec<(String, String)>, // (variable, point)
-    pub deref_origin: Vec<(String, String)>,   // (variable, region)
-    pub invalidated: Vec<(String, String)>,    // (loan, point)
+    pub deref_origin: Vec<(String, String)>,      // (variable, region)
+    pub drop_deref_origin: Vec<(String, String)>, // (variable, region)
+    pub invalidated: Vec<(String, String)>,       // (loan, point)
 }
 
 impl PoloniusFacts {
@@ -90,6 +91,7 @@ impl PoloniusFacts {
                             rvalue,
                             &point,
                             &origin_by_local,
+                            &active_loans,
                             &mut facts,
                         );
                         record_place_write(
@@ -247,23 +249,8 @@ impl PoloniusFacts {
                         }
                     }
                     Terminator::Return => {
-                        let place = omni_mir::ir::Place::local(
-                            body.local_decls.last().map(|_| {
-                                omni_mir::ir::Local::from_usize(
-                                    body.local_decls.len().saturating_sub(1),
-                                )
-                            }).unwrap_or_else(|| omni_mir::ir::Local::from_usize(0)),
-                        );
-                        record_place_use(
-                            &place,
-                            &point,
-                            &origin_by_local,
-                            &mut facts,
-                            false,
-                        );
-
-                        for loan in active_loans.keys().cloned().collect::<BTreeSet<_>>() {
-                            push_unique(&mut facts.killed, (loan.clone(), point.clone()));
+                        for loan in active_loans.keys().cloned().collect::<Vec<_>>() {
+                            push_unique(&mut facts.killed, (loan, point.clone()));
                         }
                         active_by_local.clear();
                         active_loans.clear();
@@ -466,7 +453,7 @@ fn record_place_use(
     } else if is_drop {
         if let Some(origin) = origin_by_local.get(&place.local) {
             push_unique(
-                &mut facts.deref_origin,
+                &mut facts.drop_deref_origin,
                 (local_key(place.local), origin.clone()),
             );
             push_unique(
@@ -523,6 +510,7 @@ fn record_rvalue_uses(
     rvalue: &omni_mir::ir::Rvalue,
     point: &str,
     origin_by_local: &BTreeMap<omni_mir::ir::Local, String>,
+    active_loans: &BTreeMap<String, omni_mir::ir::Place>,
     facts: &mut PoloniusFacts,
 ) {
     use omni_mir::ir::Rvalue;
@@ -530,11 +518,11 @@ fn record_rvalue_uses(
         Rvalue::Use(operand)
         | Rvalue::UnaryOp(_, operand)
         | Rvalue::Cast { operand, .. } => {
-            record_operand_use(operand, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(operand, point, origin_by_local, active_loans, facts);
         }
         Rvalue::BinaryOp(_, lhs, rhs) => {
-            record_operand_use(lhs, point, origin_by_local, &BTreeMap::new(), facts);
-            record_operand_use(rhs, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(lhs, point, origin_by_local, active_loans, facts);
+            record_operand_use(rhs, point, origin_by_local, active_loans, facts);
         }
         Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
             for operand in operands {
@@ -550,15 +538,15 @@ fn record_rvalue_uses(
             record_place_use(place, point, origin_by_local, facts, false);
         }
         Rvalue::Range { start, end, .. } => {
-            record_operand_use(start, point, origin_by_local, &BTreeMap::new(), facts);
-            record_operand_use(end, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(start, point, origin_by_local, active_loans, facts);
+            record_operand_use(end, point, origin_by_local, active_loans, facts);
         }
         Rvalue::Field { base, .. } => {
-            record_operand_use(base, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(base, point, origin_by_local, active_loans, facts);
         }
         Rvalue::Index { base, index, .. } => {
             record_operand_use(base, point, origin_by_local, &BTreeMap::new(), facts);
-            record_operand_use(index, point, origin_by_local, &BTreeMap::new(), facts);
+            record_operand_use(index, point, origin_by_local, active_loans, facts);
         }
     }
 }
