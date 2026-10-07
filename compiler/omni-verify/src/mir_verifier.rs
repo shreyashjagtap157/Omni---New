@@ -655,9 +655,6 @@ impl MirVerifier {
             }
         }
 
-        let mut tcx = prog.tcx.clone();
-        let unit = tcx.intern(TyKind::Unit);
-
         for (idx, block_data) in func.body.blocks.iter().enumerate() {
             if !reachable[idx] {
                 continue;
@@ -703,7 +700,9 @@ impl MirVerifier {
                 }
                 Terminator::Return => {
                     let return_ty = Self::local_ty(func, func.return_place, &func.name)?;
-                    if return_ty != unit && !assigned.contains(&func.return_place) {
+                    if !matches!(prog.tcx.get(return_ty), TyKind::Unit)
+                        && !assigned.contains(&func.return_place)
+                    {
                         return Err(MirVerificationError::UninitializedReturn {
                             func: func.name.clone(),
                             block,
