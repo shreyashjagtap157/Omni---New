@@ -496,9 +496,7 @@ fn numeric_scrutinee(kind: &TyKind) -> bool {
 fn numeric_literal_for_type(lit: &Lit, kind: &TyKind) -> bool {
     matches!(
         (lit, kind),
-        (Lit::Int(_), TyKind::Int)
-            | (Lit::Byte(_), TyKind::Byte)
-            | (Lit::Char(_), TyKind::Char)
+        (Lit::Int(_), TyKind::Int) | (Lit::Byte(_), TyKind::Byte) | (Lit::Char(_), TyKind::Char)
     )
 }
 
@@ -518,7 +516,9 @@ fn numeric_pattern_for_type(pattern: &Pattern, kind: &TyKind) -> bool {
         Pattern::Range { start, end } => {
             numeric_boundary_for_type(start, kind) && numeric_boundary_for_type(end, kind)
         }
-        Pattern::Or(patterns) => patterns.iter().all(|pattern| numeric_pattern_for_type(pattern, kind)),
+        Pattern::Or(patterns) => {
+            patterns.iter().all(|pattern| numeric_pattern_for_type(pattern, kind))
+        },
         _ => false,
     }
 }
@@ -541,12 +541,11 @@ fn lit_numeric(lit: &Lit) -> Option<Numeric> {
     }
 }
 
-fn numeric_pattern_ranges(
-    pattern: &Pattern,
-    domain: (Numeric, Numeric),
-) -> Vec<NumericRange> {
+fn numeric_pattern_ranges(pattern: &Pattern, domain: (Numeric, Numeric)) -> Vec<NumericRange> {
     match pattern {
-        Pattern::Wildcard | Pattern::Binding(_) => vec![NumericRange { lo: domain.0, hi: domain.1 }],
+        Pattern::Wildcard | Pattern::Binding(_) => {
+            vec![NumericRange { lo: domain.0, hi: domain.1 }]
+        },
         Pattern::Lit(lit) => lit_numeric(lit)
             .and_then(|value| NumericRange::new(value, value))
             .into_iter()
@@ -568,7 +567,9 @@ fn numeric_pattern_ranges(
                 }
             };
             NumericRange::new(lo.max(domain.0), hi.min(domain.1))
-                .map(|range| char_valid_ranges(range, domain.0 == 0 && domain.1 == char::MAX as Numeric))
+                .map(|range| {
+                    char_valid_ranges(range, domain.0 == 0 && domain.1 == char::MAX as Numeric)
+                })
                 .unwrap_or_default()
         }
         Pattern::Or(patterns) => patterns
