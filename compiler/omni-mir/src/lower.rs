@@ -3162,15 +3162,14 @@ mod tests {
                 body: Expr::Match {
                     expr: Box::new(Expr::Literal(Lit::Int(7))),
                     arms: vec![
-                        omni_types::ast::MatchArm {
-                            pattern: omni_types::ast::Pattern::Or(vec![
-                                omni_types::ast::Pattern::Binding("value".to_string()),
-                                omni_types::ast::Pattern::Binding("value".to_string()),
-                            ]),
-                            guard: None,
-                            body: Expr::Var("value".to_string()),
-                        },
-                    ],
+                    arms: vec![omni_types::ast::MatchArm {
+                        pattern: omni_types::ast::Pattern::Or(vec![
+                            omni_types::ast::Pattern::Binding("value".to_string()),
+                            omni_types::ast::Pattern::Binding("value".to_string()),
+                        ]),
+                        guard: None,
+                        body: Expr::Var("value".to_string()),
+                    }],
                 },
             }],
         };
@@ -3183,9 +3182,10 @@ mod tests {
             block.statements.iter().any(|statement| {
                 matches!(
                     statement,
-                    crate::ir::Statement::Assign(_, crate::ir::Rvalue::Use(
-                        crate::ir::Operand::Copy(_)
-                    ))
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::Use(crate::ir::Operand::Copy(_))
+                    )
                 )
             })
         }));
