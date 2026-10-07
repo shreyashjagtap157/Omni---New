@@ -3229,15 +3229,8 @@ mod tests {
                 && block.statements.is_empty()
         }));
         assert!(function.body.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| {
-                matches!(
-                    statement,
-                    crate::ir::Statement::Assign(
-                        _,
-                        crate::ir::Rvalue::BinaryOp(crate::ir::BinOp::Eq, _, _)
-                    )
-                )
-            })
+            matches!(block.terminator, Some(crate::ir::Terminator::SwitchInt { .. }))
+                && block.statements.is_empty()
         }));
     }
 }
