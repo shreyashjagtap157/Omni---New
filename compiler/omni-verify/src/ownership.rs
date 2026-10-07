@@ -373,7 +373,8 @@ mod tests {
     fn mutable_reference_conflicts_with_subsequent_write() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference = tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
         locals.push(LocalDecl { name: Some("r".into()), ty: Some(reference) });
