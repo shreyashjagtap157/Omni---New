@@ -681,7 +681,7 @@ mod tests {
         let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
         let arms = vec![
             arm(Pattern::Range {
-                start: PatternRangeBoundary::Unbounded,
+                start: PatternRangeBoundary::Exclusive(Lit::Int(-1)),
                 end: PatternRangeBoundary::Exclusive(Lit::Int(0)),
             }),
             arm(Pattern::Range {
