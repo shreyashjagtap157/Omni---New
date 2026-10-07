@@ -4,6 +4,12 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### Reference-machine shared-reference execution
+
+- Added an end-to-end driver regression that compiles `&i64`/`*x` through the semantic frontend, typed MIR, ownership verification, and reference machine, and asserts the borrowed value is read correctly.
+- Kept native codegen fail-closed for references because the normative target pointer/lifetime ABI is not yet defined; the reference machine remains the executable semantic boundary for safe references.
+- Recorded the boundary in `docs/grammar-reconciliation.md`.
+
 ### Inherent methods — `receiver.method(args)` resolved by receiver type
 
 `method_call_expr` is a normative Edition 1 production and the parser already built it correctly, but the semantic frontend rejected it with "native AST lowering does not yet support MethodCallExpr". Underneath that were three separate defects, each of which had to be fixed for a method call to work at all.
