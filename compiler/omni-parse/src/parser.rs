@@ -1644,11 +1644,11 @@ impl<'a> Parser<'a> {
             }
             Some(TokenKind::Ident) => {
                 let path = self.parse_path_expr_or_macro();
-                if self.allow_command_call && self.looks_like_command_call_arg() {
+                if self.at_punct(Punct::LBrace) && !self.no_struct_literal {
+                    self.parse_struct_expr_from_path(path)
+                } else if self.allow_command_call && self.looks_like_command_call_arg() {
                     self.allow_command_call = false;
                     self.parse_command_call(path)
-                } else if self.at_punct(Punct::LBrace) && !self.no_struct_literal {
-                    self.parse_struct_expr_from_path(path)
                 } else {
                     path
                 }
@@ -2614,6 +2614,18 @@ pub fn desugar_node(
 mod tests {
     use super::*;
     use omni_syntax::{SyntaxElement, SyntaxKind as K};
+
+    #[test]
+    fn struct_literal_is_not_reinterpreted_as_command_call_argument() {
+        let source = "fn main() -> i64 { let p = Point { x: 1 }; return p.x; }";
+        let mut parser = Parser::from_source(source);
+        let parsed = parser.parse_source();
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "struct literal must parse in command-call-enabled expression context: {:?}",
+            parsed.diagnostics
+        );
+    }
 
     #[test]
     fn consume_gt_closes_generic_parameter_and_argument_lists() {
