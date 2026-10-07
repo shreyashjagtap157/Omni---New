@@ -72,8 +72,8 @@ impl PoloniusFacts {
     /// inference belongs to the ownership/lifetime pass; this layer provides a
     /// faithful fact projection of the MIR events that already exist.
     pub fn extract_from_mir(body: &Body) -> Self {
-        use omni_mir::ir::{Operand, Projection, Rvalue, Statement, Terminator};
-        use std::collections::{BTreeMap, BTreeSet};
+        use omni_mir::ir::{Projection, Rvalue, Statement, Terminator};
+        use std::collections::BTreeMap;
 
         let mut facts = Self::default();
         let mut active_by_local: BTreeMap<omni_mir::ir::Local, String> = BTreeMap::new();
