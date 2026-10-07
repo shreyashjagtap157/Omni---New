@@ -477,100 +477,6 @@ impl<'a> PatternChecker<'a> {
         }
     }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn int_tcx() -> TyCtxt {
-        TyCtxt::new()
-    }
-
-    fn int_ty(tcx: &mut TyCtxt) -> Ty {
-        tcx.intern(TyKind::Int)
-    }
-
-    fn arm(pattern: Pattern) -> MatchArm {
-        MatchArm { pattern, guard: None, body: crate::ast::Expr::Literal(Lit::Int(0)) }
-    }
-
-    #[test]
-    fn unbounded_integer_ranges_can_be_exhaustive() {
-        let mut tcx = int_tcx();
-        let ty = int_ty(&mut tcx);
-        let enum_defs = HashMap::new();
-        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
-        let arms = vec![
-            arm(Pattern::Range {
-                start: PatternRangeBoundary::Unbounded,
-                end: PatternRangeBoundary::Exclusive(Lit::Int(0)),
-            }),
-            arm(Pattern::Range {
-                start: PatternRangeBoundary::Inclusive(Lit::Int(0)),
-                end: PatternRangeBoundary::Unbounded,
-            }),
-        ];
-
-        checker.check_match(ty, &arms).expect("ranges should cover all integers");
-    }
-
-    #[test]
-    fn overlapping_numeric_range_makes_later_literal_unreachable() {
-        let mut tcx = int_tcx();
-        let ty = int_ty(&mut tcx);
-        let enum_defs = HashMap::new();
-        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
-        let arms = vec![
-            arm(Pattern::Range {
-                start: PatternRangeBoundary::Inclusive(Lit::Int(0)),
-                end: PatternRangeBoundary::Inclusive(Lit::Int(10)),
-            }),
-            arm(Pattern::Lit(Lit::Int(5))),
-            arm(Pattern::Wildcard),
-        ];
-
-        let error = checker.check_match(ty, &arms).expect_err("overlapping literal must be unreachable");
-        assert!(matches!(error, TypeError::UnreachablePattern { arm_index: 1, .. }));
-    }
-
-    #[test]
-    fn integer_range_reports_lowest_missing_witness() {
-        let mut tcx = int_tcx();
-        let ty = int_ty(&mut tcx);
-        let enum_defs = HashMap::new();
-        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
-        let arms = vec![
-            arm(Pattern::Range {
-                start: PatternRangeBoundary::Inclusive(Lit::Int(-10)),
-                end: PatternRangeBoundary::Inclusive(Lit::Int(-1)),
-            }),
-            arm(Pattern::Range {
-                start: PatternRangeBoundary::Inclusive(Lit::Int(1)),
-                end: PatternRangeBoundary::Inclusive(Lit::Int(10)),
-            }),
-        ];
-
-        let error = checker.check_match(ty, &arms).expect_err("zero and exterior integers remain uncovered");
-        assert!(matches!(
-            error,
-            TypeError::NonExhaustiveMatch { missing, .. } if missing == i64::MIN.to_string()
-        ));
-    }
-
-    #[test]
-    fn character_ranges_skip_surrogate_code_points() {
-        let mut tcx = int_tcx();
-        let ty = tcx.intern(TyKind::Char);
-        let enum_defs = HashMap::new();
-        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
-        let arms = vec![arm(Pattern::Range {
-            start: PatternRangeBoundary::Inclusive(Lit::Char('\0')),
-            end: PatternRangeBoundary::Inclusive(Lit::Char(char::MAX)),
-        })];
-
-        checker.check_match(ty, &arms).expect("full scalar range should cover Unicode scalar values");
-    }
-}
-
 fn numeric_pattern(pattern: &Pattern) -> bool {
     match pattern {
         Pattern::Wildcard | Pattern::Binding(_) => true,
@@ -735,3 +641,98 @@ fn numeric_witness(kind: &TyKind, value: Numeric) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn int_tcx() -> TyCtxt {
+        TyCtxt::new()
+    }
+
+    fn int_ty(tcx: &mut TyCtxt) -> Ty {
+        tcx.intern(TyKind::Int)
+    }
+
+    fn arm(pattern: Pattern) -> MatchArm {
+        MatchArm { pattern, guard: None, body: crate::ast::Expr::Literal(Lit::Int(0)) }
+    }
+
+    #[test]
+    fn unbounded_integer_ranges_can_be_exhaustive() {
+        let mut tcx = int_tcx();
+        let ty = int_ty(&mut tcx);
+        let enum_defs = HashMap::new();
+        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
+        let arms = vec![
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Unbounded,
+                end: PatternRangeBoundary::Exclusive(Lit::Int(0)),
+            }),
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Inclusive(Lit::Int(0)),
+                end: PatternRangeBoundary::Unbounded,
+            }),
+        ];
+
+        checker.check_match(ty, &arms).expect("ranges should cover all integers");
+    }
+
+    #[test]
+    fn overlapping_numeric_range_makes_later_literal_unreachable() {
+        let mut tcx = int_tcx();
+        let ty = int_ty(&mut tcx);
+        let enum_defs = HashMap::new();
+        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
+        let arms = vec![
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Inclusive(Lit::Int(0)),
+                end: PatternRangeBoundary::Inclusive(Lit::Int(10)),
+            }),
+            arm(Pattern::Lit(Lit::Int(5))),
+            arm(Pattern::Wildcard),
+        ];
+
+        let error = checker.check_match(ty, &arms).expect_err("overlapping literal must be unreachable");
+        assert!(matches!(error, TypeError::UnreachablePattern { arm_index: 1, .. }));
+    }
+
+    #[test]
+    fn integer_range_reports_lowest_missing_witness() {
+        let mut tcx = int_tcx();
+        let ty = int_ty(&mut tcx);
+        let enum_defs = HashMap::new();
+        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
+        let arms = vec![
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Inclusive(Lit::Int(-10)),
+                end: PatternRangeBoundary::Inclusive(Lit::Int(-1)),
+            }),
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Inclusive(Lit::Int(1)),
+                end: PatternRangeBoundary::Inclusive(Lit::Int(10)),
+            }),
+        ];
+
+        let error = checker.check_match(ty, &arms).expect_err("zero and exterior integers remain uncovered");
+        assert!(matches!(
+            error,
+            TypeError::NonExhaustiveMatch { missing, .. } if missing == i64::MIN.to_string()
+        ));
+    }
+
+    #[test]
+    fn character_ranges_skip_surrogate_code_points() {
+        let mut tcx = int_tcx();
+        let ty = tcx.intern(TyKind::Char);
+        let enum_defs = HashMap::new();
+        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
+        let arms = vec![arm(Pattern::Range {
+            start: PatternRangeBoundary::Inclusive(Lit::Char('\0')),
+            end: PatternRangeBoundary::Inclusive(Lit::Char(char::MAX)),
+        })];
+
+        checker.check_match(ty, &arms).expect("full scalar range should cover Unicode scalar values");
+    }
+}
+
