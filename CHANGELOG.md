@@ -4,6 +4,12 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### Unsafe assumption tokens now carry verified obligations
+
+- Connected the existing `omni-mir::assume` token model to the live MIR `Statement::Assume` type, replacing the former empty marker with `AssumptionId`, an explicit obligation, and dependency places.
+- MIR verification now requires assumptions to occur inside recorded `unsafe` regions, rejects empty obligations, validates dependency places, and requires every dependency root to be definitely initialized at the assumption point.
+- Added positive and negative verifier coverage for initialized in-scope assumptions and unscoped assumptions.
+
 ### Reference-machine shared-reference execution
 
 - Added an end-to-end driver regression that compiles `&i64`/`*x` through the semantic frontend, typed MIR, ownership verification, and reference machine, and asserts the borrowed value is read correctly.
