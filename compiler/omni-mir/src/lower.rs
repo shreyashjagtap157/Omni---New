@@ -196,10 +196,9 @@ impl LoweringContext {
 fn pattern_binding_names(pattern: &omni_types::ast::Pattern) -> Vec<String> {
     match pattern {
         omni_types::ast::Pattern::Binding(name) => vec![name.clone()],
-        omni_types::ast::Pattern::Or(patterns) => patterns
-            .iter()
-            .flat_map(pattern_binding_names)
-            .collect(),
+        omni_types::ast::Pattern::Or(patterns) => {
+            patterns.iter().flat_map(pattern_binding_names).collect()
+        }
         _ => Vec::new(),
     }
 }
