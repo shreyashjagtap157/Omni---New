@@ -18,10 +18,6 @@ pub struct Assumption {
 
 impl Assumption {
     pub fn new(id: AssumptionId, obligation: impl Into<String>, deps: Vec<Place>) -> Self {
-        Self {
-            id,
-            obligation: obligation.into(),
-            deps,
-        }
+        Self { id, obligation: obligation.into(), deps }
     }
 }
