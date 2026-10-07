@@ -280,6 +280,7 @@ impl PoloniusFacts {
         let mut point_ids = BTreeMap::<String, PoloniusId>::new();
         let mut origin_ids = BTreeMap::<String, PoloniusId>::new();
         let mut loan_ids = BTreeMap::<String, PoloniusId>::new();
+        let mut variable_ids = BTreeMap::<String, PoloniusId>::new();
 
         let intern = |map: &mut BTreeMap<String, PoloniusId>, key: &str| -> PoloniusId {
             let next = PoloniusId::from(map.len());
@@ -302,6 +303,30 @@ impl PoloniusFacts {
             let _ = intern(&mut origin_ids, parent);
             let _ = intern(&mut origin_ids, child);
         }
+        for (variable, point) in &self.var_used_at {
+            let _ = intern(&mut variable_ids, variable);
+            let _ = intern(&mut point_ids, point);
+        }
+        for (variable, point) in &self.var_defined_at {
+            let _ = intern(&mut variable_ids, variable);
+            let _ = intern(&mut point_ids, point);
+        }
+        for (variable, point) in &self.var_dropped_at {
+            let _ = intern(&mut variable_ids, variable);
+            let _ = intern(&mut point_ids, point);
+        }
+        for (variable, origin) in &self.deref_origin {
+            let _ = intern(&mut variable_ids, variable);
+            let _ = intern(&mut origin_ids, origin);
+        }
+        for (variable, origin) in &self.drop_deref_origin {
+            let _ = intern(&mut variable_ids, variable);
+            let _ = intern(&mut origin_ids, origin);
+        }
+        for (loan, point) in &self.invalidated {
+            let _ = intern(&mut loan_ids, loan);
+            let _ = intern(&mut point_ids, point);
+        }
 
         let mut facts = AllFacts::<OmniFactTypes>::default();
 
@@ -318,6 +343,26 @@ impl PoloniusFacts {
 
         for (loan, point) in &self.killed {
             facts.loan_killed_at.push((loan_ids[loan], point_ids[point]));
+        }
+        for (loan, point) in &self.invalidated {
+            facts.loan_invalidated_at.push((point_ids[point], loan_ids[loan]));
+        }
+        for (variable, point) in &self.var_used_at {
+            facts.var_used_at.push((variable_ids[variable], point_ids[point]));
+        }
+        for (variable, point) in &self.var_defined_at {
+            facts.var_defined_at.push((variable_ids[variable], point_ids[point]));
+        }
+        for (variable, point) in &self.var_dropped_at {
+            facts.var_dropped_at.push((variable_ids[variable], point_ids[point]));
+        }
+        for (variable, origin) in &self.deref_origin {
+            facts.use_of_var_derefs_origin
+                .push((variable_ids[variable], origin_ids[origin]));
+        }
+        for (variable, origin) in &self.drop_deref_origin {
+            facts.drop_of_var_derefs_origin
+                .push((variable_ids[variable], origin_ids[origin]));
         }
 
         let block_entry =
