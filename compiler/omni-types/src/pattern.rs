@@ -616,7 +616,7 @@ fn range_has_uncovered(range: NumericRange, covered: &[NumericRange]) -> bool {
 
 fn normalize_ranges(ranges: &mut Vec<NumericRange>) {
     ranges.sort_by_key(|range| (range.lo, range.hi));
-    let mut normalized = Vec::with_capacity(ranges.len());
+    let mut normalized: Vec<NumericRange> = Vec::with_capacity(ranges.len());
     for range in ranges.drain(..) {
         if let Some(last) = normalized.last_mut() {
             if last.overlaps_or_touches(range) {
