@@ -344,10 +344,8 @@ fn ownership_place(function: &MirFunction, place: &Place) -> OwnershipPlace {
 }
 
 fn local_name(function: &MirFunction, local: Local) -> String {
-    let display_name = function.body.local_decls[local]
-        .name
-        .clone()
-        .unwrap_or_else(|| "__local".to_string());
+    let display_name =
+        function.body.local_decls[local].name.clone().unwrap_or_else(|| "__local".to_string());
     // Ownership identity is local-identity based, not source-name based:
     // MIR legitimately contains many compiler temporaries with repeated names.
     format!("{display_name}#{}", local.index())
@@ -417,7 +415,8 @@ mod tests {
 
         // The two compiler temporaries are different MIR places despite sharing
         // the same display name.
-        verify_program(&program).expect("duplicate local names must not alias ownership identities");
+        verify_program(&program)
+            .expect("duplicate local names must not alias ownership identities");
     }
 
     #[test]
