@@ -15,6 +15,25 @@ use crate::ast::{EnumDef, Lit, MatchArm, Pattern, PatternRangeBoundary};
 use crate::checker::TypeError;
 use crate::intern::{Ty, TyCtxt, TyKind};
 
+type Numeric = i128;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NumericRange {
+    lo: Numeric,
+    hi: Numeric,
+}
+
+impl NumericRange {
+    fn new(lo: Numeric, hi: Numeric) -> Option<Self> {
+        (lo <= hi).then_some(Self { lo, hi })
+    }
+
+    fn overlaps_or_touches(self, other: Self) -> bool {
+        self.lo <= other.hi.saturating_add(1) && other.lo <= self.hi.saturating_add(1)
+    }
+}
+
+
 /// Constructor representing the top-level head of a pattern matrix column.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constructor {
@@ -57,6 +76,11 @@ impl<'a> PatternChecker<'a> {
         scrutinee_ty: Ty,
         arms: &[MatchArm],
     ) -> Result<MatchAnalysisResult, TypeError> {
+        if matches!(self.tcx.get(scrutinee_ty), TyKind::Int | TyKind::Byte | TyKind::Char)
+            && arms.iter().all(|arm| numeric_pattern(&arm.pattern))
+        {
+            return self.check_numeric_match(scrutinee_ty, arms);
+        }
         let mut matrix: Vec<PatternRow> = Vec::new();
         let mut unreachable_arms = Vec::new();
 
@@ -99,6 +123,58 @@ impl<'a> PatternChecker<'a> {
             return Err(TypeError::NonExhaustiveMatch {
                 scrutinee_ty: self.tcx.mangle(scrutinee_ty),
                 missing: missing_witness.unwrap_or_else(|| "_".to_string()),
+            });
+        }
+
+        if let Some(&first_unreachable) = unreachable_arms.first() {
+            return Err(TypeError::UnreachablePattern {
+                arm_index: first_unreachable,
+                detail: format!("arm {first_unreachable} is never reached"),
+            });
+        }
+
+        Ok(MatchAnalysisResult {
+            is_exhaustive: true,
+            missing_witness: None,
+            unreachable_arms: Vec::new(),
+        })
+    }
+
+    fn check_numeric_match(
+        &self,
+        scrutinee_ty: Ty,
+        arms: &[MatchArm],
+    ) -> Result<MatchAnalysisResult, TypeError> {
+        let domain = numeric_domain(self.tcx.get(scrutinee_ty));
+        let mut covered = Vec::<NumericRange>::new();
+        let mut unreachable_arms = Vec::new();
+
+        for (idx, arm) in arms.iter().enumerate() {
+            let mut useful = false;
+            for pattern in self.expand_or_pattern(&arm.pattern) {
+                let ranges = numeric_pattern_ranges(&pattern, domain);
+                if ranges.iter().any(|range| range_has_uncovered(*range, &covered)) {
+                    useful = true;
+                }
+            }
+
+            if !useful {
+                unreachable_arms.push(idx);
+            }
+
+            if arm.guard.is_none() {
+                for pattern in self.expand_or_pattern(&arm.pattern) {
+                    covered.extend(numeric_pattern_ranges(&pattern, domain));
+                }
+                normalize_ranges(&mut covered);
+            }
+        }
+
+        let missing = first_uncovered(domain, &covered);
+        if let Some(value) = missing {
+            return Err(TypeError::NonExhaustiveMatch {
+                scrutinee_ty: self.tcx.mangle(scrutinee_ty),
+                missing: numeric_witness(self.tcx.get(scrutinee_ty), value),
             });
         }
 
@@ -400,6 +476,146 @@ impl<'a> PatternChecker<'a> {
             _ => vec![],
         }
     }
+
+fn numeric_pattern(pattern: &Pattern) -> bool {
+    match pattern {
+        Pattern::Wildcard | Pattern::Binding(_) | Pattern::Lit(_) | Pattern::Range { .. } => true,
+        Pattern::Or(patterns) => patterns.iter().all(numeric_pattern),
+        _ => false,
+    }
+}
+
+fn numeric_domain(kind: &TyKind) -> (Numeric, Numeric) {
+    match kind {
+        TyKind::Int => (i64::MIN as Numeric, i64::MAX as Numeric),
+        TyKind::Byte => (0, u8::MAX as Numeric),
+        TyKind::Char => (0, char::MAX as Numeric),
+        _ => unreachable!("numeric pattern checker called for non-numeric type"),
+    }
+}
+
+fn lit_numeric(lit: &Lit) -> Option<Numeric> {
+    match lit {
+        Lit::Int(value) => Some(*value as Numeric),
+        Lit::Byte(value) => Some(*value as Numeric),
+        Lit::Char(value) => Some(*value as Numeric),
+        _ => None,
+    }
+}
+
+fn numeric_pattern_ranges(
+    pattern: &Pattern,
+    domain: (Numeric, Numeric),
+) -> Vec<NumericRange> {
+    match pattern {
+        Pattern::Wildcard | Pattern::Binding(_) => vec![NumericRange { lo: domain.0, hi: domain.1 }],
+        Pattern::Lit(lit) => lit_numeric(lit)
+            .and_then(|value| NumericRange::new(value, value))
+            .into_iter()
+            .filter(|r| r.lo >= domain.0 && r.hi <= domain.1)
+            .collect(),
+        Pattern::Range { start, end } => {
+            let lo = match start {
+                PatternRangeBoundary::Unbounded => domain.0,
+                PatternRangeBoundary::Inclusive(lit) => lit_numeric(lit).unwrap_or(domain.0),
+                PatternRangeBoundary::Exclusive(lit) => {
+                    lit_numeric(lit).map_or(domain.0, |value| value.saturating_add(1))
+                }
+            };
+            let hi = match end {
+                PatternRangeBoundary::Unbounded => domain.1,
+                PatternRangeBoundary::Inclusive(lit) => lit_numeric(lit).unwrap_or(domain.1),
+                PatternRangeBoundary::Exclusive(lit) => {
+                    lit_numeric(lit).map_or(domain.1, |value| value.saturating_sub(1))
+                }
+            };
+            NumericRange::new(lo.max(domain.0), hi.min(domain.1))
+                .map(|range| char_valid_ranges(range, domain.0 == 0 && domain.1 == char::MAX as Numeric))
+                .unwrap_or_default()
+        }
+        Pattern::Or(patterns) => patterns
+            .iter()
+            .flat_map(|pattern| numeric_pattern_ranges(pattern, domain))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn char_valid_ranges(range: NumericRange, is_char_domain: bool) -> Vec<NumericRange> {
+    if !is_char_domain || range.hi < 0xD800 || range.lo > 0xDFFF {
+        return vec![range];
+    }
+    let mut result = Vec::new();
+    if range.lo < 0xD800 {
+        if let Some(prefix) = NumericRange::new(range.lo, 0xD7FF.min(range.hi)) {
+            result.push(prefix);
+        }
+    }
+    if range.hi > 0xDFFF {
+        if let Some(suffix) = NumericRange::new(0xE000.max(range.lo), range.hi) {
+            result.push(suffix);
+        }
+    }
+    result
+}
+
+fn range_has_uncovered(range: NumericRange, covered: &[NumericRange]) -> bool {
+    let mut cursor = range.lo;
+    for existing in covered {
+        if existing.hi < cursor {
+            continue;
+        }
+        if existing.lo > cursor {
+            return true;
+        }
+        cursor = cursor.max(existing.hi.saturating_add(1));
+        if cursor > range.hi {
+            return false;
+        }
+    }
+    cursor <= range.hi
+}
+
+fn normalize_ranges(ranges: &mut Vec<NumericRange>) {
+    ranges.sort_by_key(|range| (range.lo, range.hi));
+    let mut normalized = Vec::with_capacity(ranges.len());
+    for range in ranges.drain(..) {
+        if let Some(last) = normalized.last_mut() {
+            if last.overlaps_or_touches(range) {
+                last.hi = last.hi.max(range.hi);
+                continue;
+            }
+        }
+        normalized.push(range);
+    }
+    *ranges = normalized;
+}
+
+fn first_uncovered(domain: (Numeric, Numeric), covered: &[NumericRange]) -> Option<Numeric> {
+    let mut cursor = domain.0;
+    for range in covered {
+        if range.hi < cursor {
+            continue;
+        }
+        if range.lo > cursor {
+            return Some(cursor);
+        }
+        cursor = cursor.max(range.hi.saturating_add(1));
+        if cursor > domain.1 {
+            return None;
+        }
+    }
+    (cursor <= domain.1).then_some(cursor)
+}
+
+fn numeric_witness(kind: &TyKind, value: Numeric) -> String {
+    match kind {
+        TyKind::Char => char::from_u32(value as u32)
+            .map(|c| format!("{:?}", c))
+            .unwrap_or_else(|| "_".to_string()),
+        _ => value.to_string(),
+    }
+}
 
     fn synthesize_witness(&self, _matrix: &[PatternRow], scrutinee_ty: Ty) -> String {
         match self.tcx.get(scrutinee_ty) {
