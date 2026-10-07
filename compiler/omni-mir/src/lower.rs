@@ -3079,4 +3079,117 @@ mod tests {
             })
         }));
     }
+
+    #[test]
+    fn test_mir_lowering_numeric_range_match_emits_bound_checks() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "range_match".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Match {
+                    expr: Box::new(Expr::Literal(Lit::Int(5))),
+                    arms: vec![
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Range {
+                                start: omni_types::ast::PatternRangeBoundary::Inclusive(Lit::Int(0)),
+                                end: omni_types::ast::PatternRangeBoundary::Exclusive(Lit::Int(10)),
+                            },
+                            guard: None,
+                            body: Expr::Literal(Lit::Int(1)),
+                        },
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Wildcard,
+                            guard: None,
+                            body: Expr::Literal(Lit::Int(0)),
+                        },
+                    ],
+                },
+            }],
+        };
+
+        let mir = ctx
+            .lower_monomorphized_program(&program)
+            .expect("numeric range match should lower");
+        let function = &mir.functions[0];
+        assert!(function.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::BinaryOp(crate::ir::BinOp::Ge, _, _)
+                    )
+                )
+            })
+        }));
+        assert!(function.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::BinaryOp(crate::ir::BinOp::Lt, _, _)
+                    )
+                )
+            })
+        }));
+    }
+
+    #[test]
+    fn test_mir_lowering_match_guard_branches_before_arm_body() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "guarded_match".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![("x".to_string(), TypeSpec::Int)],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Match {
+                    expr: Box::new(Expr::Var("x".to_string())),
+                    arms: vec![
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Binding("value".to_string()),
+                            guard: Some(Expr::Literal(Lit::Bool(true))),
+                            body: Expr::Var("value".to_string()),
+                        },
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Wildcard,
+                            guard: None,
+                            body: Expr::Literal(Lit::Int(0)),
+                        },
+                    ],
+                },
+            }],
+        };
+
+        let mir = ctx
+            .lower_monomorphized_program(&program)
+            .expect("guarded match should lower");
+        let function = &mir.functions[0];
+        assert!(function.body.blocks.iter().any(|block| {
+            matches!(block.terminator, Some(crate::ir::Terminator::SwitchInt { .. }))
+                && block.statements.is_empty()
+        }));
+        assert!(function.body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    crate::ir::Statement::Assign(
+                        _,
+                        crate::ir::Rvalue::BinaryOp(crate::ir::BinOp::Eq, _, _)
+                    )
+                )
+            })
+        }));
+    }
+
 }
