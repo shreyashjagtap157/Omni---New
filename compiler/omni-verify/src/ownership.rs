@@ -167,7 +167,11 @@ fn transfer_block(
                 {
                     let region = format!("{}:bb{}:{}", function.name, block.index(), context);
                     if let Rvalue::Reference { place, .. } = rvalue {
-                        let parents = state.reference_loans.get(&place.local).cloned().unwrap_or_default();
+                        let parents = state
+                            .reference_loans
+                            .get(&place.local)
+                            .cloned()
+                            .unwrap_or_default();
                         state.loan_parents.insert(region.clone(), parents);
                     }
                     state.reference_loans.entry(destination.local).or_default().insert(region);
@@ -424,9 +428,9 @@ fn place_local_effects(
 
 fn rvalue_local_uses(rvalue: &Rvalue, uses: &mut BTreeSet<Local>) {
     match rvalue {
-        Rvalue::Use(operand)
-        | Rvalue::UnaryOp(_, operand)
-        | Rvalue::Cast { operand, .. } => operand_local_uses(operand, uses),
+        Rvalue::Use(operand) | Rvalue::UnaryOp(_, operand) | Rvalue::Cast { operand, .. } => {
+            operand_local_uses(operand, uses)
+        }
         Rvalue::BinaryOp(_, lhs, rhs) => {
             operand_local_uses(lhs, uses);
             operand_local_uses(rhs, uses);
@@ -716,11 +720,8 @@ mod tests {
     fn borrow_ends_after_last_reference_use() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
         locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
@@ -731,9 +732,7 @@ mod tests {
             statements: vec![
                 Statement::Assign(
                     Place::local(Local::from_usize(1)),
-                    Rvalue::Use(Operand::Constant(Constant::Lit(
-                        omni_mir::ast::Lit::Int(1),
-                    ))),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(1)))),
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(2)),
@@ -752,9 +751,7 @@ mod tests {
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(1)),
-                    Rvalue::Use(Operand::Constant(Constant::Lit(
-                        omni_mir::ast::Lit::Int(2),
-                    ))),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(2)))),
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(0)),
