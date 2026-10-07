@@ -368,7 +368,6 @@ mod tests {
     use omni_mir::ast::TypeSpec;
     use omni_mir::ir::LocalDecl;
 
-
     #[test]
     fn moved_local_cannot_be_read_again() {
         let mut tcx = omni_mir::TyCtxt::new();
