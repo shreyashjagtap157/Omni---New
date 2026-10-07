@@ -815,6 +815,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn mutable_reference_conflicts_when_write_precedes_last_use() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
@@ -829,7 +830,7 @@ mod tests {
             statements: vec![
                 Statement::Assign(
                     Place::local(Local::from_usize(0)),
-                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(2)))),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(1)))),
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(1)),
@@ -838,6 +839,10 @@ mod tests {
                         mutable: true,
                         ty: reference,
                     },
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(0)),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(2)))),
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(2)),
