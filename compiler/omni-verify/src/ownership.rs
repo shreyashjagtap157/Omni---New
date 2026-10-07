@@ -344,10 +344,13 @@ fn ownership_place(function: &MirFunction, place: &Place) -> OwnershipPlace {
 }
 
 fn local_name(function: &MirFunction, local: Local) -> String {
-    function.body.local_decls[local]
+    let display_name = function.body.local_decls[local]
         .name
         .clone()
-        .unwrap_or_else(|| format!("__local{}", local.index()))
+        .unwrap_or_else(|| "__local".to_string());
+    // Ownership identity is local-identity based, not source-name based:
+    // MIR legitimately contains many compiler temporaries with repeated names.
+    format!("{display_name}#{}", local.index())
 }
 
 fn violation(
@@ -370,6 +373,52 @@ mod tests {
     use index_vec::IndexVec;
     use omni_mir::ast::TypeSpec;
     use omni_mir::ir::LocalDecl;
+
+    #[test]
+    fn duplicate_mir_local_names_remain_distinct_ownership_places() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("_return".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("_tmp".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("_tmp".into()), ty: Some(int) });
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(
+                    Place::local(Local::from_usize(1)),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(1)))),
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(2)),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(2)))),
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(0)),
+                    Rvalue::Use(Operand::Move(Place::local(Local::from_usize(1)))),
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(0)),
+                    Rvalue::Use(Operand::Move(Place::local(Local::from_usize(2)))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "duplicate_names".into(),
+                params: vec![],
+                return_place: Local::from_usize(0),
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        // The two compiler temporaries are different MIR places despite sharing
+        // the same display name.
+        verify_program(&program).expect("duplicate local names must not alias ownership identities");
+    }
 
     #[test]
     fn mutable_reference_conflicts_with_subsequent_write() {
