@@ -772,11 +772,8 @@ mod tests {
     fn reborrow_keeps_parent_loan_live_until_child_last_use() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let mutable_ref = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let mutable_ref =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
         locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
@@ -837,11 +834,7 @@ mod tests {
                 params: vec![],
                 return_place: Local::from_usize(0),
                 return_type: TypeSpec::Int,
-                body: omni_mir::ir::Body {
-                    blocks,
-                    local_decls: locals,
-                    unsafe_blocks: Vec::new(),
-                },
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
             }],
         );
 
