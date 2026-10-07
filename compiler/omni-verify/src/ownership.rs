@@ -740,10 +740,7 @@ mod tests {
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(3)),
-                    Rvalue::UnaryOp(
-                        omni_mir::ir::UnOp::Deref,
-                        Operand::Copy(Place::local(Local::from_usize(2))),
-                    ),
+                    Rvalue::Use(Operand::Copy(Place::local(Local::from_usize(2)))),
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(1)),
