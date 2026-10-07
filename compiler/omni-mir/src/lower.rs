@@ -958,8 +958,7 @@ impl<'a> FnMirBuilder<'a> {
         // intervals as a finite SwitchInt value list.
         let mut test_block = entry;
         for (index, arm) in arms.iter().enumerate() {
-            let failure_block =
-                if index + 1 < arms.len() { self.new_block() } else { otherwise };
+            let failure_block = if index + 1 < arms.len() { self.new_block() } else { otherwise };
             let pattern_success =
                 if arm.guard.is_some() { self.new_block() } else { arm_blocks[index] };
 
@@ -1152,10 +1151,8 @@ impl<'a> FnMirBuilder<'a> {
         success: crate::ir::BasicBlock,
         failure: crate::ir::BasicBlock,
     ) -> Result<(), String> {
-        let start_bounded =
-            !matches!(start, omni_types::ast::PatternRangeBoundary::Unbounded);
-        let end_bounded =
-            !matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded);
+        let start_bounded = !matches!(start, omni_types::ast::PatternRangeBoundary::Unbounded);
+        let end_bounded = !matches!(end, omni_types::ast::PatternRangeBoundary::Unbounded);
 
         if !start_bounded && !end_bounded {
             let block = self.current_block.ok_or_else(|| {
