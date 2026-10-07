@@ -2583,11 +2583,10 @@ impl<'a> Parser<'a> {
     /// Returns true if the current token is an identifier or a contextual keyword
     /// that is admitted as an identifier in named item/member positions (ERR3-0016, ERR3-0093).
     fn at_ident_or_contextual(&self) -> bool {
-        match self.current_kind() {
-            Some(TokenKind::Ident) => true,
-            Some(TokenKind::Keyword(Kw::Where | Kw::In)) => true,
-            _ => false,
-        }
+        matches!(
+            self.current_kind(),
+            Some(TokenKind::Ident) | Some(TokenKind::Keyword(Kw::Where | Kw::In))
+        )
     }
     fn eof(&self) -> bool {
         self.split_token.is_none()
