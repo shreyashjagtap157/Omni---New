@@ -1,6 +1,0 @@
-
-InputObject                                                                              SideIndicator
------------                                                                              -------------
-docs/Omni_Complete_Specification_Edition1_1_0_0-candidate_3_vibe_reconciled_corrected.md =>
-docs/Omni_Complete_Specification_Edition1_1_0_0-candidate_3_vibe_reconciled.md           <=
-
