@@ -789,11 +789,11 @@ mod tests {
         let arms = vec![
             arm(Pattern::Range {
                 start: PatternRangeBoundary::Inclusive(Lit::Char('\0')),
-                end: PatternRangeBoundary::Inclusive('\u{D7FF}'),
+                end: PatternRangeBoundary::Inclusive(Lit::Char('\u{D7FF}')),
             }),
             arm(Pattern::Range {
-                start: PatternRangeBoundary::Inclusive('\u{E000}'),
-                end: PatternRangeBoundary::Inclusive(char::MAX),
+                start: PatternRangeBoundary::Inclusive(Lit::Char('\u{E000}')),
+                end: PatternRangeBoundary::Inclusive(Lit::Char(char::MAX)),
             }),
         ];
 
