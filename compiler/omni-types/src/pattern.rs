@@ -477,7 +477,17 @@ impl<'a> PatternChecker<'a> {
             _ => vec![],
         }
     }
-
+    fn synthesize_witness(&self, _matrix: &[PatternRow], scrutinee_ty: Ty) -> String {
+        match self.tcx.get(scrutinee_ty) {
+            TyKind::Bool => "false".to_string(),
+            TyKind::Enum(name, _) if name == "Option" => "None".to_string(),
+            TyKind::Enum(name, _) if name == "Result" => "Err(_) ".to_string(),
+            TyKind::Enum(name, _) => format!("{name}::_"),
+            TyKind::Int => "0".to_string(),
+            _ => "_".to_string(),
+        }
+    }
+}
 fn numeric_scrutinee(kind: &TyKind) -> bool {
     matches!(kind, TyKind::Int | TyKind::Byte | TyKind::Char)
 }
@@ -644,17 +654,6 @@ fn numeric_witness(kind: &TyKind, value: Numeric) -> String {
     }
 }
 
-    fn synthesize_witness(&self, _matrix: &[PatternRow], scrutinee_ty: Ty) -> String {
-        match self.tcx.get(scrutinee_ty) {
-            TyKind::Bool => "false".to_string(),
-            TyKind::Enum(name, _) if name == "Option" => "None".to_string(),
-            TyKind::Enum(name, _) if name == "Result" => "Err(_) ".to_string(),
-            TyKind::Enum(name, _) => format!("{name}::_"),
-            TyKind::Int => "0".to_string(),
-            _ => "_".to_string(),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
