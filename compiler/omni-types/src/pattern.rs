@@ -154,7 +154,10 @@ impl<'a> PatternChecker<'a> {
             let mut useful = false;
             for pattern in self.expand_or_pattern(&arm.pattern) {
                 let ranges = numeric_pattern_ranges(&pattern, domain);
-                if ranges.iter().any(|range| range_has_uncovered(*range, &covered)) {
+                if ranges
+                    .iter()
+                    .any(|range| range_has_uncovered(*range, &covered, self.tcx.get(scrutinee_ty)))
+                {
                     useful = true;
                 }
             }
@@ -171,7 +174,7 @@ impl<'a> PatternChecker<'a> {
             }
         }
 
-        let missing = first_uncovered(domain, &covered);
+        let missing = first_uncovered(domain, &covered, self.tcx.get(scrutinee_ty));
         if let Some(value) = missing {
             return Err(TypeError::NonExhaustiveMatch {
                 scrutinee_ty: self.tcx.mangle(scrutinee_ty),
@@ -597,7 +600,7 @@ fn char_valid_ranges(range: NumericRange, is_char_domain: bool) -> Vec<NumericRa
     result
 }
 
-fn range_has_uncovered(range: NumericRange, covered: &[NumericRange]) -> bool {
+fn range_has_uncovered(range: NumericRange, covered: &[NumericRange], kind: &TyKind) -> bool {
     let mut cursor = range.lo;
     for existing in covered {
         if existing.hi < cursor {
@@ -607,6 +610,9 @@ fn range_has_uncovered(range: NumericRange, covered: &[NumericRange]) -> bool {
             return true;
         }
         cursor = cursor.max(existing.hi.saturating_add(1));
+        if matches!(kind, TyKind::Char) && (0xD800..=0xDFFF).contains(&(cursor as u32)) {
+            cursor = 0xE000;
+        }
         if cursor > range.hi {
             return false;
         }
@@ -629,8 +635,15 @@ fn normalize_ranges(ranges: &mut Vec<NumericRange>) {
     *ranges = normalized;
 }
 
-fn first_uncovered(domain: (Numeric, Numeric), covered: &[NumericRange]) -> Option<Numeric> {
+fn first_uncovered(
+    domain: (Numeric, Numeric),
+    covered: &[NumericRange],
+    kind: &TyKind,
+) -> Option<Numeric> {
     let mut cursor = domain.0;
+    if matches!(kind, TyKind::Char) && (0xD800..=0xDFFF).contains(&(cursor as u32)) {
+        cursor = 0xE000;
+    }
     for range in covered {
         if range.hi < cursor {
             continue;
@@ -639,6 +652,9 @@ fn first_uncovered(domain: (Numeric, Numeric), covered: &[NumericRange]) -> Opti
             return Some(cursor);
         }
         cursor = cursor.max(range.hi.saturating_add(1));
+        if matches!(kind, TyKind::Char) && (0xD800..=0xDFFF).contains(&(cursor as u32)) {
+            cursor = 0xE000;
+        }
         if cursor > domain.1 {
             return None;
         }
@@ -762,6 +778,28 @@ mod tests {
         ];
 
         checker.check_match(ty, &arms).expect("guarded overlap must not make the arm unreachable");
+    }
+
+    #[test]
+    fn split_character_scalar_ranges_are_exhaustive() {
+        let mut tcx = int_tcx();
+        let ty = tcx.intern(TyKind::Char);
+        let enum_defs = HashMap::new();
+        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
+        let arms = vec![
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Inclusive(Lit::Char('\0')),
+                end: PatternRangeBoundary::Inclusive('\u{D7FF}'),
+            }),
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Inclusive('\u{E000}'),
+                end: PatternRangeBoundary::Inclusive(char::MAX),
+            }),
+        ];
+
+        checker
+            .check_match(ty, &arms)
+            .expect("surrogate gap is not inhabited by Char");
     }
 
     #[test]
