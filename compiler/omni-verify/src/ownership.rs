@@ -183,15 +183,17 @@ fn transfer_block(
             Ok(edges)
         }
         Some(Terminator::Return) => {
-            let return_place = Place::local(function.return_place);
-            transfer_place_access(
-                function,
-                block,
-                "function return",
-                &return_place,
-                AccessKind::Read,
-                &mut state,
-            )?;
+            if !matches!(function.return_type, omni_mir::ast::TypeSpec::Unit) {
+                let return_place = Place::local(function.return_place);
+                transfer_place_access(
+                    function,
+                    block,
+                    "function return",
+                    &return_place,
+                    AccessKind::Read,
+                    &mut state,
+                )?;
+            }
             Ok(Vec::new())
         }
         Some(Terminator::Unreachable) | None => Ok(Vec::new()),
