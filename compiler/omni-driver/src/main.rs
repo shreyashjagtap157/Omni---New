@@ -1633,9 +1633,7 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             // `x |> f(a, _, b)` -> `f(a, x, b)`
             match expr_from_node(&parts[1])? {
                 Expr::Call { func, generic_args, mut args } => {
-                    if let Some(pos) =
-                        args.iter().position(|a| matches!(a, Expr::Var(v) if v == "_"))
-                    {
+                    if let Some(pos) = args.iter().position(|a| matches!(a, Expr::Var(v) if v == "_")) {
                         args[pos] = lhs;
                     } else {
                         args.insert(0, lhs);
