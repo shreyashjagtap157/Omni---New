@@ -1325,6 +1325,33 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                 return Ok(Expr::EnumVariant { enum_name, variant, generic_args, args });
             }
 
+            if callee.kind() == omni_syntax::SyntaxKind::FieldExpr {
+                let mut field_children = callee.children();
+                let receiver = field_children.next().ok_or_else(|| {
+                    "Semantic frontend error: method call field has no receiver".to_string()
+                })?;
+                let method = callee
+                    .children_with_tokens()
+                    .filter_map(|element| element.into_token())
+                    .filter(|token| {
+                        matches!(
+                            token.kind(),
+                            omni_syntax::SyntaxKind::Ident | omni_syntax::SyntaxKind::Keyword
+                        )
+                    })
+                    .last()
+                    .map(|token| token.text().to_string())
+                    .ok_or_else(|| {
+                        "Semantic frontend error: method call field has no method name".to_string()
+                    })?;
+                return Ok(Expr::MethodCall {
+                    receiver: Box::new(expr_from_node(&receiver)?),
+                    method,
+                    generic_args: Vec::new(),
+                    args,
+                });
+            }
+
             let (func, generic_args) = call_target_from_cst(&callee)?;
             Ok(Expr::Call { func, generic_args, args })
         }
