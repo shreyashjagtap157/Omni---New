@@ -797,9 +797,7 @@ mod tests {
             }),
         ];
 
-        checker
-            .check_match(ty, &arms)
-            .expect("surrogate gap is not inhabited by Char");
+        checker.check_match(ty, &arms).expect("surrogate gap is not inhabited by Char");
     }
 
     #[test]
