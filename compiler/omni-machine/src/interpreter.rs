@@ -502,13 +502,21 @@ impl Interpreter {
                 self.execute_range(start_val, end_val, *inclusive, ty)
             }
             Rvalue::Field { base, field, ty: _ } => {
+                let projection_place = match base {
+                    Operand::Copy(place) | Operand::Move(place) => place.clone(),
+                    Operand::Constant(_) => Place::local(function.return_place),
+                };
                 let base_val = self.evaluate_operand(base, function.clone())?;
-                self.execute_field_projection(base_val, field)
+                self.execute_field_projection(base_val, field, &projection_place)
             }
             Rvalue::Index { base, index, ty: _ } => {
+                let projection_place = match base {
+                    Operand::Copy(place) | Operand::Move(place) => place.clone(),
+                    Operand::Constant(_) => Place::local(function.return_place),
+                };
                 let base_val = self.evaluate_operand(base, function.clone())?;
                 let index_val = self.evaluate_operand(index, function)?;
-                self.execute_index_projection(base_val, index_val)
+                self.execute_index_projection(base_val, index_val, &projection_place)
             }
         }
     }
