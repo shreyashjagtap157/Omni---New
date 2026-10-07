@@ -815,7 +815,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn mutable_reference_conflicts_when_write_precedes_last_use() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
