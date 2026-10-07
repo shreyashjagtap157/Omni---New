@@ -1608,7 +1608,7 @@ impl<'a> Parser<'a> {
                 let dot = self.bump_child();
                 let mut n = Node::new(SyntaxKind::FieldExpr);
                 n.children.push(dot);
-                if self.at_ident() {
+                if self.at_ident_or_contextual() {
                     n.children.push(Child::Token(self.bump_index()));
                 } else {
                     n.children.push(Child::Node(
