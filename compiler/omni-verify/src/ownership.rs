@@ -456,7 +456,11 @@ mod tests {
                 params: vec![Local::from_usize(0)],
                 return_place: Local::from_usize(1),
                 return_type: TypeSpec::Int,
-                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+                body: omni_mir::ir::Body {
+                    blocks,
+                    local_decls: locals,
+                    unsafe_blocks: Vec::new(),
+                },
             }],
         );
         let error = verify_program(&program).expect_err("use after move must be rejected");
