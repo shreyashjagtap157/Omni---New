@@ -202,15 +202,16 @@ impl PoloniusFacts {
             facts.loan_killed_at.push((loan_ids[loan], point_ids[point]));
         }
 
-        let block_entry = |block: BasicBlock, body: &Body, points: &mut BTreeMap<String, usize>| {
-            if body.blocks[block].statements.is_empty() {
-                let key = format!("bb{}_term", block.index());
-                Some(intern(points, &key))
-            } else {
-                let key = format!("bb{}_0", block.index());
-                Some(intern(points, &key))
-            }
-        };
+        let block_entry =
+            |block: BasicBlock, body: &Body, points: &mut BTreeMap<String, PoloniusId>| {
+                if body.blocks[block].statements.is_empty() {
+                    let key = format!("bb{}_term", block.index());
+                    Some(intern(points, &key))
+                } else {
+                    let key = format!("bb{}_0", block.index());
+                    Some(intern(points, &key))
+                }
+            };
 
         for (block, data) in body.blocks.iter_enumerated() {
             for statement_index in 0..data.statements.len() {
