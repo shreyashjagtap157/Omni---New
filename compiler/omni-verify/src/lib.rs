@@ -603,7 +603,7 @@ mod polonius_tests {
     use index_vec::IndexVec;
     use omni_mir::ast::Lit;
     use omni_mir::ir::{
-        BlockData, Constant, Local, LocalDecl, Place, Rvalue, Statement, Terminator,
+        BlockData, Constant, Local, LocalDecl, Operand, Place, Rvalue, Statement, Terminator,
     };
     use omni_mir::{TyCtxt, TyKind};
 
@@ -681,6 +681,70 @@ mod polonius_tests {
             output.errors.is_empty(),
             "simple MIR borrow facts must be accepted by Polonius: {:?}",
             output.errors
+        );
+    }
+
+    #[test]
+    fn engine_rejects_write_while_borrow_will_be_dereferenced() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let ref_ty =
+            tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner: int_ty });
+        let deref_place =
+            Place::local(Local::from_usize(1)).project(omni_mir::ir::Projection::Deref);
+        let body = body_with_statements(vec![
+            reference_statement(
+                Local::from_usize(1),
+                Place::local(Local::from_usize(0)),
+                true,
+                ref_ty,
+            ),
+            Statement::Assign(
+                Place::local(Local::from_usize(0)),
+                Rvalue::Use(Operand::Constant(Constant::Lit(Lit::Int(2)))),
+            ),
+            Statement::Assign(
+                Place::local(Local::from_usize(0)),
+                Rvalue::Use(Operand::Copy(deref_place)),
+            ),
+        ]);
+
+        let facts = PoloniusFacts::extract_from_mir(&body);
+        assert!(facts.invalidated.iter().any(|(loan, point)| {
+            loan == "loan_bb0_0" && point == "bb0_1"
+        }));
+        let output = facts.run_engine(&body);
+        assert!(
+            !output.errors.is_empty(),
+            "a write that invalidates a live borrow must be rejected by Polonius"
+        );
+    }
+
+    #[test]
+    fn engine_accepts_write_after_reference_drop() {
+        let mut tcx = TyCtxt::new();
+        let int_ty = tcx.intern(TyKind::Int);
+        let ref_ty =
+            tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner: int_ty });
+        let body = body_with_statements(vec![
+            reference_statement(
+                Local::from_usize(1),
+                Place::local(Local::from_usize(0)),
+                true,
+                ref_ty,
+            ),
+            Statement::Drop(Place::local(Local::from_usize(1))),
+            Statement::Assign(
+                Place::local(Local::from_usize(0)),
+                Rvalue::Use(Operand::Constant(Constant::Lit(Lit::Int(2)))),
+            ),
+        ]);
+
+        let facts = PoloniusFacts::extract_from_mir(&body);
+        let output = facts.run_engine(&body);
+        assert!(
+            output.errors.is_empty(),
+            "dropping the reference must end the borrow before the later write"
         );
     }
 
