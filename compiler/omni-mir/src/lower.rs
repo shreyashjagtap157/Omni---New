@@ -976,25 +976,29 @@ impl<'a> FnMirBuilder<'a> {
 
             if let Some(guard) = &arm.guard {
                 self.current_block = Some(pattern_success);
-                let (guard_op, guard_ty) = self
+                let guard_result = self
                     .lower_expr(guard)?
                     .ok_or_else(|| "MIR lowering error: match guard is Unit".to_string())?;
                 let bool_ty = self.tcx.intern(TyKind::Bool);
-                if guard_ty != bool_ty {
+                if guard_result.1 != bool_ty {
                     return Err(format!(
                         "MIR lowering error: match guard has type {:?}, expected {:?}",
-                        guard_ty, bool_ty
+                        guard_result.1, bool_ty
                     ));
                 }
-                let guard_block = self.current_block.ok_or_else(|| {
-                    "MIR lowering error: match guard terminated control flow unexpectedly"
-                        .to_string()
-                })?;
-                self.blocks[guard_block].terminator = Some(crate::ir::Terminator::SwitchInt {
-                    discr: guard_op,
-                    targets: vec![(1, arm_blocks[index])],
-                    otherwise: failure_block,
-                });
+                let guard_diverged = self.diverged;
+                self.diverged = false;
+                if let Some(guard_block) = self.current_block {
+                    self.blocks[guard_block].terminator = Some(crate::ir::Terminator::SwitchInt {
+                        discr: guard_result.0,
+                        targets: vec![(1, arm_blocks[index])],
+                        otherwise: failure_block,
+                    });
+                } else if !guard_diverged {
+                    return Err(
+                        "MIR lowering error: match guard has no continuation block".to_string()
+                    );
+                }
             }
 
             test_block = failure_block;
@@ -3189,6 +3193,42 @@ mod tests {
                 )
             })
         }));
+    }
+
+    #[test]
+    fn test_mir_lowering_diverging_match_guard_preserves_cfg() {
+        let mut ctx = LoweringContext::new();
+        let program = MonomorphizedProgram {
+            functions: vec![GenericFnDef {
+                name: "diverging_guard".to_string(),
+                type_params: vec![],
+                bounds: vec![],
+                params: vec![],
+                return_type: TypeSpec::Int,
+                effects: omni_effects::EffectRow::default(),
+                capabilities: vec![],
+                body: Expr::Match {
+                    expr: Box::new(Expr::Literal(Lit::Int(1))),
+                    arms: vec![
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Binding("x".to_string()),
+                            guard: Some(Expr::Return(Some(Box::new(Expr::Literal(
+                                Lit::Bool(true),
+                            ))))),
+                            body: Expr::Literal(Lit::Int(99)),
+                        },
+                        omni_types::ast::MatchArm {
+                            pattern: omni_types::ast::Pattern::Wildcard,
+                            guard: None,
+                            body: Expr::Literal(Lit::Int(0)),
+                        },
+                    ],
+                },
+            }],
+        };
+
+        ctx.lower_monomorphized_program(&program)
+            .expect("diverging guard should produce valid terminated CFG");
     }
 
     #[test]
