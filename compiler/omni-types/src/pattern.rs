@@ -33,7 +33,6 @@ impl NumericRange {
     }
 }
 
-
 /// Constructor representing the top-level head of a pattern matrix column.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constructor {
@@ -708,7 +707,8 @@ mod tests {
             arm(Pattern::Wildcard),
         ];
 
-        let error = checker.check_match(ty, &arms).expect_err("overlapping literal must be unreachable");
+        let error =
+            checker.check_match(ty, &arms).expect_err("overlapping literal must be unreachable");
         assert!(matches!(error, TypeError::UnreachablePattern { arm_index: 1, .. }));
     }
 
@@ -729,7 +729,9 @@ mod tests {
             }),
         ];
 
-        let error = checker.check_match(ty, &arms).expect_err("zero and exterior integers remain uncovered");
+        let error = checker
+            .check_match(ty, &arms)
+            .expect_err("zero and exterior integers remain uncovered");
         assert!(matches!(
             error,
             TypeError::NonExhaustiveMatch { missing, .. } if missing == i64::MIN.to_string()
@@ -747,7 +749,9 @@ mod tests {
             end: PatternRangeBoundary::Inclusive(Lit::Char(char::MAX)),
         })];
 
-        checker.check_match(ty, &arms).expect("full scalar range should cover Unicode scalar values");
+        checker
+            .check_match(ty, &arms)
+            .expect("full scalar range should cover Unicode scalar values");
     }
 }
 
