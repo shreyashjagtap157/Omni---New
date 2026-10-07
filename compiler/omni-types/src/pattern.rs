@@ -513,18 +513,6 @@ fn numeric_pattern_for_type(pattern: &Pattern, kind: &TyKind) -> bool {
     }
 }
 
-fn numeric_pattern(pattern: &Pattern) -> bool {
-    match pattern {
-        Pattern::Wildcard | Pattern::Binding(_) => true,
-        Pattern::Lit(Lit::Int(_) | Lit::Byte(_) | Lit::Char(_)) => true,
-        Pattern::Range { start, end } => {
-            numeric_boundary(start) && numeric_boundary(end)
-        }
-        Pattern::Or(patterns) => patterns.iter().all(numeric_pattern),
-        _ => false,
-    }
-}
-
 fn numeric_domain(kind: &TyKind) -> (Numeric, Numeric) {
     match kind {
         TyKind::Int => (i64::MIN as Numeric, i64::MAX as Numeric),
@@ -532,15 +520,6 @@ fn numeric_domain(kind: &TyKind) -> (Numeric, Numeric) {
         TyKind::Char => (0, char::MAX as Numeric),
         _ => unreachable!("numeric pattern checker called for non-numeric type"),
     }
-}
-
-fn numeric_boundary(boundary: &PatternRangeBoundary) -> bool {
-    matches!(
-        boundary,
-        PatternRangeBoundary::Unbounded
-            | PatternRangeBoundary::Inclusive(Lit::Int(_) | Lit::Byte(_) | Lit::Char(_))
-            | PatternRangeBoundary::Exclusive(Lit::Int(_) | Lit::Byte(_) | Lit::Char(_))
-    )
 }
 
 fn lit_numeric(lit: &Lit) -> Option<Numeric> {
