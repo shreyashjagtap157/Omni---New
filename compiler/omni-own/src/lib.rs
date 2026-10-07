@@ -516,9 +516,7 @@ mod tests {
         checker.declare_initialized("x");
 
         let mut borrowed = checker.state.clone();
-        borrowed
-            .borrow_mut(x.clone(), "branch")
-            .expect("mutable borrow in one branch");
+        borrowed.borrow_mut(x.clone(), "branch").expect("mutable borrow in one branch");
         let unborrowed = OwnershipState::new();
         let joined = OwnershipState::join_all(&[&borrowed, &unborrowed]);
 
