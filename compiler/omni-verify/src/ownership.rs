@@ -24,11 +24,17 @@ struct FlowState {
     /// Reference locals may denote different loans after a CFG join, so keep
     /// the complete may-live region set for each local.
     reference_loans: BTreeMap<Local, BTreeSet<String>>,
+    /// For each loan, the parent loans it may depend on through a reborrow.
+    loan_parents: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl FlowState {
     fn new() -> Self {
-        Self { ownership: OwnershipState::new(), reference_loans: BTreeMap::new() }
+        Self {
+            ownership: OwnershipState::new(),
+            reference_loans: BTreeMap::new(),
+            loan_parents: BTreeMap::new(),
+        }
     }
 
     fn join(states: &[Self]) -> Self {
@@ -42,7 +48,16 @@ impl FlowState {
                     .extend(loans.iter().cloned());
             }
         }
-        Self { ownership: OwnershipState::join_all(&inputs), reference_loans }
+        let mut loan_parents = BTreeMap::new();
+        for state in states {
+            for (loan, parents) in &state.loan_parents {
+                loan_parents
+                    .entry(loan.clone())
+                    .or_insert_with(BTreeSet::new)
+                    .extend(parents.iter().cloned());
+            }
+        }
+        Self { ownership: OwnershipState::join_all(&inputs), reference_loans, loan_parents }
     }
 }
 
@@ -143,7 +158,7 @@ fn transfer_block(
                 if destination.projections.is_empty() {
                     if let Some(old_loans) = state.reference_loans.remove(&destination.local) {
                         for region in old_loans {
-                            let _ = state.ownership.end_loan(&region);
+                            end_tracked_loan(&mut state, &region);
                         }
                     }
                 }
@@ -151,6 +166,10 @@ fn transfer_block(
                 if destination.projections.is_empty() && matches!(rvalue, Rvalue::Reference { .. })
                 {
                     let region = format!("{}:bb{}:{}", function.name, block.index(), context);
+                    if let Rvalue::Reference { place, .. } = rvalue {
+                        let parents = state.reference_loans.get(&place.local).cloned().unwrap_or_default();
+                        state.loan_parents.insert(region.clone(), parents);
+                    }
                     state.reference_loans.entry(destination.local).or_default().insert(region);
                 }
                 assign_place(function, block, &context, destination, &mut state)?;
@@ -446,6 +465,22 @@ fn operand_local_uses(operand: &Operand, uses: &mut BTreeSet<Local>) {
     }
 }
 
+fn end_tracked_loan(state: &mut FlowState, region: &str) {
+    let _ = state.ownership.end_loan(region);
+    state.loan_parents.remove(region);
+    for parents in state.loan_parents.values_mut() {
+        parents.remove(region);
+    }
+}
+
+fn loan_has_active_children(state: &FlowState, region: &str) -> bool {
+    state.loan_parents.iter().any(|(child, parents)| {
+        child != region
+            && parents.contains(region)
+            && state.reference_loans.values().any(|loans| loans.contains(child))
+    })
+}
+
 fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Local>) {
     loop {
         let dead_locals = state
@@ -459,34 +494,15 @@ fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Loc
         for local in dead_locals {
             let loans = state.reference_loans.get(&local).cloned().unwrap_or_default();
             for region in loans {
-                let has_live_descendant = state.reference_loans.iter().any(|(parent_local, active_loans)| {
-                    *parent_local == local
-                        && active_loans.iter().any(|child| child != &region)
-                        || active_loans.iter().any(|child| {
-                            state
-                                .reference_loans
-                                .iter()
-                                .filter(|(candidate_local, _)| **candidate_local != local)
-                                .any(|(candidate_local, _)| {
-                                    // A descendant is a loan whose reference was created
-                                    // from this local. The ownership layer remains the
-                                    // authoritative conflict checker; this liveness pass
-                                    // only preserves parent loans conservatively when the
-                                    // parent reference is still represented in the CFG.
-                                    let _ = child;
-                                    let _ = candidate_local;
-                                    false
-                                })
-                        })
-                });
-
-                if !has_live_descendant {
-                    let _ = state.ownership.end_loan(&region);
-                    if let Some(active) = state.reference_loans.get_mut(&local) {
-                        active.remove(&region);
-                    }
-                    changed = true;
+                if loan_has_active_children(state, &region) {
+                    continue;
                 }
+
+                end_tracked_loan(state, &region);
+                if let Some(active) = state.reference_loans.get_mut(&local) {
+                    active.remove(&region);
+                }
+                changed = true;
             }
 
             if state.reference_loans.get(&local).is_some_and(BTreeSet::is_empty) {
@@ -499,6 +515,7 @@ fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Loc
         }
     }
 }
+
 
 fn transfer_rvalue(
     function: &MirFunction,
