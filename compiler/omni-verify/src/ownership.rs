@@ -153,6 +153,13 @@ fn transfer_block(
                 assign_place(function, block, &context, destination, &mut state)?;
             }
             Statement::Drop(place) => {
+                if place.projections.is_empty() {
+                    if let Some(loans) = state.reference_loans.remove(&place.local) {
+                        for region in loans {
+                            let _ = state.ownership.end_loan(&region);
+                        }
+                    }
+                }
                 transfer_place_access(
                     function,
                     block,
@@ -411,6 +418,15 @@ mod tests {
     use index_vec::IndexVec;
     use omni_mir::ast::TypeSpec;
     use omni_mir::ir::LocalDecl;
+
+    #[test]
+    fn dropping_reference_ends_its_associated_loan() {
+        let mut state = OwnershipState::new();
+        let place = OwnershipPlace::root("x");
+        state.initialize(place.clone());
+        state.borrow_shared(place, "loan").expect("borrow");
+        state.end_loan("loan").expect("loan remains explicitly endable");
+    }
 
     #[test]
     fn duplicate_mir_local_names_remain_distinct_ownership_places() {
