@@ -238,8 +238,7 @@ fn transfer_rvalue(
             Ok(())
         }
         Rvalue::Reference { place, mutable, .. } => {
-            let access =
-                if *mutable { AccessKind::BorrowMut } else { AccessKind::BorrowShared };
+            let access = if *mutable { AccessKind::BorrowMut } else { AccessKind::BorrowShared };
             transfer_place_access(function, block, context, place, access, state)
         }
         Rvalue::Range { start, end, .. } => {
@@ -374,11 +373,8 @@ mod tests {
     fn mutable_reference_conflicts_with_subsequent_write() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
         locals.push(LocalDecl { name: Some("r".into()), ty: Some(reference) });
@@ -396,15 +392,11 @@ mod tests {
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(0)),
-                    Rvalue::Use(Operand::Constant(Constant::Lit(
-                        omni_mir::ast::Lit::Int(2),
-                    ))),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(2)))),
                 ),
                 Statement::Assign(
                     Place::local(Local::from_usize(2)),
-                    Rvalue::Use(Operand::Constant(Constant::Lit(
-                        omni_mir::ast::Lit::Int(0),
-                    ))),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(0)))),
                 ),
             ],
             terminator: Some(Terminator::Return),
@@ -416,11 +408,7 @@ mod tests {
                 params: vec![Local::from_usize(0)],
                 return_place: Local::from_usize(2),
                 return_type: TypeSpec::Int,
-                body: omni_mir::ir::Body {
-                    blocks,
-                    local_decls: locals,
-                    unsafe_blocks: Vec::new(),
-                },
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
             }],
         );
 
@@ -456,11 +444,7 @@ mod tests {
                 params: vec![Local::from_usize(0)],
                 return_place: Local::from_usize(1),
                 return_type: TypeSpec::Int,
-                body: omni_mir::ir::Body {
-                    blocks,
-                    local_decls: locals,
-                    unsafe_blocks: Vec::new(),
-                },
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
             }],
         );
         let error = verify_program(&program).expect_err("use after move must be rejected");
