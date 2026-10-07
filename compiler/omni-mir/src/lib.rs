@@ -1,5 +1,6 @@
 //! Mid-Level Intermediate Representation for Omni.
 
+pub mod assume;
 pub mod concurrency;
 pub mod continuation;
 pub mod drop;
