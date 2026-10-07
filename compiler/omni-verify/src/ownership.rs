@@ -768,7 +768,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn reborrow_keeps_parent_loan_live_until_child_last_use() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
