@@ -178,7 +178,7 @@ fn transfer_block(
                 if place.projections.is_empty() {
                     if let Some(loans) = state.reference_loans.remove(&place.local) {
                         for region in loans {
-                            let _ = state.ownership.end_loan(&region);
+                            end_tracked_loan(&mut state, &region);
                         }
                     }
                 }
