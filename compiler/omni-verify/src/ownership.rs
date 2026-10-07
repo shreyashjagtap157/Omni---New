@@ -237,8 +237,10 @@ fn transfer_rvalue(
             }
             Ok(())
         }
-        Rvalue::Reference { place, .. } => {
-            transfer_place_access(function, block, context, place, AccessKind::Read, state)
+        Rvalue::Reference { place, mutable, .. } => {
+            let access =
+                if *mutable { AccessKind::BorrowMut } else { AccessKind::BorrowShared };
+            transfer_place_access(function, block, context, place, access, state)
         }
         Rvalue::Range { start, end, .. } => {
             transfer_operand(function, block, &format!("{context} range start"), start, state)?;
@@ -367,6 +369,64 @@ mod tests {
     use index_vec::IndexVec;
     use omni_mir::ast::TypeSpec;
     use omni_mir::ir::LocalDecl;
+
+    #[test]
+    fn mutable_reference_conflicts_with_subsequent_write() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference = tcx.intern(omni_mir::TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int,
+        });
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("r".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(
+                    Place::local(Local::from_usize(1)),
+                    Rvalue::Reference {
+                        place: Place::local(Local::from_usize(0)),
+                        mutable: true,
+                        ty: reference,
+                    },
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(0)),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(
+                        omni_mir::ast::Lit::Int(2),
+                    ))),
+                ),
+                Statement::Assign(
+                    Place::local(Local::from_usize(2)),
+                    Rvalue::Use(Operand::Constant(Constant::Lit(
+                        omni_mir::ast::Lit::Int(0),
+                    ))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "main".into(),
+                params: vec![Local::from_usize(0)],
+                return_place: Local::from_usize(2),
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body {
+                    blocks,
+                    local_decls: locals,
+                    unsafe_blocks: Vec::new(),
+                },
+            }],
+        );
+
+        let error = verify_program(&program).expect_err("active mutable borrow must block write");
+        assert!(error.message.contains("borrow conflict"), "unexpected ownership error: {error:?}");
+    }
 
     #[test]
     fn moved_local_cannot_be_read_again() {
