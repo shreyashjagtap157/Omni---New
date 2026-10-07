@@ -2267,8 +2267,7 @@ mod tests {
 
     #[test]
     fn source_pipeline_executes_match_guard_in_reference_machine() {
-        let source =
-            "fn main() -> i64 { let x = 5; return match x { y if true => y, _ => 0, }; }";
+        let source = "fn main() -> i64 { let x = 5; return match x { y if true => y, _ => 0, }; }";
         assert_eq!(
             compile_source_to_interpreter_value(source, manifest())
                 .expect("guarded match must execute"),
