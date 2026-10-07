@@ -134,18 +134,6 @@ impl PoloniusFacts {
                         }
 
                         if let Rvalue::Reference { place: borrowed, .. } = rvalue {
-                            Rvalue::Reference { place: borrowed, .. }
-                                if borrowed
-                                    .projections
-                                    .iter()
-                                    .any(|p| matches!(p, Projection::Deref)) =>
-                            {
-                                active_by_local.get(&borrowed.local).cloned()
-                            }
-                            _ => None,
-                        };
-
-                        if let Rvalue::Reference { place: borrowed, .. } = rvalue {
                             let loan = format!("loan_bb{}_{}", block_idx, stmt_idx);
                             let region = format!("'r_bb{}_{}", block_idx, stmt_idx);
 
