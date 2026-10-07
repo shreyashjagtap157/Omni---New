@@ -1522,8 +1522,6 @@ impl<'a> Parser<'a> {
             let mut bin = Node::new(bin_kind);
             bin.children.push(Child::Node(lhs));
             bin.children.push(self.bump_child());
-            let is_pipeline_or_assign =
-                bin_kind == SyntaxKind::PipelineExpr || bin_kind == SyntaxKind::AssignExpr;
             bin.children.push(Child::Node(self.parse_expr_bp(right_bp)));
             lhs = bin;
         }
