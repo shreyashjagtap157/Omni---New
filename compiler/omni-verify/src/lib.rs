@@ -2,17 +2,38 @@
 
 use omni_mir::ir::{BasicBlock, Body, Terminator};
 use polonius_engine::{Algorithm, AllFacts, FactTypes, Output};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PoloniusId(usize);
+
+impl From<usize> for PoloniusId {
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
+impl From<PoloniusId> for usize {
+    fn from(value: PoloniusId) -> Self {
+        value.0
+    }
+}
+
+impl polonius_engine::Atom for PoloniusId {
+    fn index(self) -> usize {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct OmniFactTypes;
 
 impl FactTypes for OmniFactTypes {
-    type Origin = usize;
-    type Loan = usize;
-    type Point = usize;
-    type Variable = usize;
-    type Path = usize;
+    type Origin = PoloniusId;
+    type Loan = PoloniusId;
+    type Point = PoloniusId;
+    type Variable = PoloniusId;
+    type Path = PoloniusId;
 }
 
 #[macro_export]
@@ -138,12 +159,12 @@ impl PoloniusFacts {
     /// kills, outlives relations, and CFG edges. The existing ownership checker
     /// remains authoritative until path invalidation facts are complete.
     pub fn run_engine(&self, body: &Body) -> Output<OmniFactTypes> {
-        let mut point_ids = BTreeMap::<String, usize>::new();
-        let mut origin_ids = BTreeMap::<String, usize>::new();
-        let mut loan_ids = BTreeMap::<String, usize>::new();
+        let mut point_ids = BTreeMap::<String, PoloniusId>::new();
+        let mut origin_ids = BTreeMap::<String, PoloniusId>::new();
+        let mut loan_ids = BTreeMap::<String, PoloniusId>::new();
 
-        let intern = |map: &mut BTreeMap<String, usize>, key: &str| -> usize {
-            let next = map.len();
+        let intern = |map: &mut BTreeMap<String, PoloniusId>, key: &str| -> PoloniusId {
+            let next = PoloniusId::from(map.len());
             *map.entry(key.to_string()).or_insert(next)
         };
 
