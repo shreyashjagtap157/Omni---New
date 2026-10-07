@@ -76,8 +76,10 @@ impl<'a> PatternChecker<'a> {
         scrutinee_ty: Ty,
         arms: &[MatchArm],
     ) -> Result<MatchAnalysisResult, TypeError> {
-        if matches!(self.tcx.get(scrutinee_ty), TyKind::Int | TyKind::Byte | TyKind::Char)
-            && arms.iter().all(|arm| numeric_pattern(&arm.pattern))
+        if numeric_scrutinee(self.tcx.get(scrutinee_ty))
+            && arms
+                .iter()
+                .all(|arm| numeric_pattern_for_type(&arm.pattern, self.tcx.get(scrutinee_ty)))
         {
             return self.check_numeric_match(scrutinee_ty, arms);
         }
@@ -476,6 +478,40 @@ impl<'a> PatternChecker<'a> {
             _ => vec![],
         }
     }
+
+fn numeric_scrutinee(kind: &TyKind) -> bool {
+    matches!(kind, TyKind::Int | TyKind::Byte | TyKind::Char)
+}
+
+fn numeric_literal_for_type(lit: &Lit, kind: &TyKind) -> bool {
+    matches!(
+        (lit, kind),
+        (Lit::Int(_), TyKind::Int)
+            | (Lit::Byte(_), TyKind::Byte)
+            | (Lit::Char(_), TyKind::Char)
+    )
+}
+
+fn numeric_boundary_for_type(boundary: &PatternRangeBoundary, kind: &TyKind) -> bool {
+    match boundary {
+        PatternRangeBoundary::Unbounded => true,
+        PatternRangeBoundary::Inclusive(lit) | PatternRangeBoundary::Exclusive(lit) => {
+            numeric_literal_for_type(lit, kind)
+        }
+    }
+}
+
+fn numeric_pattern_for_type(pattern: &Pattern, kind: &TyKind) -> bool {
+    match pattern {
+        Pattern::Wildcard | Pattern::Binding(_) => true,
+        Pattern::Lit(lit) => numeric_literal_for_type(lit, kind),
+        Pattern::Range { start, end } => {
+            numeric_boundary_for_type(start, kind) && numeric_boundary_for_type(end, kind)
+        }
+        Pattern::Or(patterns) => patterns.iter().all(|pattern| numeric_pattern_for_type(pattern, kind)),
+        _ => false,
+    }
+}
 
 fn numeric_pattern(pattern: &Pattern) -> bool {
     match pattern {
