@@ -1418,7 +1418,11 @@ fn assumption_statement_is_reported_as_a_diagnostic() {
     let builder = FnBuilder::new(&f, "f", TypeSpec::Int);
     let ret = builder.return_place;
     let func = builder.returns(vec![
-        Statement::Assume(omni_mir::ir::Assumption {}),
+        Statement::Assume(omni_mir::ir::Assumption::new(
+            omni_mir::ir::AssumptionId(0),
+            "test assumption",
+            Vec::new(),
+        )),
         assign(Place::local(ret), Rvalue::Use(const_int(3))),
     ]);
 
