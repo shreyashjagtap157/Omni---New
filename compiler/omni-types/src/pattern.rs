@@ -159,7 +159,7 @@ impl<'a> PatternChecker<'a> {
                 }
             }
 
-            if !useful {
+            if !useful && arm.guard.is_none() {
                 unreachable_arms.push(idx);
             }
 
@@ -734,6 +734,36 @@ mod tests {
             error,
             TypeError::NonExhaustiveMatch { missing, .. } if missing == i64::MIN.to_string()
         ));
+    }
+
+    #[test]
+    fn guarded_overlapping_range_remains_potentially_reachable() {
+        let mut tcx = int_tcx();
+        let ty = int_ty(&mut tcx);
+        let enum_defs = HashMap::new();
+        let mut checker = PatternChecker::new(&mut tcx, &enum_defs);
+        let arms = vec![
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Inclusive(Lit::Int(0)),
+                end: PatternRangeBoundary::Inclusive(Lit::Int(10)),
+            }),
+            MatchArm {
+                pattern: Pattern::Range {
+                    start: PatternRangeBoundary::Inclusive(Lit::Int(5)),
+                    end: PatternRangeBoundary::Inclusive(Lit::Int(15)),
+                },
+                guard: Some(crate::ast::Expr::Literal(Lit::Bool(true))),
+                body: crate::ast::Expr::Literal(Lit::Int(0)),
+            },
+            arm(Pattern::Range {
+                start: PatternRangeBoundary::Exclusive(Lit::Int(10)),
+                end: PatternRangeBoundary::Unbounded,
+            }),
+        ];
+
+        checker
+            .check_match(ty, &arms)
+            .expect("guarded overlap must not make the arm unreachable");
     }
 
     #[test]
