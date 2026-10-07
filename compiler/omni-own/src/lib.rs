@@ -324,8 +324,6 @@ impl OwnershipState {
                 PlaceState::Uninitialized
             } else if states_for_place.iter().all(|state| *state == PlaceState::Moved) {
                 PlaceState::Moved
-            } else if states_for_place.iter().all(|state| *state == PlaceState::PartiallyMoved) {
-                PlaceState::PartiallyMoved
             } else {
                 PlaceState::PartiallyMoved
             };
