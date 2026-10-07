@@ -169,6 +169,11 @@ pub enum MirVerificationError {
         context: String,
         message: String,
     },
+    InvalidAssumption {
+        func: String,
+        block: BasicBlock,
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for MirVerificationError {
@@ -329,6 +334,11 @@ impl std::fmt::Display for MirVerificationError {
                 f,
                 "MIR Verification Failure in '{}': ownership violation in block {:?} during {}: {}",
                 func, block, context, message
+            ),
+            Self::InvalidAssumption { func, block, reason } => write!(
+                f,
+                "MIR Verification Failure in '{}': invalid assumption in block {:?}: {}",
+                func, block, reason
             ),
         }
     }
@@ -497,7 +507,12 @@ impl MirVerifier {
                         }
                         Self::check_rvalue_type(prog, func, place, rval)?;
                     }
-                    Statement::Assume(_) => {}
+                    Statement::Assume(assumption) => {
+                        Self::check_assumption_shape(fn_name, bb_handle, func, assumption)?;
+                        for dep in &assumption.deps {
+                            Self::check_place(fn_name, dep, num_locals)?;
+                        }
+                    }
                     Statement::Drop(place) => Self::check_place(fn_name, place, num_locals)?,
                     Statement::BoundsCheck { index, length: _ } => {
                         // Check that the index local exists and is an Int type.
@@ -667,7 +682,9 @@ impl MirVerifier {
                     Statement::Assign(_, rvalue) => {
                         Self::check_rvalue_initialized(func, block, rvalue, &assigned)?;
                     }
-                    Statement::Assume(_) => {}
+                    Statement::Assume(assumption) => {
+                        Self::check_assumption_shape(fn_name, bb_handle, func, assumption)?;
+                    }
                     Statement::Drop(place) => {
                         Self::require_assigned(func, block, place.local, &assigned)?;
                     }
@@ -714,6 +731,50 @@ impl MirVerifier {
             }
         }
 
+        Ok(())
+    }
+
+    fn check_assumption_shape(
+        fn_name: &str,
+        block: BasicBlock,
+        func: &MirFunction,
+        assumption: &omni_mir::ir::Assumption,
+    ) -> Result<(), MirVerificationError> {
+        if !func.body.unsafe_blocks.contains(&block) {
+            return Err(MirVerificationError::InvalidAssumption {
+                func: fn_name.to_string(),
+                block,
+                reason: format!("assumption {} is outside an unsafe MIR region", assumption.id.0),
+            });
+        }
+        if assumption.obligation.trim().is_empty() {
+            return Err(MirVerificationError::InvalidAssumption {
+                func: fn_name.to_string(),
+                block,
+                reason: format!("assumption {} has an empty obligation", assumption.id.0),
+            });
+        }
+        Ok(())
+    }
+
+    fn check_assumption_initialized(
+        func: &MirFunction,
+        block: BasicBlock,
+        assumption: &omni_mir::ir::Assumption,
+        assigned: &HashSet<Local>,
+    ) -> Result<(), MirVerificationError> {
+        for dep in &assumption.deps {
+            if !assigned.contains(&dep.local) {
+                return Err(MirVerificationError::InvalidAssumption {
+                    func: func.name.clone(),
+                    block,
+                    reason: format!(
+                        "assumption {} depends on uninitialized local {:?}",
+                        assumption.id.0, dep.local
+                    ),
+                });
+            }
+        }
         Ok(())
     }
 
