@@ -368,30 +368,6 @@ mod tests {
     use omni_mir::ast::TypeSpec;
     use omni_mir::ir::LocalDecl;
 
-    fn make_program(
-        local_types: Vec<(String, omni_mir::Ty)>,
-        params: Vec<Local>,
-        return_place: Local,
-        statements: Vec<Statement>,
-    ) -> MirProgram {
-        let tcx = omni_mir::TyCtxt::new();
-        let mut locals = IndexVec::new();
-        for (name, ty) in local_types {
-            locals.push(LocalDecl { name: Some(name), ty: Some(ty) });
-        }
-        let mut blocks = IndexVec::new();
-        blocks.push(omni_mir::ir::BlockData { statements, terminator: Some(Terminator::Return) });
-        MirProgram::new(
-            tcx,
-            vec![MirFunction {
-                name: "main".into(),
-                params,
-                return_place,
-                return_type: TypeSpec::Int,
-                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
-            }],
-        )
-    }
 
     #[test]
     fn moved_local_cannot_be_read_again() {
