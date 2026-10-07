@@ -1695,7 +1695,9 @@ impl<'a> Parser<'a> {
         let mut n = Node::new(SyntaxKind::CommandCallExpr);
         n.children.push(Child::Node(callee));
         loop {
-            n.children.push(Child::Node(self.parse_expr_bp(crate::precedence::UNARY_BINDING_POWER.saturating_add(1))));
+            n.children.push(Child::Node(
+                self.parse_expr_bp(crate::precedence::UNARY_BINDING_POWER.saturating_add(1)),
+            ));
             if self.at_punct(Punct::Comma) {
                 n.children.push(self.bump_child());
             } else {
