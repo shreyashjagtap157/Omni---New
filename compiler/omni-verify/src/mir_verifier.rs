@@ -683,7 +683,8 @@ impl MirVerifier {
                         Self::check_rvalue_initialized(func, block, rvalue, &assigned)?;
                     }
                     Statement::Assume(assumption) => {
-                        Self::check_assumption_shape(fn_name, bb_handle, func, assumption)?;
+                        Self::check_assumption_shape(fn_name, block, func, assumption)?;
+                        Self::check_assumption_initialized(func, block, assumption, &assigned)?;
                     }
                     Statement::Drop(place) => {
                         Self::require_assigned(func, block, place.local, &assigned)?;
