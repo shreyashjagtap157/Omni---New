@@ -123,12 +123,23 @@ impl DropElaborator {
                 continue;
             }
 
-            let mut to_drop = out_states[idx]
-                .iter()
-                .copied()
-                .filter(|local| *local != return_place)
-                .collect::<Vec<_>>();
-            to_drop.sort_by_key(|local| std::cmp::Reverse(local.index()));
+            let mut to_drop = linear_initialization_order(
+                body,
+                block,
+                &predecessors,
+                params,
+            )
+            .unwrap_or_else(|| {
+                out_states[idx]
+                    .iter()
+                    .copied()
+                    .filter(|local| *local != return_place)
+                    .collect::<Vec<_>>()
+            })
+            .into_iter()
+            .filter(|local| out_states[idx].contains(local) && *local != return_place)
+            .rev()
+            .collect::<Vec<_>>();
 
             let existing = body.blocks[block]
                 .statements
@@ -146,6 +157,112 @@ impl DropElaborator {
                 }
             }
         }
+    }
+}
+
+fn linear_initialization_order(
+    body: &Body,
+    return_block: BasicBlock,
+    predecessors: &[Vec<BasicBlock>],
+    params: &[Local],
+) -> Option<Vec<Local>> {
+    let entry = BasicBlock::from(0);
+    let mut chain = Vec::new();
+    let mut current = return_block;
+    let mut seen = HashSet::new();
+
+    loop {
+        if !seen.insert(current) {
+            return None;
+        }
+        chain.push(current);
+        if current == entry {
+            break;
+        }
+        let preds = &predecessors[current.index()];
+        if preds.len() != 1 {
+            return None;
+        }
+        current = preds[0];
+    }
+
+    chain.reverse();
+    let mut order = params.to_vec();
+    for block in chain {
+        for statement in &body.blocks[block].statements {
+            transfer_order_statement(statement, &mut order);
+        }
+        if let Some(term) = body.blocks[block].terminator.as_ref() {
+            transfer_order_terminator(term, &mut order);
+        }
+    }
+    Some(order)
+}
+
+fn transfer_order_statement(statement: &Statement, order: &mut Vec<Local>) {
+    match statement {
+        Statement::Assign(place, rvalue) => {
+            transfer_order_rvalue(rvalue, order);
+            if place.is_local() {
+                order.retain(|local| *local != place.local);
+                order.push(place.local);
+            }
+        }
+        Statement::Drop(place) => {
+            order.retain(|local| *local != place.local);
+        }
+        Statement::Assume(_) | Statement::BoundsCheck { .. } => {}
+    }
+}
+
+fn transfer_order_terminator(term: &Terminator, order: &mut Vec<Local>) {
+    if let Terminator::Call { func, args, destination, .. } = term {
+        transfer_order_operand(func, order);
+        for arg in args {
+            transfer_order_operand(arg, order);
+        }
+        if let Some(destination) = destination.filter(|place| place.is_local()) {
+            order.retain(|local| *local != destination.local);
+            order.push(destination.local);
+        }
+    }
+}
+
+fn transfer_order_rvalue(rvalue: &Rvalue, order: &mut Vec<Local>) {
+    match rvalue {
+        Rvalue::Use(operand) | Rvalue::UnaryOp(_, operand) | Rvalue::Cast { operand, .. } => {
+            transfer_order_operand(operand, order);
+        }
+        Rvalue::BinaryOp(_, lhs, rhs) => {
+            transfer_order_operand(lhs, order);
+            transfer_order_operand(rhs, order);
+        }
+        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
+            for operand in operands {
+                transfer_order_operand(operand, order);
+            }
+        }
+        Rvalue::Struct { fields, .. } => {
+            for (_, operand) in fields {
+                transfer_order_operand(operand, order);
+            }
+        }
+        Rvalue::Reference { .. } => {}
+        Rvalue::Range { start, end, .. } => {
+            transfer_order_operand(start, order);
+            transfer_order_operand(end, order);
+        }
+        Rvalue::Field { base, .. } => transfer_order_operand(base, order),
+        Rvalue::Index { base, index, .. } => {
+            transfer_order_operand(base, order);
+            transfer_order_operand(index, order);
+        }
+    }
+}
+
+fn transfer_order_operand(operand: &Operand, order: &mut Vec<Local>) {
+    if let Operand::Move(place) = operand {
+        order.retain(|local| *local != place.local);
     }
 }
 
@@ -290,6 +407,44 @@ mod tests {
             .statements
             .iter()
             .any(|s| matches!(s, Statement::Drop(p) if p.local == ret)));
+    }
+
+    #[test]
+    fn drops_follow_successful_initialization_order_on_linear_path() {
+        let ret = Local::from(0);
+        let first = Local::from(1);
+        let second = Local::from(2);
+        let mut mir = body(
+            vec![BlockData {
+                statements: vec![
+                    Statement::Assign(
+                        Place::local(second),
+                        Rvalue::Use(Operand::Constant(Constant::Lit(Lit::Int(2)))),
+                    ),
+                    Statement::Assign(
+                        Place::local(first),
+                        Rvalue::Use(Operand::Constant(Constant::Lit(Lit::Int(1)))),
+                    ),
+                ],
+                terminator: Some(Terminator::Return),
+            }],
+            vec![
+                LocalDecl { name: Some("_return".into()), ty: Some(int_ty()) },
+                LocalDecl { name: Some("first".into()), ty: Some(int_ty()) },
+                LocalDecl { name: Some("second".into()), ty: Some(int_ty()) },
+            ],
+        );
+
+        DropElaborator::elaborate(&mut mir, &[], ret);
+        let drops = mir.blocks[BasicBlock::from(0)]
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Drop(place) => Some(place.local),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(drops, vec![first, second]);
     }
 
     #[test]
