@@ -1334,7 +1334,12 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             let field = node
                 .children_with_tokens()
                 .filter_map(|e| e.into_token())
-                .filter(|t| matches!(t.kind(), omni_syntax::SyntaxKind::Ident | omni_syntax::SyntaxKind::Keyword))
+                .filter(|t| {
+                    matches!(
+                        t.kind(),
+                        omni_syntax::SyntaxKind::Ident | omni_syntax::SyntaxKind::Keyword
+                    )
+                })
                 .last()
                 .map(|t| t.text().to_string())
                 .ok_or_else(|| "Semantic frontend error: field has no name".to_string())?;
@@ -1343,10 +1348,7 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             } else {
                 // Projection shorthand .field denotes closure |it| it.field (ERR3-0033)
                 let it_var = "it".to_string();
-                let body = Expr::Field {
-                    expr: Box::new(Expr::Var(it_var.clone())),
-                    field,
-                };
+                let body = Expr::Field { expr: Box::new(Expr::Var(it_var.clone())), field };
                 Ok(Expr::Lambda {
                     params: vec![(it_var, TypeSpec::GenericParam("Infer".into()))],
                     body: Box::new(body),
@@ -1578,7 +1580,12 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             let method = node
                 .children_with_tokens()
                 .filter_map(|e| e.into_token())
-                .find(|t| matches!(t.kind(), omni_syntax::SyntaxKind::Ident | omni_syntax::SyntaxKind::Keyword))
+                .find(|t| {
+                    matches!(
+                        t.kind(),
+                        omni_syntax::SyntaxKind::Ident | omni_syntax::SyntaxKind::Keyword
+                    )
+                })
                 .map(|t| t.text().to_string())
                 .ok_or_else(|| {
                     "Semantic frontend error: method call has no method name".to_string()
@@ -1615,7 +1622,9 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
         omni_syntax::SyntaxKind::PipelineExpr => {
             let parts = node.children().collect::<Vec<_>>();
             if parts.len() != 2 {
-                return Err("Semantic frontend error: pipeline expression must have lhs and rhs".into());
+                return Err(
+                    "Semantic frontend error: pipeline expression must have lhs and rhs".into()
+                );
             }
             let lhs = expr_from_node(&parts[0])?;
             // Normative Pipeline Lowering (ERR3-0030):
@@ -1624,7 +1633,9 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             // `x |> f(a, _, b)` -> `f(a, x, b)`
             match expr_from_node(&parts[1])? {
                 Expr::Call { func, generic_args, mut args } => {
-                    if let Some(pos) = args.iter().position(|a| matches!(a, Expr::Var(v) if v == "_")) {
+                    if let Some(pos) =
+                        args.iter().position(|a| matches!(a, Expr::Var(v) if v == "_"))
+                    {
                         args[pos] = lhs;
                     } else {
                         args.insert(0, lhs);
@@ -1632,11 +1643,7 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                     Ok(Expr::Call { func, generic_args, args })
                 }
                 Expr::Var(func) => {
-                    Ok(Expr::Call {
-                        func,
-                        generic_args: Vec::new(),
-                        args: vec![lhs],
-                    })
+                    Ok(Expr::Call { func, generic_args: Vec::new(), args: vec![lhs] })
                 }
                 Expr::MethodCall { receiver, method, generic_args, mut args } => {
                     if let Some(pos) = args.iter().position(|a| matches!(a, Expr::Var(v) if v == "_")) {
