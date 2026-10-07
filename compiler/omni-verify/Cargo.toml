@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 index_vec = "0.1.4"
+polonius-engine = "0.13.0"
 omni-mir = { path = "../omni-mir" }
 omni-own = { path = "../omni-own" }
 
