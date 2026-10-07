@@ -1252,10 +1252,7 @@ impl<'a> Parser<'a> {
                 // bare items; the leading `#` is consumed by the item parser.
                 n.children.push(Child::Node(self.parse_item_stmt()));
             } else {
-                let prev_cmd = self.allow_command_call;
-                self.allow_command_call = true;
                 let expr = self.parse_expression();
-                self.allow_command_call = prev_cmd;
                 if self.at_punct(Punct::Semicolon) {
                     let stmt_kind = if expr.kind == SyntaxKind::MacroInvocation {
                         SyntaxKind::MacroStmt
@@ -1325,10 +1322,7 @@ impl<'a> Parser<'a> {
             n.children.push(Child::Node(self.parse_type()));
         }
         n.children.push(self.expect_punct(Punct::Eq));
-        let prev_cmd = self.allow_command_call;
-        self.allow_command_call = true;
         n.children.push(Child::Node(self.parse_expression()));
-        self.allow_command_call = prev_cmd;
         n.children.push(self.expect_punct(Punct::Semicolon));
         n
     }
@@ -1337,10 +1331,7 @@ impl<'a> Parser<'a> {
         let mut n = Node::new(SyntaxKind::ReturnExpr);
         n.children.push(self.expect_kw(Kw::Return));
         if !self.at_punct(Punct::Semicolon) {
-            let prev_cmd = self.allow_command_call;
-            self.allow_command_call = true;
             n.children.push(Child::Node(self.parse_expression()));
-            self.allow_command_call = prev_cmd;
         }
         n.children.push(self.expect_punct(Punct::Semicolon));
         n
@@ -1533,12 +1524,7 @@ impl<'a> Parser<'a> {
             bin.children.push(self.bump_child());
             let is_pipeline_or_assign =
                 bin_kind == SyntaxKind::PipelineExpr || bin_kind == SyntaxKind::AssignExpr;
-            let prev_cmd = self.allow_command_call;
-            if is_pipeline_or_assign {
-                self.allow_command_call = true;
-            }
             bin.children.push(Child::Node(self.parse_expr_bp(right_bp)));
-            self.allow_command_call = prev_cmd;
             lhs = bin;
         }
         lhs
@@ -2661,6 +2647,16 @@ pub fn desugar_node(
 mod tests {
     use super::*;
     use omni_syntax::{SyntaxElement, SyntaxKind as K};
+
+    #[test]
+    fn command_style_calls_are_rejected_while_candidate2_is_out_of_force() {
+        let mut parser = Parser::from_source("fn main() { print 1; }");
+        let parsed = parser.parse_source();
+        assert!(
+            !parsed.diagnostics.is_empty(),
+            "out-of-force command-call syntax must not become an Edition 1 parse"
+        );
+    }
 
     #[test]
     fn bitwise_or_is_not_reinterpreted_as_a_command_call_closure() {
