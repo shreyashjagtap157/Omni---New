@@ -4,7 +4,7 @@
 //! - Literal patterns (Int, Float, Bool, Char, Byte, String)
 //! - Tuples & Struct patterns
 //! - Enum variants (Option, Result, custom user ADTs)
-//! - Bounded Range patterns
+//! - Numeric interval range patterns, including trailing-unbounded ranges
 //! - Or-patterns (`P1 | P2`)
 //! - Never type (`!`) uninhabited pattern handling
 //! - Guarded arms (which do not contribute to unconditional exhaustiveness)
@@ -488,6 +488,7 @@ impl<'a> PatternChecker<'a> {
         }
     }
 }
+
 fn numeric_scrutinee(kind: &TyKind) -> bool {
     matches!(kind, TyKind::Int | TyKind::Byte | TyKind::Char)
 }
@@ -653,7 +654,6 @@ fn numeric_witness(kind: &TyKind, value: Numeric) -> String {
         _ => value.to_string(),
     }
 }
-
 
 #[cfg(test)]
 mod tests {
