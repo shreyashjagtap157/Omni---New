@@ -35,13 +35,13 @@ impl FlowState {
         let mut reference_loans = BTreeMap::new();
         for state in states {
             for (&local, loans) in &state.reference_loans {
-                reference_loans.entry(local).or_insert_with(BTreeSet::new).extend(loans.iter().cloned());
+                reference_loans
+                    .entry(local)
+                    .or_insert_with(BTreeSet::new)
+                    .extend(loans.iter().cloned());
             }
         }
-        Self {
-            ownership: OwnershipState::join_all(&inputs),
-            reference_loans,
-        }
+        Self { ownership: OwnershipState::join_all(&inputs), reference_loans }
     }
 }
 
@@ -144,7 +144,8 @@ fn transfer_block(
                     }
                 }
                 transfer_rvalue(function, block, &context, rvalue, &mut state)?;
-                if destination.projections.is_empty() && matches!(rvalue, Rvalue::Reference { .. }) {
+                if destination.projections.is_empty() && matches!(rvalue, Rvalue::Reference { .. })
+                {
                     let region = format!("{}:bb{}:{}", function.name, block.index(), context);
                     state.reference_loans.entry(destination.local).or_default().insert(region);
                 }
