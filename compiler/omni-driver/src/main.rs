@@ -2468,6 +2468,15 @@ mod tests {
     }
 
     #[test]
+    fn source_pipeline_executes_shared_reference_in_reference_machine() {
+        let source =
+            "fn read(x: &i64) -> i64 { return *x; } fn main() -> i64 { let x = 7; return read(&x); }";
+        let value = compile_source_to_interpreter_value(source, manifest())
+            .expect("reference-machine execution of shared reference");
+        assert_eq!(value, 7);
+    }
+
+    #[test]
     fn source_pipeline_accepts_reference_types_until_native_boundary() {
         let source = "fn read(x: &i64) -> i64 { return *x; } fn main() -> i64 { let x = 7; return read(&x); }";
         let err = compile_source_to_object(source, manifest())
