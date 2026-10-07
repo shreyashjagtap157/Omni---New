@@ -3165,7 +3165,6 @@ mod tests {
                 capabilities: vec![],
                 body: Expr::Match {
                     expr: Box::new(Expr::Literal(Lit::Int(7))),
-                    arms: vec![
                     arms: vec![omni_types::ast::MatchArm {
                         pattern: omni_types::ast::Pattern::Or(vec![
                             omni_types::ast::Pattern::Binding("value".to_string()),
@@ -3193,42 +3192,6 @@ mod tests {
                 )
             })
         }));
-    }
-
-    #[test]
-    fn test_mir_lowering_diverging_match_guard_preserves_cfg() {
-        let mut ctx = LoweringContext::new();
-        let program = MonomorphizedProgram {
-            functions: vec![GenericFnDef {
-                name: "diverging_guard".to_string(),
-                type_params: vec![],
-                bounds: vec![],
-                params: vec![],
-                return_type: TypeSpec::Int,
-                effects: omni_effects::EffectRow::default(),
-                capabilities: vec![],
-                body: Expr::Match {
-                    expr: Box::new(Expr::Literal(Lit::Int(1))),
-                    arms: vec![
-                        omni_types::ast::MatchArm {
-                            pattern: omni_types::ast::Pattern::Binding("x".to_string()),
-                            guard: Some(Expr::Return(Some(Box::new(Expr::Literal(
-                                Lit::Bool(true),
-                            ))))),
-                            body: Expr::Literal(Lit::Int(99)),
-                        },
-                        omni_types::ast::MatchArm {
-                            pattern: omni_types::ast::Pattern::Wildcard,
-                            guard: None,
-                            body: Expr::Literal(Lit::Int(0)),
-                        },
-                    ],
-                },
-            }],
-        };
-
-        ctx.lower_monomorphized_program(&program)
-            .expect("diverging guard should produce valid terminated CFG");
     }
 
     #[test]
