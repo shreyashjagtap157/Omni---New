@@ -1611,7 +1611,9 @@ impl<'a> Parser<'a> {
                 if self.at_ident() {
                     n.children.push(Child::Token(self.bump_index()));
                 } else {
-                    n.children.push(Child::Node(self.error_node("expected field name after leading '.'")));
+                    n.children.push(Child::Node(
+                        self.error_node("expected field name after leading '.'"),
+                    ));
                 }
                 n
             }
