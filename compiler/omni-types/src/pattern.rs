@@ -775,6 +775,7 @@ mod tests {
                 start: PatternRangeBoundary::Exclusive(Lit::Int(10)),
                 end: PatternRangeBoundary::Unbounded,
             }),
+            arm(Pattern::Wildcard),
         ];
 
         checker.check_match(ty, &arms).expect("guarded overlap must not make the arm unreachable");
