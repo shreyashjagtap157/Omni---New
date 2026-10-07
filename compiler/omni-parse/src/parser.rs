@@ -1687,10 +1687,44 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Keyword(Kw::True | Kw::False)) => true,
             // A dot after an already-parsed callee is postfix syntax; treating it
             // as a command-call argument would steal field and method expressions.
-            Some(TokenKind::Punct(Punct::Pipe)) => true, // closure |x| ...
+            Some(TokenKind::Punct(Punct::Pipe)) => self.looks_like_closure_start(),
             Some(TokenKind::Punct(Punct::LBrace)) => true, // block / struct
             _ => false,
         }
+    }
+
+    fn looks_like_closure_start(&self) -> bool {
+        if !self.at_punct(Punct::Pipe) {
+            return false;
+        }
+
+        let mut index = self.pos + 1;
+        let mut paren_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut brace_depth = 0usize;
+        while let Some(token) = self.tokens.get(index) {
+            match token.kind {
+                TokenKind::Punct(Punct::LParen) => paren_depth += 1,
+                TokenKind::Punct(Punct::RParen) if paren_depth > 0 => paren_depth -= 1,
+                TokenKind::Punct(Punct::LBracket) => bracket_depth += 1,
+                TokenKind::Punct(Punct::RBracket) if bracket_depth > 0 => bracket_depth -= 1,
+                TokenKind::Punct(Punct::LBrace) => brace_depth += 1,
+                TokenKind::Punct(Punct::RBrace) if brace_depth > 0 => brace_depth -= 1,
+                TokenKind::Punct(Punct::Pipe)
+                    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 =>
+                {
+                    return true;
+                }
+                TokenKind::Punct(Punct::Semicolon)
+                    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+            index += 1;
+        }
+        false
     }
 
     /// Parses a command call `name arg1, arg2` (ERR3-0035).
@@ -2627,6 +2661,18 @@ pub fn desugar_node(
 mod tests {
     use super::*;
     use omni_syntax::{SyntaxElement, SyntaxKind as K};
+
+    #[test]
+    fn bitwise_or_is_not_reinterpreted_as_a_command_call_closure() {
+        let source = "fn f() { let x = a | b ^ c & d; return x; }";
+        let mut parser = Parser::from_source(source);
+        let parsed = parser.parse_source();
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "bitwise OR must remain a binary operator: {:?}",
+            parsed.diagnostics
+        );
+    }
 
     #[test]
     fn postfix_field_and_method_are_not_reinterpreted_as_command_calls() {
