@@ -690,7 +690,8 @@ mod polonius_tests {
     fn replacing_reference_local_kills_previous_loan_at_replacement_point() {
         let mut tcx = TyCtxt::new();
         let int_ty = tcx.intern(TyKind::Int);
-        let ref_ty = tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner: int_ty });
+        let ref_ty =
+            tcx.intern(TyKind::Reference { lifetime: None, mutable: true, inner: int_ty });
         let statements = vec![
             reference_statement(
                 Local::from_usize(1),
