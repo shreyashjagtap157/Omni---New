@@ -1685,7 +1685,8 @@ impl<'a> Parser<'a> {
                 | TokenKind::InterpolatedString,
             ) => true,
             Some(TokenKind::Keyword(Kw::True | Kw::False)) => true,
-            Some(TokenKind::Punct(Punct::Dot)) => true, // .name projection
+            // A dot after an already-parsed callee is postfix syntax; treating it
+            // as a command-call argument would steal field and method expressions.
             Some(TokenKind::Punct(Punct::Pipe)) => true, // closure |x| ...
             Some(TokenKind::Punct(Punct::LBrace)) => true, // block / struct
             _ => false,
@@ -1905,8 +1906,11 @@ impl<'a> Parser<'a> {
         // The condition is followed by the then-block, so a `{` there opens
         // that block rather than a struct literal on the condition.
         let saved = self.no_struct_literal;
+        let saved_cmd = self.allow_command_call;
         self.no_struct_literal = true;
+        self.allow_command_call = false;
         let condition = self.parse_expression();
+        self.allow_command_call = saved_cmd;
         self.no_struct_literal = saved;
         n.children.push(Child::Node(condition));
         n.children.push(Child::Node(self.parse_block()));
@@ -1927,8 +1931,11 @@ impl<'a> Parser<'a> {
         // The scrutinee is followed by the arm block, so a `{` there opens the
         // arms rather than a struct literal on the scrutinee.
         let saved = self.no_struct_literal;
+        let saved_cmd = self.allow_command_call;
         self.no_struct_literal = true;
+        self.allow_command_call = false;
         let scrutinee = self.parse_expression();
+        self.allow_command_call = saved_cmd;
         self.no_struct_literal = saved;
         n.children.push(Child::Node(scrutinee));
         n.children.push(self.expect_punct(Punct::LBrace));
@@ -2614,6 +2621,22 @@ pub fn desugar_node(
 mod tests {
     use super::*;
     use omni_syntax::{SyntaxElement, SyntaxKind as K};
+
+    #[test]
+    fn postfix_field_and_method_are_not_reinterpreted_as_command_calls() {
+        for source in [
+            "struct P { x: i64 } fn main() -> i64 { let p = P { x: 1 }; return p.x; }",
+            "struct P { x: i64 } impl P { fn get() -> i64 { return self.x; } } fn main() -> i64 { let p = P { x: 1 }; return p.get(); }",
+        ] {
+            let mut parser = Parser::from_source(source);
+            let parsed = parser.parse_source();
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "postfix expression must parse without command-call ambiguity: {source:?} -> {:?}",
+                parsed.diagnostics
+            );
+        }
+    }
 
     #[test]
     fn struct_literal_is_not_reinterpreted_as_command_call_argument() {
