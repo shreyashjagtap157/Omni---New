@@ -2003,8 +2003,11 @@ impl<'a> Parser<'a> {
         // The condition is followed by the loop body block, so a `{` there
         // opens the body rather than a struct literal on the condition.
         let saved = self.no_struct_literal;
+        let saved_cmd = self.allow_command_call;
         self.no_struct_literal = true;
+        self.allow_command_call = false;
         let condition = self.parse_expression();
+        self.allow_command_call = saved_cmd;
         self.no_struct_literal = saved;
         n.children.push(Child::Node(condition));
         n.children.push(Child::Node(self.parse_block()));
@@ -2022,8 +2025,11 @@ impl<'a> Parser<'a> {
         // The iterable is terminated by the loop body block, so a `{` here
         // opens the loop body rather than a struct literal on the iterable.
         let saved = self.no_struct_literal;
+        let saved_cmd = self.allow_command_call;
         self.no_struct_literal = true;
+        self.allow_command_call = false;
         let iterable = self.parse_expression();
+        self.allow_command_call = saved_cmd;
         self.no_struct_literal = saved;
         n.children.push(Child::Node(iterable));
         n.children.push(Child::Node(self.parse_block()));
