@@ -1795,7 +1795,7 @@ fn match_arm_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast:
             [body] => (pattern_from_cst(&pattern_node)?, None, body.clone()),
             [guard, body] => {
                 (pattern_from_cst(&pattern_node)?, Some(expr_from_node(guard)?), body.clone())
-            },
+            }
             _ => return Err("Semantic frontend error: malformed match arm".into()),
         },
     };
