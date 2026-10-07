@@ -2057,6 +2057,92 @@ mod tests {
     }
 
     #[test]
+    fn test_verifier_accepts_initialized_unsafe_assumption() {
+        let mut tcx = TyCtxt::new();
+        let int = tcx.intern(TyKind::Int);
+        let mut locals = IndexVec::new();
+        let ret = locals.push(LocalDecl { name: Some("_return".into()), ty: Some(int) });
+        let x = locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![
+                Statement::Assign(
+                    Place::local(x),
+                    Rvalue::Use(Operand::Constant(omni_mir::ir::Constant::Lit(
+                        omni_mir::ast::Lit::Int(7),
+                    ))),
+                ),
+                Statement::Assume(omni_mir::ir::Assumption::new(
+                    omni_mir::ir::AssumptionId(1),
+                    "x remains initialized",
+                    vec![Place::local(x)],
+                )),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Copy(Place::local(x))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let prog = MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "safe_assumption".into(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Int,
+                body: Body {
+                    blocks,
+                    local_decls: locals,
+                    unsafe_blocks: vec![BasicBlock::from_usize(0)],
+                },
+            }],
+            struct_defs: std::collections::HashMap::new(),
+        };
+        assert!(MirVerifier::verify_program(&prog).is_ok());
+    }
+
+    #[test]
+    fn test_verifier_rejects_assumption_outside_unsafe_region() {
+        let mut tcx = TyCtxt::new();
+        let int = tcx.intern(TyKind::Int);
+        let mut locals = IndexVec::new();
+        let ret = locals.push(LocalDecl { name: Some("_return".into()), ty: Some(int) });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![
+                Statement::Assume(omni_mir::ir::Assumption::new(
+                    omni_mir::ir::AssumptionId(2),
+                    "unscoped assumption",
+                    vec![],
+                )),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Constant(omni_mir::ir::Constant::Lit(
+                        omni_mir::ast::Lit::Int(1),
+                    ))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let prog = MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "bad_assumption".into(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Int,
+                body: Body { blocks, local_decls: locals, ..Default::default() },
+            }],
+            struct_defs: std::collections::HashMap::new(),
+        };
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::InvalidAssumption { .. })
+        ));
+    }
+
+    #[test]
     fn test_verifier_rejects_duplicate_parameter_local() {
         let mut local_decls = IndexVec::new();
         let ret_l = local_decls
