@@ -64,6 +64,20 @@ The broader verifier must continue to reject invalid MIR and must not make valid
 because the analysis is conservative. CFG joins, nested reborrows, aggregate-contained references, and
 all call/return provenance paths still require dedicated qualification.
 
+### Specification authority caveat
+
+`spec/reference/core_semantics_and_types.md` labels itself “Normative Candidate Reference for Edition 1”,
+but `spec/reference/README.md` classifies `reference/` as an exhaustive reference domain outside the
+normative hashed domain. The normative registry's `OWN-0001` and `OWN-0004` define affine behavior for
+non-`Copy` values and eligibility constraints for `Copy`, but do not explicitly define reference-specific
+`Copy` implementations. Resolve the authority/precedence mismatch before treating the compendium as the
+source of a new normative rule.
+
+The official Rust Reference documents one feasible precedent: shared references are copyable independently
+of their referent type, while mutable references are not copyable to prevent aliased mutable references
+(https://doc.rust-lang.org/reference/types/pointer.html). This is comparative evidence, not an Omni rule.
+No option is selected here, and no normative spec hash or grammar was changed.
+
 Before implementing copy propagation, resolve this normative question: **is a shared reference `&T`
 copyable, or are all reference values affine unless an explicit Copy-like rule says otherwise?** The
 current Edition 1 core-semantics section 5.1 defines by-value ownership transfer, and section 5.2 defines
