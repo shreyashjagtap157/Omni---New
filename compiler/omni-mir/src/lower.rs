@@ -1144,7 +1144,9 @@ impl<'a> FnMirBuilder<'a> {
                 if definition.type_params.len() != type_arg_count {
                     return Err(format!(
                         "MIR lowering error: enum '{}' expects {} type arguments, found {}",
-                        enum_name, definition.type_params.len(), type_arg_count
+                        enum_name,
+                        definition.type_params.len(),
+                        type_arg_count
                     ));
                 }
                 let variant_def = definition
