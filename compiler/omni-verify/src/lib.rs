@@ -191,6 +191,9 @@ impl PoloniusFacts {
                             &mut facts,
                         );
                     }
+                    Terminator::SwitchEnum { place, .. } => {
+                        record_place_use(place, &point, &origin_by_local, &mut facts, false);
+                    }
                     Terminator::Call { func, args, destination, .. } => {
                         record_operand_use(
                             func,
@@ -375,6 +378,15 @@ impl PoloniusFacts {
                         }
                     }
                     Terminator::SwitchInt { targets, otherwise, .. } => {
+                        for target in
+                            targets.iter().map(|(_, block)| block).chain(std::iter::once(otherwise))
+                        {
+                            if let Some(to) = block_entry(*target, body, &mut point_ids) {
+                                facts.cfg_edge.push((from, to));
+                            }
+                        }
+                    }
+                    Terminator::SwitchEnum { targets, otherwise, .. } => {
                         for target in
                             targets.iter().map(|(_, block)| block).chain(std::iter::once(otherwise))
                         {

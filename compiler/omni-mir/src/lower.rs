@@ -132,6 +132,7 @@ impl LoweringContext {
                 scope,
                 fn_sigs: &fn_sigs,
                 struct_defs: &self.struct_defs,
+                enum_defs: &self.enum_defs,
                 return_ty: ret_ty,
                 current_block: None,
                 loops: Vec::new(),
@@ -227,6 +228,7 @@ struct FnMirBuilder<'a> {
     scope: HashMap<String, crate::ir::Local>,
     fn_sigs: &'a HashMap<String, (Vec<Ty>, Ty)>,
     struct_defs: &'a HashMap<String, omni_types::ast::StructDef>,
+    enum_defs: &'a HashMap<String, omni_types::ast::EnumDef>,
     return_ty: Ty,
     current_block: Option<crate::ir::BasicBlock>,
     loops: Vec<LoopContext>,
@@ -1121,6 +1123,63 @@ impl<'a> FnMirBuilder<'a> {
                         test_block = alternative_failure;
                     }
                 }
+                Ok(())
+            }
+            omni_types::ast::Pattern::Variant { enum_name, variant, subpatterns } => {
+                let scrutinee_ty = self.local_decls[scrutinee.local].ty.ok_or_else(|| {
+                    "MIR lowering error: enum pattern scrutinee has no concrete type".to_string()
+                })?;
+                let type_arg_count = match self.tcx.get(scrutinee_ty) {
+                    TyKind::Enum(actual_name, args) if actual_name == enum_name => args.len(),
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: enum pattern '{}::{}' applied to {:?}",
+                            enum_name, variant, other
+                        ));
+                    }
+                };
+                let definition = self.enum_defs.get(enum_name).ok_or_else(|| {
+                    format!("MIR lowering error: enum '{}' has no HIR declaration", enum_name)
+                })?;
+                if definition.type_params.len() != type_arg_count {
+                    return Err(format!(
+                        "MIR lowering error: enum '{}' expects {} type arguments, found {}",
+                        enum_name, definition.type_params.len(), type_arg_count
+                    ));
+                }
+                let variant_def = definition
+                    .variants
+                    .iter()
+                    .find(|candidate| candidate.name == *variant)
+                    .ok_or_else(|| {
+                        format!(
+                            "MIR lowering error: enum '{}' has no variant '{}'",
+                            enum_name, variant
+                        )
+                    })?;
+                if subpatterns.len() != variant_def.payload.len() {
+                    return Err(format!(
+                        "MIR lowering error: enum pattern '{}::{}' expects {} payload patterns, found {}",
+                        enum_name, variant, variant_def.payload.len(), subpatterns.len()
+                    ));
+                }
+                if subpatterns
+                    .iter()
+                    .any(|pattern| !matches!(pattern, omni_types::ast::Pattern::Wildcard))
+                {
+                    return Err(
+                        "MIR lowering error: enum payload binding or nested testing requires payload projection lowering".into()
+                    );
+                }
+                let block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: enum pattern has no current dispatch block".to_string()
+                })?;
+                self.blocks[block].terminator = Some(crate::ir::Terminator::SwitchEnum {
+                    place: scrutinee.clone(),
+                    enum_name: enum_name.clone(),
+                    targets: vec![(variant.clone(), success)],
+                    otherwise: failure,
+                });
                 Ok(())
             }
             other => Err(format!(

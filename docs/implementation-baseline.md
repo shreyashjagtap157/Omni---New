@@ -26,9 +26,11 @@ active implementation path now includes:
 - driver integration for reference-machine and native paths.
 
 The MIR verifier now checks enum constructor declaration identity, generic-argument arity, variant
-existence, and payload arity against the declarations carried from HIR. This does not define an enum
-object layout or native discriminant representation; native enum construction and aggregate-pattern
-dispatch remain fail-closed at the target-ABI boundary.
+existence, and payload arity against the declarations carried from HIR. MIR also has an explicit,
+non-consuming enum-variant branch terminator, and the reference machine executes unit-variant matches
+and wildcard-only payload patterns. Payload binding/nested payload tests remain an explicit MIR gap;
+native enum construction and dispatch remain fail-closed because no target tagged-layout contract is
+in force.
 
 Important remaining qualification work includes richer canonical HIR typing/provenance and semantic
 obligation preservation, complete ownership/lifetime integration into the production pipeline,

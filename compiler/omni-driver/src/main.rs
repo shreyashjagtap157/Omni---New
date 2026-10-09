@@ -3117,4 +3117,25 @@ mod tests {
             vec!["Red", "Blue"]
         );
     }
+    #[test]
+    fn source_pipeline_executes_unit_enum_variant_match_in_reference_machine() {
+        let source = "enum Shade { Red, Blue } fn main() -> i64 { let shade = Shade::Blue(); return match shade { Shade::Red => 1, Shade::Blue => 2 }; }";
+        assert_eq!(
+            compile_source_to_interpreter_value(source, manifest())
+                .expect("unit enum matching must execute on the reference machine"),
+            2
+        );
+    }
+
+    #[test]
+    fn source_pipeline_executes_enum_match_with_wildcard_payload() {
+        let source = "enum Maybe { Some(i64), None } fn main() -> i64 { let maybe = Maybe::Some(41); return match maybe { Maybe::Some(_) => 42, Maybe::None => 0 }; }";
+        assert_eq!(
+            compile_source_to_interpreter_value(source, manifest())
+                .expect("wildcard enum payload matching must execute on the reference machine"),
+            42
+        );
+    }
+
+
 }

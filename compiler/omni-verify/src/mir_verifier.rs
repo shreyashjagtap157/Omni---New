@@ -2,7 +2,7 @@
 //! Validates structural and control-flow graph invariants before native code generation:
 //! 1. All referenced Local places/operands exist in function `local_decls`.
 //! 2. All target BasicBlock handles in terminators exist in function `blocks`.
-//! 3. All basic blocks terminate in a valid Terminator (`Return`, `Goto`, `SwitchInt`, `Call`, `Unreachable`).
+//! 3. All basic blocks terminate in a valid Terminator (`Return`, `Goto`, `SwitchInt`, `SwitchEnum`, `Call`, `Unreachable`).
 //! 4. Parameter and return local indices strictly match `MirFunction` signature parameters.
 
 use std::collections::{HashSet, VecDeque};
@@ -563,6 +563,73 @@ impl MirVerifier {
                     }
                     Self::check_block(fn_name, *otherwise, num_blocks)?;
                 }
+                Terminator::SwitchEnum { place, enum_name, targets, otherwise } => {
+                    Self::check_place(fn_name, place, num_locals)?;
+                    for (_, target) in targets {
+                        Self::check_block(fn_name, *target, num_blocks)?;
+                    }
+                    Self::check_block(fn_name, *otherwise, num_blocks)?;
+                    let mut tcx = prog.tcx.clone();
+                    let root_ty = Self::local_ty(func, place.local, fn_name)?;
+                    let switch_ty = if place.is_local() {
+                        root_ty
+                    } else {
+                        Self::place_ty(&mut tcx, &prog.struct_defs, func, place, root_ty)?
+                    };
+                    let type_args = match tcx.get(switch_ty) {
+                        TyKind::Enum(actual_name, args) if actual_name == enum_name => args,
+                        other => {
+                            return Err(MirVerificationError::AggregateTypeMismatch {
+                                func: fn_name.clone(),
+                                context: format!(
+                                    "enum switch '{}' has non-matching discriminant type {:?}",
+                                    enum_name, other
+                                ),
+                            });
+                        }
+                    };
+                    let definition = prog.enum_defs.get(enum_name).ok_or_else(|| {
+                        MirVerificationError::AggregateTypeMismatch {
+                            func: fn_name.clone(),
+                            context: format!(
+                                "enum switch '{}' has no declaration in MIR metadata",
+                                enum_name
+                            ),
+                        }
+                    })?;
+                    if definition.type_params.len() != type_args.len() {
+                        return Err(MirVerificationError::AggregateTypeMismatch {
+                            func: fn_name.clone(),
+                            context: format!(
+                                "enum switch '{}' expects {} type arguments, found {}",
+                                enum_name,
+                                definition.type_params.len(),
+                                type_args.len()
+                            ),
+                        });
+                    }
+                    let mut seen_variants = HashSet::new();
+                    for (variant, _) in targets {
+                        if !seen_variants.insert(variant) {
+                            return Err(MirVerificationError::AggregateTypeMismatch {
+                                func: fn_name.clone(),
+                                context: format!(
+                                    "enum switch '{}' repeats variant '{}'",
+                                    enum_name, variant
+                                ),
+                            });
+                        }
+                        if !definition.variants.iter().any(|declared| declared.name == *variant) {
+                            return Err(MirVerificationError::AggregateTypeMismatch {
+                                func: fn_name.clone(),
+                                context: format!(
+                                    "enum switch '{}' targets unknown variant '{}'",
+                                    enum_name, variant
+                                ),
+                            });
+                        }
+                    }
+                }
                 Terminator::Call { func: f_op, args, destination, target, cleanup } => {
                     Self::check_operand(fn_name, f_op, num_locals)?;
                     for arg in args {
@@ -608,6 +675,12 @@ impl MirVerifier {
             match block.terminator.as_ref().expect("structural terminator already verified") {
                 Terminator::Goto(target) => predecessors[target.index()].push((from, None)),
                 Terminator::SwitchInt { targets, otherwise, .. } => {
+                    for (_, target) in targets {
+                        predecessors[target.index()].push((from, None));
+                    }
+                    predecessors[otherwise.index()].push((from, None));
+                }
+                Terminator::SwitchEnum { targets, otherwise, .. } => {
                     for (_, target) in targets {
                         predecessors[target.index()].push((from, None));
                     }
@@ -710,6 +783,9 @@ impl MirVerifier {
             match block_data.terminator.as_ref().expect("structural terminator already verified") {
                 Terminator::SwitchInt { discr, .. } => {
                     Self::check_operand_initialized(func, block, discr, &assigned)?;
+                }
+                Terminator::SwitchEnum { place, .. } => {
+                    Self::require_assigned(func, block, place.local, &assigned)?;
                 }
                 Terminator::Call { args, .. } => {
                     for arg in args {
@@ -817,6 +893,12 @@ impl MirVerifier {
             {
                 Terminator::Goto(target) => queue.push_back(*target),
                 Terminator::SwitchInt { targets, otherwise, .. } => {
+                    for (_, target) in targets {
+                        queue.push_back(*target);
+                    }
+                    queue.push_back(*otherwise);
+                }
+                Terminator::SwitchEnum { targets, otherwise, .. } => {
                     for (_, target) in targets {
                         queue.push_back(*target);
                     }
@@ -930,6 +1012,9 @@ impl MirVerifier {
                     Terminator::SwitchInt { discr, .. } => {
                         Self::check_operand_projections(&mut tcx, defs, func, discr)?;
                     }
+                    Terminator::SwitchEnum { place, .. } => {
+                        Self::check_projection_chain(&mut tcx, defs, func, place)?;
+                    }
                     Terminator::Goto(_) | Terminator::Return | Terminator::Unreachable => {}
                 }
             }
@@ -966,6 +1051,12 @@ impl MirVerifier {
             match terminator {
                 Terminator::Goto(target) => add_pred(*target),
                 Terminator::SwitchInt { targets, otherwise, .. } => {
+                    for (_, target) in targets {
+                        add_pred(*target);
+                    }
+                    add_pred(*otherwise);
+                }
+                Terminator::SwitchEnum { targets, otherwise, .. } => {
                     for (_, target) in targets {
                         add_pred(*target);
                     }

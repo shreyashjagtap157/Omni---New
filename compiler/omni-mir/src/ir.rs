@@ -169,6 +169,14 @@ pub enum Terminator {
     Goto(BasicBlock),
     /// Conditional branch based on an integer/boolean value.
     SwitchInt { discr: Operand, targets: Vec<(u64, BasicBlock)>, otherwise: BasicBlock },
+    /// Branch on the active variant of an enum without consuming its value.
+    /// Variant identity is semantic metadata; target layout is a separate ABI concern.
+    SwitchEnum {
+        place: Place,
+        enum_name: String,
+        targets: Vec<(String, BasicBlock)>,
+        otherwise: BasicBlock,
+    },
     /// Invoke a function and branch based on success/unwind.
     /// A None destination represents a Unit-returning call.
     Call {

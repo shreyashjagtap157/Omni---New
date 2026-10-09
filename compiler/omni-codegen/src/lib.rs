@@ -689,6 +689,12 @@ fn compile_mir_program(
                     }
                     switch.emit(&mut builder, discr_val, otherwise_cl);
                 }
+                omni_mir::ir::Terminator::SwitchEnum { enum_name, .. } => {
+                    return Err(format!(
+                        "Codegen error: enum match dispatch for '{}' requires target tagged-layout metadata",
+                        enum_name
+                    ));
+                }
                 omni_mir::ir::Terminator::Call { func, args, destination, target, cleanup } => {
                     if cleanup.is_some() {
                         return Err(format!(

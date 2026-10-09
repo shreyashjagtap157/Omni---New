@@ -271,6 +271,13 @@ fn successors(term: &Terminator) -> Vec<BasicBlock> {
             result.dedup();
             result
         }
+        Terminator::SwitchEnum { targets, otherwise, .. } => {
+            let mut result = targets.iter().map(|(_, block)| *block).collect::<Vec<_>>();
+            result.push(*otherwise);
+            result.sort_unstable();
+            result.dedup();
+            result
+        }
         Terminator::Call { target, cleanup, .. } => {
             let mut result = vec![*target];
             if let Some(cleanup) = cleanup {

@@ -218,6 +218,20 @@ fn transfer_block(
             edges.push((*otherwise, state));
             Ok(edges)
         }
+        Some(Terminator::SwitchEnum { place, targets, otherwise, .. }) => {
+            transfer_place_access(
+                function,
+                block,
+                "enum switch discriminant",
+                place,
+                AccessKind::Read,
+                &mut state,
+            )?;
+            let mut edges =
+                targets.iter().map(|(_, target)| (*target, state.clone())).collect::<Vec<_>>();
+            edges.push((*otherwise, state));
+            Ok(edges)
+        }
         Some(Terminator::Call { func: callee, args, destination, target, cleanup }) => {
             transfer_operand(function, block, "call callee", callee, &mut state)?;
             for (index, argument) in args.iter().enumerate() {
@@ -374,6 +388,12 @@ fn terminator_local_effects(
         Some(Terminator::Goto(target)) => vec![*target],
         Some(Terminator::SwitchInt { discr, targets, otherwise }) => {
             operand_local_uses(discr, &mut uses);
+            let mut result = targets.iter().map(|(_, target)| *target).collect::<Vec<_>>();
+            result.push(*otherwise);
+            result
+        }
+        Some(Terminator::SwitchEnum { place, targets, otherwise, .. }) => {
+            place_local_effects(place, &mut uses, &mut defs, false);
             let mut result = targets.iter().map(|(_, target)| *target).collect::<Vec<_>>();
             result.push(*otherwise);
             result

@@ -370,15 +370,42 @@ impl Interpreter {
                         })
                     }
                 };
-
-                // Find the matching target
                 for (val, target) in targets {
                     if *val == discriminant {
                         return Ok(ControlFlow::Next(*target));
                     }
                 }
-
-                // Otherwise go to the default target
+                Ok(ControlFlow::Next(*otherwise))
+            }
+            Terminator::SwitchEnum { place, enum_name, targets, otherwise } => {
+                let value = self.get_place_value(place, function.clone())?;
+                let variant = match value {
+                    Value::EnumVariant { enum_name: actual_name, variant, .. }
+                        if actual_name == *enum_name => variant,
+                    Value::EnumVariant { enum_name: actual_name, .. } => {
+                        return Err(ExecutionError::InvalidOperand {
+                            operand: Operand::Copy(place.clone()),
+                            message: format!(
+                                "Enum switch expected '{}', found '{}'",
+                                enum_name, actual_name
+                            ),
+                        });
+                    }
+                    other => {
+                        return Err(ExecutionError::InvalidOperand {
+                            operand: Operand::Copy(place.clone()),
+                            message: format!(
+                                "Enum switch expected '{}', found {:?}",
+                                enum_name, other
+                            ),
+                        });
+                    }
+                };
+                for (target_variant, target) in targets {
+                    if *target_variant == variant {
+                        return Ok(ControlFlow::Next(*target));
+                    }
+                }
                 Ok(ControlFlow::Next(*otherwise))
             }
             Terminator::Call { func, args, destination, target, cleanup: _ } => {
