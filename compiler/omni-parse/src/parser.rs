@@ -2663,13 +2663,23 @@ mod tests {
         let source = "enum Maybe { Some(i64), None } fn main() -> i64 { let maybe = Maybe::Some(41); return match maybe { Maybe::Some(_) => 42, Maybe::None => 0 }; }";
         let mut parser = Parser::from_source(source);
         let parsed = parser.parse_source();
-        assert!(parsed.diagnostics.is_empty(), "unexpected parse diagnostics: {:?}", parsed.diagnostics);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "unexpected parse diagnostics: {:?}",
+            parsed.diagnostics
+        );
         assert_eq!(
-            parsed.syntax().descendants().filter(|node| node.kind() == K::WildcardPattern).count(),
+            parsed
+                .syntax()
+                .descendants()
+                .filter(|node| node.kind() == K::WildcardPattern)
+                .count(),
             1
         );
         assert_eq!(
-            parsed.syntax().descendants()
+            parsed
+                .syntax()
+                .descendants()
                 .filter(|node| node.kind() == K::IdentifierPattern && node.text() == "_")
                 .count(),
             0
