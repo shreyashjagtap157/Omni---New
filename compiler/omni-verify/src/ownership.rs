@@ -103,12 +103,7 @@ fn verify_function(
                         initial.ownership.borrow_shared(origin, region.clone())
                     };
                     result.map_err(|error| {
-                        violation(
-                            function,
-                            BasicBlock::from_usize(0),
-                            "reference parameter",
-                            error,
-                        )
+                        violation(function, BasicBlock::from_usize(0), "reference parameter", error)
                     })?;
                     initial.reference_loans.entry(param).or_default().insert(region);
                 }
@@ -169,8 +164,13 @@ fn verify_function(
 
     for (block_index, entry) in entry_states.into_iter().enumerate() {
         if let Some(entry) = entry {
-            let _ =
-                transfer_block(function, BasicBlock::from_usize(block_index), entry, &live_after, tcx)?;
+            let _ = transfer_block(
+                function,
+                BasicBlock::from_usize(block_index),
+                entry,
+                &live_after,
+                tcx,
+            )?;
         }
     }
     Ok(())
@@ -231,12 +231,7 @@ fn transfer_block(
                         });
                     }
                     Some(create_reference_loans(
-                        function,
-                        block,
-                        &context,
-                        place,
-                        *mutable,
-                        &mut state,
+                        function, block, &context, place, *mutable, &mut state,
                     )?)
                 } else {
                     if let Some((source, loans)) = moved_reference {
@@ -834,7 +829,11 @@ fn resolve_deref_origins(
         return Ok(None);
     };
     if deref_index != 0
-        || place.projections.iter().skip(1).any(|projection| matches!(projection, Projection::Deref))
+        || place
+            .projections
+            .iter()
+            .skip(1)
+            .any(|projection| matches!(projection, Projection::Deref))
     {
         return Err(OwnershipVerificationError {
             function: function.name.clone(),
@@ -859,14 +858,9 @@ fn resolve_deref_origins(
 
     let mut grouped = BTreeMap::<OwnershipPlace, DerefOrigin>::new();
     for region in regions {
-        let loan = state
-            .ownership
-            .loans()
-            .find(|loan| loan.region == region)
-            .cloned()
-            .ok_or_else(|| {
-                violation(function, block, context, OwnershipError::UnknownLoan(region.clone()))
-            })?;
+        let loan = state.ownership.loans().find(|loan| loan.region == region).cloned().ok_or_else(
+            || violation(function, block, context, OwnershipError::UnknownLoan(region.clone())),
+        )?;
         let mut origin = loan.place.clone();
         for projection in place.projections.iter().skip(1) {
             origin.projections.push(match projection {
@@ -930,13 +924,18 @@ fn create_reference_loans(
     };
 
     if deref_index != 0
-        || place.projections.iter().skip(1).any(|projection| matches!(projection, Projection::Deref))
+        || place
+            .projections
+            .iter()
+            .skip(1)
+            .any(|projection| matches!(projection, Projection::Deref))
     {
         return Err(OwnershipVerificationError {
             function: function.name.clone(),
             block,
             context: context.to_string(),
-            message: "reborrow through a nested or projected reference is not yet representable".into(),
+            message: "reborrow through a nested or projected reference is not yet representable"
+                .into(),
         });
     }
 
@@ -955,19 +954,17 @@ fn create_reference_loans(
 
     let mut grouped = BTreeMap::<OwnershipPlace, PendingReborrow>::new();
     for parent_region in parents {
-        let parent_loan = state
-            .ownership
-            .loans()
-            .find(|loan| loan.region == parent_region)
-            .cloned()
-            .ok_or_else(|| {
-                violation(
-                    function,
-                    block,
-                    context,
-                    OwnershipError::UnknownLoan(parent_region.clone()),
-                )
-            })?;
+        let parent_loan =
+            state.ownership.loans().find(|loan| loan.region == parent_region).cloned().ok_or_else(
+                || {
+                    violation(
+                        function,
+                        block,
+                        context,
+                        OwnershipError::UnknownLoan(parent_region.clone()),
+                    )
+                },
+            )?;
         if mutable && !parent_loan.mutable {
             return Err(violation(
                 function,
@@ -1081,20 +1078,18 @@ fn verify_call_argument_aliases(
             });
         }
         for region in regions {
-            let loan = state
-                .ownership
-                .loans()
-                .find(|loan| loan.region == region)
-                .cloned()
-                .ok_or_else(|| {
-                    violation(
-                        function,
-                        block,
-                        "call arguments",
-                        OwnershipError::UnknownLoan(region.clone()),
-                    )
-                })?;
-            if loan.mutable && has_active_child_reborrow(state, &region) {
+            let loan =
+                state.ownership.loans().find(|loan| loan.region == region).cloned().ok_or_else(
+                    || {
+                        violation(
+                            function,
+                            block,
+                            "call arguments",
+                            OwnershipError::UnknownLoan(region.clone()),
+                        )
+                    },
+                )?;
+            if loan.mutable && loan_has_active_children(state, &region) {
                 return Err(OwnershipVerificationError {
                     function: function.name.clone(),
                     block,
@@ -1743,11 +1738,8 @@ mod tests {
             mutable: reference_mutable,
             inner: int,
         });
-        let child_ty = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let child_ty =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
         locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
@@ -1757,9 +1749,8 @@ mod tests {
         let x = Local::from_usize(1);
         let r = Local::from_usize(2);
         let s = Local::from_usize(3);
-        let integer = |value| {
-            Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(value))))
-        };
+        let integer =
+            |value| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(value))));
         let deref = |local| Place { local, projections: vec![Projection::Deref] };
         let mut statements = vec![
             Statement::Assign(Place::local(x), integer(1)),
@@ -1817,9 +1808,8 @@ mod tests {
 
     #[test]
     fn self_reborrow_preserves_origin_loan_until_destination_last_use() {
-        let program = dereference_access_program(
-            "self_reborrow_live", true, true, false, true, false, false,
-        );
+        let program =
+            dereference_access_program("self_reborrow_live", true, true, false, true, false, false);
         let error = verify_program(&program)
             .expect_err("self-reborrow must keep the borrowed origin protected");
         assert!(error.message.contains("borrow conflict"), "unexpected ownership error: {error:?}");
@@ -1828,7 +1818,13 @@ mod tests {
     #[test]
     fn self_reborrow_loan_ends_after_destination_last_use() {
         let program = dereference_access_program(
-            "self_reborrow_last_use", true, true, false, false, true, false,
+            "self_reborrow_last_use",
+            true,
+            true,
+            false,
+            false,
+            true,
+            false,
         );
         verify_program(&program).expect("loan should end after the reborrow's last use");
     }
@@ -1836,7 +1832,13 @@ mod tests {
     #[test]
     fn mutable_reference_can_access_its_own_dereferenced_loan() {
         let program = dereference_access_program(
-            "mutable_deref_access", true, false, true, false, false, false,
+            "mutable_deref_access",
+            true,
+            false,
+            true,
+            false,
+            false,
+            false,
         );
         verify_program(&program).expect("a mutable reference may access its own authorized loan");
     }
@@ -1844,7 +1846,13 @@ mod tests {
     #[test]
     fn shared_reference_cannot_be_written_through() {
         let program = dereference_access_program(
-            "shared_deref_write", false, false, true, false, false, false,
+            "shared_deref_write",
+            false,
+            false,
+            true,
+            false,
+            false,
+            false,
         );
         let error = verify_program(&program)
             .expect_err("writes through a shared reference must be rejected");
@@ -1854,7 +1862,13 @@ mod tests {
     #[test]
     fn mutable_reborrow_from_shared_reference_is_rejected() {
         let program = dereference_access_program(
-            "mutable_reborrow_from_shared", false, false, false, false, false, true,
+            "mutable_reborrow_from_shared",
+            false,
+            false,
+            false,
+            false,
+            false,
+            true,
         );
         let error = verify_program(&program)
             .expect_err("a shared reference cannot authorize a mutable reborrow");
@@ -1863,11 +1877,11 @@ mod tests {
 
     #[test]
     fn parent_reference_is_suspended_while_child_reborrow_is_live() {
-        let program = dereference_access_program(
-            "parent_suspended", true, false, true, false, false, true,
+        let program =
+            dereference_access_program("parent_suspended", true, false, true, false, false, true);
+        let error = verify_program(&program).expect_err(
+            "the parent reference must not access the place during a live child reborrow",
         );
-        let error = verify_program(&program)
-            .expect_err("the parent reference must not access the place during a live child reborrow");
         assert!(error.message.contains("borrow conflict"), "unexpected ownership error: {error:?}");
     }
 
@@ -1875,11 +1889,8 @@ mod tests {
     fn reference_parameter_dereference_uses_an_abstract_origin() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference_ty = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let reference_ty =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
         locals.push(LocalDecl { name: Some("value".into()), ty: Some(reference_ty) });
@@ -1906,18 +1917,16 @@ mod tests {
                 body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
             }],
         );
-        verify_program(&program).expect("a reference parameter must have tracked abstract provenance");
+        verify_program(&program)
+            .expect("a reference parameter must have tracked abstract provenance");
     }
 
     #[test]
     fn mutable_reference_arguments_cannot_alias_at_a_call_boundary() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let mutable_ref = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let mutable_ref =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
         locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
@@ -1927,9 +1936,8 @@ mod tests {
         let x = Local::from_usize(1);
         let r = Local::from_usize(2);
         let s = Local::from_usize(3);
-        let integer = |value| {
-            Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(value))))
-        };
+        let integer =
+            |value| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(value))));
         let deref = |local| Place { local, projections: vec![Projection::Deref] };
         let mut blocks = IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
@@ -1947,10 +1955,7 @@ mod tests {
             ],
             terminator: Some(Terminator::Call {
                 func: Operand::Constant(Constant::FnRef("consume_two".into())),
-                args: vec![
-                    Operand::Move(Place::local(r)),
-                    Operand::Move(Place::local(s)),
-                ],
+                args: vec![Operand::Move(Place::local(r)), Operand::Move(Place::local(s))],
                 destination: None,
                 target: BasicBlock::from_usize(1),
                 cleanup: None,
@@ -1974,5 +1979,4 @@ mod tests {
             .expect_err("a suspended mutable parent and child cannot be passed together");
         assert!(error.message.contains("child reborrow"), "unexpected ownership error: {error:?}");
     }
-
 }
