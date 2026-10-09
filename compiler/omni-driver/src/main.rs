@@ -118,11 +118,14 @@ fn enforce_stage0_profile(
 fn lower_to_concrete_program(
     source_code: &str,
     manifest: &omni_registry::Manifest,
-) -> Result<(
-    omni_types::monomorph::MonomorphizedProgram,
-    HashMap<String, StructDef>,
-    HashMap<String, omni_types::ast::EnumDef>,
-), String> {
+) -> Result<
+    (
+        omni_types::monomorph::MonomorphizedProgram,
+        HashMap<String, StructDef>,
+        HashMap<String, omni_types::ast::EnumDef>,
+    ),
+    String,
+> {
     let mut parser = omni_parse::Parser::from_source(source_code);
     let parsed = parser.parse_source();
     if !parsed.is_ok() {
@@ -3110,7 +3113,9 @@ mod tests {
         let mir = lower_to_verified_mir(source, manifest())
             .expect("unused enum declarations must survive the semantic-to-MIR pipeline");
         let shade = mir.enum_defs.get("Shade").expect("Shade declaration must reach MIR");
-        assert_eq!(shade.variants.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), vec!["Red", "Blue"]);
+        assert_eq!(
+            shade.variants.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(),
+            vec!["Red", "Blue"]
+        );
     }
-
 }

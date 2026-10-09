@@ -1386,13 +1386,7 @@ impl MirVerifier {
         rvalue: &Rvalue,
     ) -> Result<(), MirVerificationError> {
         let mut tcx = prog.tcx.clone();
-        let actual = Self::rvalue_type(
-            &mut tcx,
-            &prog.struct_defs,
-            &prog.enum_defs,
-            func,
-            rvalue,
-        )?;
+        let actual = Self::rvalue_type(&mut tcx, &prog.struct_defs, &prog.enum_defs, func, rvalue)?;
         // The expected type is the type of the *whole* place, projection chain
         // included. Using the root local's type would reject every projected
         // assignment, because `x.y = 1` writes an int into a slot of a tuple or
@@ -1662,10 +1656,7 @@ impl MirVerifier {
                     .find(|candidate| candidate.name == *variant)
                     .ok_or_else(|| MirVerificationError::AggregateTypeMismatch {
                         func: func.name.clone(),
-                        context: format!(
-                            "enum '{}' has no variant '{}'",
-                            enum_name, variant
-                        ),
+                        context: format!("enum '{}' has no variant '{}'", enum_name, variant),
                     })?;
                 if operands.len() != variant_def.payload.len() {
                     return Err(MirVerificationError::AggregateTypeMismatch {
@@ -2730,10 +2721,8 @@ mod tests {
         let mut tcx = TyCtxt::new();
         let enum_ty = tcx.intern(TyKind::Enum("Choice".to_string(), vec![]));
         let mut local_decls = IndexVec::new();
-        let ret = local_decls.push(LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(enum_ty),
-        });
+        let ret =
+            local_decls.push(LocalDecl { name: Some("_return".to_string()), ty: Some(enum_ty) });
         let mut blocks = IndexVec::new();
         blocks.push(BlockData {
             statements: vec![Statement::Assign(
@@ -2758,10 +2747,7 @@ mod tests {
                         name: "One".to_string(),
                         payload: vec![omni_mir::ast::TypeSpec::Int],
                     },
-                    omni_mir::ast::EnumVariantDef {
-                        name: "Empty".to_string(),
-                        payload: vec![],
-                    },
+                    omni_mir::ast::EnumVariantDef { name: "Empty".to_string(), payload: vec![] },
                 ],
             },
         );
@@ -2808,5 +2794,4 @@ mod tests {
             Err(MirVerificationError::AggregateTypeMismatch { .. })
         ));
     }
-
 }

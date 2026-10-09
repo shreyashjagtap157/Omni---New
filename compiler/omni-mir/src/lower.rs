@@ -31,11 +31,7 @@ pub struct LoweringContext {
 
 impl LoweringContext {
     pub fn new() -> Self {
-        Self {
-            body: Body::default(),
-            struct_defs: HashMap::new(),
-            enum_defs: HashMap::new(),
-        }
+        Self { body: Body::default(), struct_defs: HashMap::new(), enum_defs: HashMap::new() }
     }
 
     /// Lowers the canonical semantic HIR into typed MIR.
