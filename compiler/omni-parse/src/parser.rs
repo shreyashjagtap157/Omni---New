@@ -2127,6 +2127,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_pattern_atom(&mut self) -> Node {
+        // '_' is lexed as an identifier-start token by the Edition 1 lexer,
+        // but the standalone spelling is the wildcard terminal in patterns.
+        let is_standalone_underscore = self.current_kind() == Some(TokenKind::Ident)
+            && self.tokens.get(self.pos).and_then(|token| {
+                self.source.get(token.span.start as usize..token.span.end as usize)
+            }) == Some("_");
+        if is_standalone_underscore {
+            let mut node = Node::new(SyntaxKind::WildcardPattern);
+            node.children.push(self.bump_child());
+            return node;
+        }
+
         match self.current_kind() {
             Some(TokenKind::Keyword(Kw::Mut)) => {
                 let mut n = Node::new(SyntaxKind::BindingPattern);
@@ -2645,6 +2657,24 @@ pub fn desugar_node(
 mod tests {
     use super::*;
     use omni_syntax::{SyntaxElement, SyntaxKind as K};
+
+    #[test]
+    fn standalone_underscore_is_a_wildcard_inside_enum_payload_patterns() {
+        let source = "enum Maybe { Some(i64), None } fn main() -> i64 { let maybe = Maybe::Some(41); return match maybe { Maybe::Some(_) => 42, Maybe::None => 0 }; }";
+        let mut parser = Parser::from_source(source);
+        let parsed = parser.parse_source();
+        assert!(parsed.diagnostics.is_empty(), "unexpected parse diagnostics: {:?}", parsed.diagnostics);
+        assert_eq!(
+            parsed.syntax().descendants().filter(|node| node.kind() == K::WildcardPattern).count(),
+            1
+        );
+        assert_eq!(
+            parsed.syntax().descendants()
+                .filter(|node| node.kind() == K::IdentifierPattern && node.text() == "_")
+                .count(),
+            0
+        );
+    }
 
     #[test]
     fn command_style_calls_are_rejected_while_candidate2_is_out_of_force() {
