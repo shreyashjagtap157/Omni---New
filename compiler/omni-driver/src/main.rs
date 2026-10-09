@@ -118,7 +118,11 @@ fn enforce_stage0_profile(
 fn lower_to_concrete_program(
     source_code: &str,
     manifest: &omni_registry::Manifest,
-) -> Result<(omni_types::monomorph::MonomorphizedProgram, HashMap<String, StructDef>), String> {
+) -> Result<(
+    omni_types::monomorph::MonomorphizedProgram,
+    HashMap<String, StructDef>,
+    HashMap<String, omni_types::ast::EnumDef>,
+), String> {
     let mut parser = omni_parse::Parser::from_source(source_code);
     let parsed = parser.parse_source();
     if !parsed.is_ok() {
@@ -157,8 +161,9 @@ fn lower_to_concrete_program(
     for struct_def in semantic_structs_from_cst(&syntax, &enum_names)? {
         checker.register_struct(struct_def);
     }
-    for enum_def in semantic_enums_from_cst(&syntax, &enum_names)? {
-        checker.register_enum(enum_def);
+    let enum_defs = semantic_enums_from_cst(&syntax, &enum_names)?;
+    for enum_def in &enum_defs {
+        checker.register_enum(enum_def.clone());
     }
     for alias in semantic_type_aliases_from_cst(&syntax, &enum_names)? {
         checker.register_type_alias(alias);
@@ -202,7 +207,8 @@ fn lower_to_concrete_program(
 
     // Capture the declarations before the checker is consumed by the monomorphizer.
     let struct_defs = checker.struct_defs.clone();
-    Ok((program, struct_defs))
+    let enum_defs = enum_defs.into_iter().map(|def| (def.name.clone(), def)).collect();
+    Ok((program, struct_defs, enum_defs))
 }
 
 /// Runs the concrete program through MIR lowering and MIR verification,
@@ -211,8 +217,8 @@ fn lower_to_hir(
     source_code: &str,
     manifest: &omni_registry::Manifest,
 ) -> Result<(omni_types::monomorph::MonomorphizedProgram, omni_hir::HirProgram), String> {
-    let (program, struct_defs) = lower_to_concrete_program(source_code, manifest)?;
-    let hir = omni_hir::HirProgram::from_monomorphized_program(&program, struct_defs)
+    let (program, struct_defs, enum_defs) = lower_to_concrete_program(source_code, manifest)?;
+    let hir = omni_hir::HirProgram::from_monomorphized(&program, struct_defs, enum_defs)
         .map_err(|e| format!("HIR construction error: {}", e))?;
     Ok((program, hir))
 }
@@ -3097,4 +3103,14 @@ mod tests {
             .expect("contextual keywords where and in as struct fields");
         assert_eq!(value, 40);
     }
+
+    #[test]
+    fn source_pipeline_preserves_enum_declarations_in_verified_mir() {
+        let source = "enum Shade { Red, Blue } fn main() -> i64 { return 42; }";
+        let mir = lower_to_verified_mir(source, manifest())
+            .expect("unused enum declarations must survive the semantic-to-MIR pipeline");
+        let shade = mir.enum_defs.get("Shade").expect("Shade declaration must reach MIR");
+        assert_eq!(shade.variants.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), vec!["Red", "Blue"]);
+    }
+
 }

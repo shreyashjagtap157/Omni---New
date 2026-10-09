@@ -15,15 +15,20 @@ active implementation path now includes:
 - lossless source/lexical and CST/parser infrastructure;
 - Edition 1 semantic name/type infrastructure;
 - ownership, effects, capability, trait, and monomorphization infrastructure;
-- a canonical HIR boundary consumed directly by MIR lowering;
-- typed MIR with places, projections, control flow, calls, drops, bounds checks, and unsafe-region
-  metadata;
+- a canonical HIR boundary consumed directly by MIR lowering, preserving source enum declarations;
+- typed MIR with places, projections, control flow, calls, drops, bounds checks, enum declaration
+  metadata, and unsafe-region metadata;
 - an independently invoked MIR verifier;
 - a reference abstract-machine interpreter;
 - deterministic Cranelift native object generation;
 - Stage 4D bounds-verification work;
 - Stage 4E aggregate ABI work;
 - driver integration for reference-machine and native paths.
+
+The MIR verifier now checks enum constructor declaration identity, generic-argument arity, variant
+existence, and payload arity against the declarations carried from HIR. This does not define an enum
+object layout or native discriminant representation; native enum construction and aggregate-pattern
+dispatch remain fail-closed at the target-ABI boundary.
 
 Important remaining qualification work includes richer canonical HIR typing/provenance and semantic
 obligation preservation, complete ownership/lifetime integration into the production pipeline,

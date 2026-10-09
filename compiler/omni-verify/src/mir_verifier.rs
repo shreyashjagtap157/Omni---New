@@ -1386,7 +1386,13 @@ impl MirVerifier {
         rvalue: &Rvalue,
     ) -> Result<(), MirVerificationError> {
         let mut tcx = prog.tcx.clone();
-        let actual = Self::rvalue_type(&mut tcx, &prog.struct_defs, func, rvalue)?;
+        let actual = Self::rvalue_type(
+            &mut tcx,
+            &prog.struct_defs,
+            &prog.enum_defs,
+            func,
+            rvalue,
+        )?;
         // The expected type is the type of the *whole* place, projection chain
         // included. Using the root local's type would reject every projected
         // assignment, because `x.y = 1` writes an int into a slot of a tuple or
@@ -1411,6 +1417,7 @@ impl MirVerifier {
     fn rvalue_type(
         tcx: &mut TyCtxt,
         defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+        enum_defs: &std::collections::HashMap<String, omni_mir::ast::EnumDef>,
         func: &MirFunction,
         rvalue: &Rvalue,
     ) -> Result<Ty, MirVerificationError> {
@@ -1617,8 +1624,8 @@ impl MirVerifier {
                         ),
                     });
                 }
-                match tcx.get(*ty) {
-                    TyKind::Enum(actual_name, _) if actual_name == enum_name => {}
+                let type_args = match tcx.get(*ty) {
+                    TyKind::Enum(actual_name, args) if actual_name == enum_name => args.clone(),
                     _ => {
                         return Err(MirVerificationError::AggregateTypeMismatch {
                             func: func.name.clone(),
@@ -1628,6 +1635,49 @@ impl MirVerifier {
                             ),
                         })
                     }
+                };
+                let definition = enum_defs.get(enum_name).ok_or_else(|| {
+                    MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!(
+                            "enum constructor '{}' has no declaration in MIR metadata",
+                            enum_name
+                        ),
+                    }
+                })?;
+                if definition.type_params.len() != type_args.len() {
+                    return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!(
+                            "enum '{}' expects {} type arguments, found {}",
+                            enum_name,
+                            definition.type_params.len(),
+                            type_args.len()
+                        ),
+                    });
+                }
+                let variant_def = definition
+                    .variants
+                    .iter()
+                    .find(|candidate| candidate.name == *variant)
+                    .ok_or_else(|| MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!(
+                            "enum '{}' has no variant '{}'",
+                            enum_name, variant
+                        ),
+                    })?;
+                if operands.len() != variant_def.payload.len() {
+                    return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!(
+                            "enum constructor '{}::{}' expects {} payload values, found {}",
+                            enum_name,
+                            variant,
+                            variant_def.payload.len(),
+                            operands.len()
+                        ),
+                    });
                 }
                 for operand in operands {
                     let _ = Self::operand_type(tcx, defs, func, operand)?;
@@ -2051,6 +2101,7 @@ mod tests {
                 body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
 
         assert!(MirVerifier::verify_program(&prog).is_ok());
@@ -2095,6 +2146,7 @@ mod tests {
                 },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
         assert!(MirVerifier::verify_program(&prog).is_ok());
     }
@@ -2132,6 +2184,7 @@ mod tests {
                 body: Body { blocks, local_decls: locals, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -2166,6 +2219,7 @@ mod tests {
                 body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
 
         let res = MirVerifier::verify_program(&prog);
@@ -2194,6 +2248,7 @@ mod tests {
                 body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
 
         let res = MirVerifier::verify_program(&prog);
@@ -2226,6 +2281,7 @@ mod tests {
                 body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
 
         let res = MirVerifier::verify_program(&prog);
@@ -2265,6 +2321,7 @@ mod tests {
                 body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -2310,6 +2367,7 @@ mod tests {
                 },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -2352,6 +2410,7 @@ mod tests {
                 body: Body { blocks, local_decls: locals, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
         assert!(MirVerifier::verify_program(&prog).is_ok());
     }
@@ -2394,6 +2453,7 @@ mod tests {
                 body: Body { blocks, local_decls: locals, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
         let _ = bool_ty;
         assert!(matches!(
@@ -2473,6 +2533,7 @@ mod tests {
                 },
             ],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
 
         assert!(matches!(
@@ -2595,6 +2656,7 @@ mod tests {
                 body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -2627,6 +2689,7 @@ mod tests {
                 body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
         assert!(matches!(
             MirVerifier::verify_program(&prog),
@@ -2655,10 +2718,95 @@ mod tests {
                 body: Body { blocks, local_decls, ..Default::default() },
             }],
             struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
         };
 
         let res = MirVerifier::verify_program(&prog);
         assert!(res.is_err());
         assert!(matches!(res.unwrap_err(), MirVerificationError::UndefinedBlock { .. }));
     }
+
+    fn enum_constructor_program(variant: &str, operands: Vec<Operand>) -> MirProgram {
+        let mut tcx = TyCtxt::new();
+        let enum_ty = tcx.intern(TyKind::Enum("Choice".to_string(), vec![]));
+        let mut local_decls = IndexVec::new();
+        let ret = local_decls.push(LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(enum_ty),
+        });
+        let mut blocks = IndexVec::new();
+        blocks.push(BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::EnumVariant {
+                    enum_name: "Choice".to_string(),
+                    variant: variant.to_string(),
+                    operands,
+                    ty: enum_ty,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let mut enum_defs = std::collections::HashMap::new();
+        enum_defs.insert(
+            "Choice".to_string(),
+            omni_mir::ast::EnumDef {
+                name: "Choice".to_string(),
+                type_params: vec![],
+                variants: vec![
+                    omni_mir::ast::EnumVariantDef {
+                        name: "One".to_string(),
+                        payload: vec![omni_mir::ast::TypeSpec::Int],
+                    },
+                    omni_mir::ast::EnumVariantDef {
+                        name: "Empty".to_string(),
+                        payload: vec![],
+                    },
+                ],
+            },
+        );
+        MirProgram {
+            tcx,
+            functions: vec![MirFunction {
+                name: "make_choice".to_string(),
+                params: vec![],
+                return_place: ret,
+                return_type: omni_mir::ast::TypeSpec::Enum("Choice".to_string(), vec![]),
+                body: Body { blocks, local_decls, ..Default::default() },
+            }],
+            struct_defs: std::collections::HashMap::new(),
+            enum_defs,
+        }
+    }
+
+    #[test]
+    fn verifier_accepts_enum_constructor_matching_declaration() {
+        let prog = enum_constructor_program(
+            "One",
+            vec![Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(7)))],
+        );
+        assert!(MirVerifier::verify_program(&prog).is_ok());
+    }
+
+    #[test]
+    fn verifier_rejects_enum_constructor_with_unknown_variant() {
+        let prog = enum_constructor_program("Missing", vec![]);
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::AggregateTypeMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn verifier_rejects_enum_constructor_with_wrong_payload_arity() {
+        let prog = enum_constructor_program(
+            "Empty",
+            vec![Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(7)))],
+        );
+        assert!(matches!(
+            MirVerifier::verify_program(&prog),
+            Err(MirVerificationError::AggregateTypeMismatch { .. })
+        ));
+    }
+
 }

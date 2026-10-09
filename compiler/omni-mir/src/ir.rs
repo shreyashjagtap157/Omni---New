@@ -19,6 +19,10 @@ pub struct MirProgram {
     /// sees the same definitions lowering used, rather than the two disagreeing
     /// about what a struct contains. It is empty when no struct is declared.
     pub struct_defs: std::collections::HashMap<String, omni_types::ast::StructDef>,
+    /// Enum declarations needed to verify variant constructors against the same
+    /// source declarations used by semantic analysis. Native layout remains a
+    /// separate target-ABI decision and is not implied by carrying these defs.
+    pub enum_defs: std::collections::HashMap<String, omni_types::ast::EnumDef>,
 }
 
 impl MirProgram {
@@ -29,7 +33,12 @@ impl MirProgram {
     /// constructor expresses without each call site having to supply an empty
     /// map.
     pub fn new(tcx: omni_types::intern::TyCtxt, functions: Vec<MirFunction>) -> Self {
-        Self { tcx, functions, struct_defs: std::collections::HashMap::new() }
+        Self {
+            tcx,
+            functions,
+            struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
+        }
     }
 
     /// Attaches struct declarations, returning the program for chaining.
@@ -38,6 +47,15 @@ impl MirProgram {
         defs: std::collections::HashMap<String, omni_types::ast::StructDef>,
     ) -> Self {
         self.struct_defs = defs;
+        self
+    }
+
+    /// Attaches enum declarations, returning the program for chaining.
+    pub fn with_enum_defs(
+        mut self,
+        defs: std::collections::HashMap<String, omni_types::ast::EnumDef>,
+    ) -> Self {
+        self.enum_defs = defs;
         self
     }
 }

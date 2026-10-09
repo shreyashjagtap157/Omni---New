@@ -225,6 +225,7 @@ impl Interpreter {
             tcx: Default::default(),
             functions: Vec::new(),
             struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
         })
     }
 

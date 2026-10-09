@@ -26,11 +26,16 @@ fn expr_diverges(expr: &omni_types::ast::Expr) -> bool {
 pub struct LoweringContext {
     body: Body,
     struct_defs: HashMap<String, omni_types::ast::StructDef>,
+    enum_defs: HashMap<String, omni_types::ast::EnumDef>,
 }
 
 impl LoweringContext {
     pub fn new() -> Self {
-        Self { body: Body::default(), struct_defs: HashMap::new() }
+        Self {
+            body: Body::default(),
+            struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
+        }
     }
 
     /// Lowers the canonical semantic HIR into typed MIR.
@@ -44,6 +49,7 @@ impl LoweringContext {
     ) -> Result<crate::ir::MirProgram, String> {
         hir.validate()?;
         self.struct_defs = hir.struct_defs.clone();
+        self.enum_defs = hir.enum_defs.clone();
         let tcx = hir.tcx;
         self.lower_hir_functions(&hir.functions, tcx)
     }
@@ -51,6 +57,11 @@ impl LoweringContext {
     /// Supplies struct declarations so field projections can be typed during lowering.
     pub fn set_struct_defs(&mut self, struct_defs: HashMap<String, omni_types::ast::StructDef>) {
         self.struct_defs = struct_defs;
+    }
+
+    /// Supplies enum declarations for the monomorphized compatibility entry point.
+    pub fn set_enum_defs(&mut self, enum_defs: HashMap<String, omni_types::ast::EnumDef>) {
+        self.enum_defs = enum_defs;
     }
 
     /// Lowers a concrete monomorphized program through the canonical HIR boundary.
@@ -65,7 +76,7 @@ impl LoweringContext {
         let hir = omni_hir::HirProgram::from_monomorphized(
             prog,
             self.struct_defs.clone(),
-            HashMap::new(),
+            self.enum_defs.clone(),
         )?;
         self.lower_hir_program(hir)
     }
@@ -185,6 +196,7 @@ impl LoweringContext {
             tcx,
             functions: mir_functions,
             struct_defs: self.struct_defs.clone(),
+            enum_defs: self.enum_defs.clone(),
         };
         if let Some(first_fn) = mir_prog.functions.first() {
             self.body = first_fn.body.clone();

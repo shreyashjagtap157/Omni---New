@@ -18,6 +18,7 @@ fn create_test_program() -> MirProgram {
         tcx: Default::default(),
         functions: Vec::new(),
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     }
 }
 
@@ -102,6 +103,7 @@ fn test_simple_addition() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -159,6 +161,7 @@ fn test_subtraction_and_multiplication() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -203,6 +206,7 @@ fn test_unary_operations() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -249,6 +253,7 @@ fn test_boolean_operations() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -319,6 +324,7 @@ fn test_aggregate_construction() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -377,6 +383,7 @@ fn test_control_flow_goto() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -440,6 +447,7 @@ fn test_control_flow_switch() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -496,6 +504,7 @@ fn test_bounds_check_pass() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -537,6 +546,7 @@ fn test_bounds_check_fail() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -587,6 +597,7 @@ fn test_division_by_zero() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -668,6 +679,7 @@ fn test_function_call() {
         tcx: Default::default(),
         functions: vec![inner_function, outer_function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -702,6 +714,7 @@ fn test_unreachable_code() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -801,6 +814,7 @@ fn test_multiple_basic_blocks_complex() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -869,6 +883,7 @@ fn test_edge_cases() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -914,6 +929,7 @@ fn test_error_messages() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -947,6 +963,7 @@ fn test_error_messages() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -968,6 +985,7 @@ fn test_function_not_found() {
         tcx: Default::default(),
         functions: Vec::new(),
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
@@ -1007,6 +1025,7 @@ fn test_argument_count_mismatch() {
         tcx: Default::default(),
         functions: vec![function],
         struct_defs: HashMap::new(),
+            enum_defs: HashMap::new(),
     };
     
     let mut interpreter = Interpreter::new_with_program(program);
