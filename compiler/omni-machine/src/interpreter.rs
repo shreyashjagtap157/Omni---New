@@ -700,7 +700,10 @@ impl Interpreter {
             (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
             (UnOp::BitNot, Value::Int(i)) => Ok(Value::Int(!i)),
             _ => Err(ExecutionError::InvalidRvalue {
-                rvalue: Box::new(Rvalue::UnaryOp(op, Operand::Constant(Constant::Lit(Lit::Int(0))))),
+                rvalue: Box::new(Rvalue::UnaryOp(
+                    op,
+                    Operand::Constant(Constant::Lit(Lit::Int(0))),
+                )),
                 message: "Invalid unary operation operand".to_string(),
             }),
         }
