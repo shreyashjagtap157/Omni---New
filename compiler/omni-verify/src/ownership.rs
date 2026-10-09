@@ -1268,3 +1268,5 @@ mod tests {
         let program = moved_mutable_reference_program(false);
         verify_program(&program).expect("loan should end after the moved reference's last use");
     }
+
+}
