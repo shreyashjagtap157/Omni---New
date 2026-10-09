@@ -323,7 +323,16 @@ impl OwnershipState {
     ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
         self.validate_parent_loans(&place, parents, true)?;
-        self.ensure_access_allowed_except(&place, AccessKind::BorrowMut, parents)?;
+        if let Some(existing) = self
+            .loans
+            .values()
+            .find(|loan| !parents.contains(&loan.region) && places_overlap(&loan.place, &place))
+        {
+            return Err(OwnershipError::MutableBorrowConflict {
+                place,
+                existing: if existing.mutable { "mutable".into() } else { "shared".into() },
+            });
+        }
         let region = region.into();
         self.loans.insert(region.clone(), Loan { place, mutable: true, region });
         Ok(())
