@@ -381,7 +381,10 @@ impl Interpreter {
                 let value = self.get_place_value(place, function.clone())?;
                 let variant = match value {
                     Value::EnumVariant { enum_name: actual_name, variant, .. }
-                        if actual_name == *enum_name => variant,
+                        if actual_name == *enum_name =>
+                    {
+                        variant
+                    }
                     Value::EnumVariant { enum_name: actual_name, .. } => {
                         return Err(ExecutionError::InvalidOperand {
                             operand: Operand::Copy(place.clone()),
