@@ -1059,15 +1059,7 @@ fn verify_call_argument_aliases(
         if !is_reference {
             continue;
         }
-        if matches!(argument, Operand::Copy(_)) {
-            return Err(OwnershipVerificationError {
-                function: function.name.clone(),
-                block,
-                context: format!("call argument {argument_index}"),
-                message: "reference Copy at a call boundary is rejected until Edition 1 reference-copyability is resolved".into(),
-            });
-        }
-
+        let is_copy = matches!(argument, Operand::Copy(_));
         let regions = state.reference_loans.get(&place.local).cloned().unwrap_or_default();
         if regions.is_empty() {
             return Err(OwnershipVerificationError {
@@ -1089,6 +1081,14 @@ fn verify_call_argument_aliases(
                         )
                     },
                 )?;
+            if is_copy && loan.mutable {
+                return Err(OwnershipVerificationError {
+                    function: function.name.clone(),
+                    block,
+                    context: format!("call argument {argument_index}"),
+                    message: "copying a mutable reference is not permitted".into(),
+                });
+            }
             if loan.mutable && loan_has_active_children(state, &region) {
                 return Err(OwnershipVerificationError {
                     function: function.name.clone(),

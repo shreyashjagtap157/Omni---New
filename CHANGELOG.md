@@ -8,7 +8,7 @@ All notable project changes are documented here. Entries describe repository sta
 
 - Resolve tracked dereference accesses to their borrowed origin and check them against unrelated active loans, rather than treating a reference local's dereference projection as independent storage.
 - Preserve parent-loan dependencies across self-reborrows; authorize access only through the reference's own loan chain, and reject writes or mutable reborrows through shared-reference authority.
-- Seed distinct abstract origins for reference parameters, reject overlapping tracked mutable reference arguments at call boundaries, and fail closed for unresolved reference copies at calls.
+- Seed distinct abstract origins for reference parameters, reject overlapping tracked mutable reference arguments at call boundaries, permit the existing tracked shared-reference call path, and reject mutable-reference copies. General reference-copyability remains unresolved.
 - Nested dereferences and references stored in projected places remain explicitly rejected until the provenance model represents them.
 - Add MIR regressions for self-reborrow liveness, access through mutable references, shared-reference write rejection, mutable reborrow rejection, parent suspension, reference parameters, and call-argument aliasing.
 
