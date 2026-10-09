@@ -159,9 +159,7 @@ fn transfer_block(
                 // moved into another root local. The transfer is handled here so
                 // the source association is not mistaken for the end of the loan.
                 let moved_reference = match (destination.projections.is_empty(), rvalue) {
-                    (true, Rvalue::Use(Operand::Move(source)))
-                        if source.projections.is_empty() =>
-                    {
+                    (true, Rvalue::Use(Operand::Move(source))) if source.projections.is_empty() => {
                         state
                             .reference_loans
                             .get(&source.local)
@@ -1203,13 +1201,10 @@ mod tests {
         let source = Local::from_usize(1);
         let destination = Local::from_usize(2);
         let ret = Local::from_usize(3);
-        let read_destination = || Place {
-            local: destination,
-            projections: vec![Projection::Deref],
-        };
-        let integer = |value| {
-            Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(value))))
-        };
+        let read_destination =
+            || Place { local: destination, projections: vec![Projection::Deref] };
+        let integer =
+            |value| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(value))));
 
         let mut statements = vec![
             Statement::Assign(Place::local(x), integer(1)),
@@ -1242,10 +1237,7 @@ mod tests {
         }
 
         let mut blocks = IndexVec::new();
-        blocks.push(omni_mir::ir::BlockData {
-            statements,
-            terminator: Some(Terminator::Return),
-        });
+        blocks.push(omni_mir::ir::BlockData { statements, terminator: Some(Terminator::Return) });
 
         MirProgram::new(
             tcx,
@@ -1276,5 +1268,3 @@ mod tests {
         let program = moved_mutable_reference_program(false);
         verify_program(&program).expect("loan should end after the moved reference's last use");
     }
-
-}
