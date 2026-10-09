@@ -4,6 +4,13 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### MIR reference-move loan preservation
+
+- Preserve a tracked reference loan when a root-local reference is moved into another root local.
+- End tracked loans only when no reference local or active child reborrow still depends on them; release now-unreferenced parent loans transitively.
+- Add MIR regressions proving that a conflicting write is rejected while the moved mutable reference remains live and accepted after its last use.
+- Keep shared-reference copyability unspecified until an explicit Edition 1 rule resolves it; this change does not introduce reference-copy semantics.
+
 ### Enum payload patterns through verified MIR
 
 - Added typed enum-payload extraction through `Rvalue::EnumField`, preserving enum and variant identity so the verifier and reference machine can validate payload access against declaration metadata and the active variant.

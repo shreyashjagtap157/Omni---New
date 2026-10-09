@@ -48,11 +48,16 @@ immediately. Loan shortening also reasons about dead locals individually rather 
 preserving a region while another live local still carries the same region. The state does not expose a
 canonical loan-to-place provenance map for resolving dereference accesses against the borrowed storage.
 
-This is a static code-review finding, not yet a reproduced failing regression. The next implementation
-milestone should first add MIR tests that demonstrate the behavior, then repair reference provenance,
-alias-aware loan release, dereference resolution, parent/child reborrows, CFG joins, and reference
-arguments/returns. The verifier must continue to reject invalid MIR and must not make valid programs fail
-solely because the analysis is conservative.
+The regression coverage now constructs typed MIR in which a mutable reference is moved to a new local.
+A write to the borrowed place before the destination's last use must be rejected, while a write after
+that last use must be accepted. The verifier's root-local move path transfers the tracked loan association
+to the destination, and loan release checks for remaining reference associations and active child
+reborrows before ending a region. This qualifies the direct root-local move case; projected reference
+storage, reference arguments/returns, and dereference-to-origin resolution remain outstanding.
+
+The broader verifier must continue to reject invalid MIR and must not make valid programs fail solely
+because the analysis is conservative. CFG joins, nested reborrows, aggregate-contained references, and
+all call/return provenance paths still require dedicated qualification.
 
 Before implementing copy propagation, resolve this normative question: **is a shared reference `&T`
 copyable, or are all reference values affine unless an explicit Copy-like rule says otherwise?** The

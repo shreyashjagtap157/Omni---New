@@ -155,14 +155,56 @@ fn transfer_block(
         let context = format!("statement {}", statement_index);
         match statement {
             Statement::Assign(destination, rvalue) => {
-                if destination.projections.is_empty() {
+                // Preserve a tracked reference loan when the reference itself is
+                // moved into another root local. The transfer is handled here so
+                // the source association is not mistaken for the end of the loan.
+                let moved_reference = match (destination.projections.is_empty(), rvalue) {
+                    (true, Rvalue::Use(Operand::Move(source)))
+                        if source.projections.is_empty() =>
+                    {
+                        state
+                            .reference_loans
+                            .get(&source.local)
+                            .cloned()
+                            .map(|loans| (source.local, loans))
+                    }
+                    _ => None,
+                };
+                let self_move = moved_reference
+                    .as_ref()
+                    .is_some_and(|(source, _)| *source == destination.local);
+
+                if destination.projections.is_empty() && !self_move {
                     if let Some(old_loans) = state.reference_loans.remove(&destination.local) {
                         for region in old_loans {
-                            end_tracked_loan(&mut state, &region);
+                            end_tracked_loan_if_unreferenced(&mut state, &region);
                         }
                     }
                 }
-                transfer_rvalue(function, block, &context, rvalue, &mut state)?;
+
+                if let Some((source, loans)) = moved_reference {
+                    transfer_place_access(
+                        function,
+                        block,
+                        &context,
+                        &Place::local(source),
+                        AccessKind::Move,
+                        &mut state,
+                    )?;
+                    if source != destination.local {
+                        state.reference_loans.remove(&source);
+                        if !loans.is_empty() {
+                            state
+                                .reference_loans
+                                .entry(destination.local)
+                                .or_default()
+                                .extend(loans);
+                        }
+                    }
+                } else {
+                    transfer_rvalue(function, block, &context, rvalue, &mut state)?;
+                }
+
                 if destination.projections.is_empty() && matches!(rvalue, Rvalue::Reference { .. })
                 {
                     let region = format!("{}:bb{}:{}", function.name, block.index(), context);
@@ -179,7 +221,7 @@ fn transfer_block(
                 if place.projections.is_empty() {
                     if let Some(loans) = state.reference_loans.remove(&place.local) {
                         for region in loans {
-                            end_tracked_loan(&mut state, &region);
+                            end_tracked_loan_if_unreferenced(&mut state, &region);
                         }
                     }
                 }
@@ -504,6 +546,30 @@ fn loan_has_active_children(state: &FlowState, region: &str) -> bool {
     })
 }
 
+/// End a loan only after no live reference local or active child reborrow
+/// depends on it. Releasing a child can make an otherwise orphaned parent
+/// eligible for release, so walk parent links transitively and guard against
+/// malformed cyclic metadata.
+fn end_tracked_loan_if_unreferenced(state: &mut FlowState, region: &str) {
+    let mut pending = vec![region.to_string()];
+    let mut visited = BTreeSet::new();
+
+    while let Some(current) = pending.pop() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+
+        let has_reference = state.reference_loans.values().any(|loans| loans.contains(&current));
+        if has_reference || loan_has_active_children(state, &current) {
+            continue;
+        }
+
+        let parents = state.loan_parents.get(&current).cloned().unwrap_or_default();
+        end_tracked_loan(state, &current);
+        pending.extend(parents);
+    }
+}
+
 fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Local>) {
     loop {
         let dead_locals = state
@@ -517,15 +583,11 @@ fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Loc
         for local in dead_locals {
             let loans = state.reference_loans.get(&local).cloned().unwrap_or_default();
             for region in loans {
-                if loan_has_active_children(state, &region) {
-                    continue;
-                }
-
-                end_tracked_loan(state, &region);
                 if let Some(active) = state.reference_loans.get_mut(&local) {
                     active.remove(&region);
                 }
                 changed = true;
+                end_tracked_loan_if_unreferenced(state, &region);
             }
 
             if state.reference_loans.get(&local).is_some_and(BTreeSet::is_empty) {
@@ -618,7 +680,7 @@ fn transfer_operand(
             if place.projections.is_empty() {
                 if let Some(loans) = state.reference_loans.remove(&place.local) {
                     for region in loans {
-                        let _ = state.ownership.end_loan(&region);
+                        end_tracked_loan_if_unreferenced(state, &region);
                     }
                 }
             }
@@ -1125,4 +1187,94 @@ mod tests {
         let error = verify_program(&program).expect_err("join must reject a path that moved x");
         assert!(error.message.contains("moved"));
     }
+    fn moved_mutable_reference_program(write_before_last_use: bool) -> MirProgram {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let mutable_ref =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
+
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("x".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("source".into()), ty: Some(mutable_ref) });
+        locals.push(LocalDecl { name: Some("destination".into()), ty: Some(mutable_ref) });
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+
+        let x = Local::from_usize(0);
+        let source = Local::from_usize(1);
+        let destination = Local::from_usize(2);
+        let ret = Local::from_usize(3);
+        let read_destination = || Place {
+            local: destination,
+            projections: vec![Projection::Deref],
+        };
+        let integer = |value| {
+            Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(value))))
+        };
+
+        let mut statements = vec![
+            Statement::Assign(Place::local(x), integer(1)),
+            Statement::Assign(
+                Place::local(source),
+                Rvalue::Reference { place: Place::local(x), mutable: true, ty: mutable_ref },
+            ),
+            Statement::Assign(
+                Place::local(destination),
+                Rvalue::Use(Operand::Move(Place::local(source))),
+            ),
+        ];
+
+        if write_before_last_use {
+            statements.push(Statement::Assign(Place::local(x), integer(2)));
+            statements.push(Statement::Assign(
+                Place::local(ret),
+                Rvalue::Use(Operand::Copy(read_destination())),
+            ));
+        } else {
+            statements.push(Statement::Assign(
+                Place::local(ret),
+                Rvalue::Use(Operand::Copy(read_destination())),
+            ));
+            statements.push(Statement::Assign(Place::local(x), integer(2)));
+            statements.push(Statement::Assign(
+                Place::local(ret),
+                Rvalue::Use(Operand::Copy(Place::local(x))),
+            ));
+        }
+
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements,
+            terminator: Some(Terminator::Return),
+        });
+
+        MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: if write_before_last_use {
+                    "moved_reference_conflict".into()
+                } else {
+                    "moved_reference_last_use".into()
+                },
+                params: vec![],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+    }
+
+    #[test]
+    fn moving_mutable_reference_preserves_loan_until_destination_last_use() {
+        let program = moved_mutable_reference_program(true);
+        let error = verify_program(&program)
+            .expect_err("moving a mutable reference must not release its live loan");
+        assert!(error.message.contains("borrow conflict"), "unexpected ownership error: {error:?}");
+    }
+
+    #[test]
+    fn moved_mutable_reference_loan_ends_after_destination_last_use() {
+        let program = moved_mutable_reference_program(false);
+        verify_program(&program).expect("loan should end after the moved reference's last use");
+    }
+
 }
