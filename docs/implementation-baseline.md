@@ -57,6 +57,12 @@ The broader verifier must continue to reject invalid MIR and must not make valid
 because the analysis is conservative. CFG joins, nested reborrows, aggregate-contained references, and
 all call/return provenance paths still require dedicated qualification.
 
+### Reference-origin-aware dereference verification
+
+The ownership verifier now resolves a first-level dereference through the tracked reference-local loan set to the loan's borrowed origin. Access through a reference excludes only that reference's own loan chain from conflict checks; unrelated loans remain active. Self-reborrows replace the local's reference association only after the child loan records its parent dependency. Shared references cannot authorize writes, moves, drops, or mutable reborrows. Reference parameters receive distinct abstract origins; this does not establish alias safety across function boundaries. Call boundaries reject overlapping tracked mutable reference arguments, and reference-copy arguments fail closed until Edition 1 reference-copyability is resolved.
+
+The qualified scope covers root-local reference creation, first-level dereference accesses, self-reborrows, and tracked root-local reference arguments at call boundaries. References stored in projected/aggregate places and nested dereferences fail closed because their provenance is not representable by the current local-to-loan map. Return-value provenance and complete interprocedural alias analysis remain incomplete. Copy propagation remains blocked pending resolution of the Edition 1 reference-copyability rule.
+
 ### Specification authority caveat
 
 `spec/reference/core_semantics_and_types.md` labels itself “Normative Candidate Reference for Edition 1”,

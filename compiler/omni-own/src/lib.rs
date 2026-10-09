@@ -207,27 +207,57 @@ impl OwnershipState {
 
     /// Marks a place as explicitly dropped.
     pub fn drop_place(&mut self, place: &Place) -> Result<(), OwnershipError> {
+        self.drop_with_authority(place, &BTreeSet::new())
+    }
+
+    /// Drops a place while honoring only the loans carried by the reference
+    /// through which the access is made.
+    pub fn drop_with_authority(
+        &mut self,
+        place: &Place,
+        authority: &BTreeSet<String>,
+    ) -> Result<(), OwnershipError> {
         self.require_initialized(place)?;
-        self.ensure_access_allowed(place, AccessKind::Drop)?;
+        self.ensure_access_allowed_except(place, AccessKind::Drop, authority)?;
         self.places.insert(place.clone(), PlaceState::Moved);
         Ok(())
     }
 
     /// Reads a place without consuming it.
     pub fn read(&self, place: &Place) -> Result<(), OwnershipError> {
+        self.read_with_authority(place, &BTreeSet::new())
+    }
+
+    /// Reads a place through a reference without treating that reference's own
+    /// loan chain as an unrelated conflicting access.
+    pub fn read_with_authority(
+        &self,
+        place: &Place,
+        authority: &BTreeSet<String>,
+    ) -> Result<(), OwnershipError> {
         self.require_initialized(place)?;
-        self.ensure_access_allowed(place, AccessKind::Read)
+        self.ensure_access_allowed_except(place, AccessKind::Read, authority)
     }
 
     /// Moves a place, consuming the whole place.
     pub fn move_place(&mut self, place: Place) -> Result<(), OwnershipError> {
+        self.move_with_authority(place, &BTreeSet::new())
+    }
+
+    /// Moves a place through an authorized reference loan.
+    pub fn move_with_authority(
+        &mut self,
+        place: Place,
+        authority: &BTreeSet<String>,
+    ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
-        self.ensure_access_allowed(&place, AccessKind::Move)?;
-        if place.projections.is_empty() {
-            self.places.insert(place, PlaceState::Moved);
+        self.ensure_access_allowed_except(&place, AccessKind::Move, authority)?;
+        let state = if place.projections.is_empty() {
+            PlaceState::Moved
         } else {
-            self.move_projection(place)?;
-        }
+            PlaceState::PartiallyMoved
+        };
+        self.places.insert(place, state);
         Ok(())
     }
 
@@ -255,13 +285,20 @@ impl OwnershipState {
         place: Place,
         region: impl Into<String>,
     ) -> Result<(), OwnershipError> {
+        self.borrow_shared_with_parents(place, region, &BTreeSet::new())
+    }
+
+    /// Creates a shared reborrow while excluding its own parent-loan chain from
+    /// conflict checks. All unrelated overlapping loans remain authoritative.
+    pub fn borrow_shared_with_parents(
+        &mut self,
+        place: Place,
+        region: impl Into<String>,
+        parents: &BTreeSet<String>,
+    ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
-        if let Some(existing) = self.conflicting_loan(&place, false) {
-            return Err(OwnershipError::BorrowConflict {
-                place,
-                existing: if existing.mutable { "mutable".into() } else { "shared".into() },
-            });
-        }
+        self.validate_parent_loans(&place, parents, false)?;
+        self.ensure_access_allowed_except(&place, AccessKind::BorrowShared, parents)?;
         let region = region.into();
         self.loans.insert(region.clone(), Loan { place, mutable: false, region });
         Ok(())
@@ -273,10 +310,20 @@ impl OwnershipState {
         place: Place,
         region: impl Into<String>,
     ) -> Result<(), OwnershipError> {
+        self.borrow_mut_with_parents(place, region, &BTreeSet::new())
+    }
+
+    /// Creates a mutable reborrow while excluding its own parent-loan chain.
+    /// A mutable reborrow from any shared parent is rejected.
+    pub fn borrow_mut_with_parents(
+        &mut self,
+        place: Place,
+        region: impl Into<String>,
+        parents: &BTreeSet<String>,
+    ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
-        if self.conflicting_loan(&place, true).is_some() {
-            return Err(OwnershipError::MutableBorrowConflict { place, existing: "active".into() });
-        }
+        self.validate_parent_loans(&place, parents, true)?;
+        self.ensure_access_allowed_except(&place, AccessKind::BorrowMut, parents)?;
         let region = region.into();
         self.loans.insert(region.clone(), Loan { place, mutable: true, region });
         Ok(())
@@ -297,7 +344,16 @@ impl OwnershipState {
     /// Assignment is distinct from AccessKind::Write: a first assignment to
     /// an uninitialized local is valid and establishes initialization.
     pub fn assign(&mut self, place: Place) -> Result<(), OwnershipError> {
-        self.ensure_access_allowed(&place, AccessKind::Write)?;
+        self.assign_with_authority(place, &BTreeSet::new())
+    }
+
+    /// Assigns through a reference whose own loan chain authorizes the access.
+    pub fn assign_with_authority(
+        &mut self,
+        place: Place,
+        authority: &BTreeSet<String>,
+    ) -> Result<(), OwnershipError> {
+        self.ensure_access_allowed_except(&place, AccessKind::Write, authority)?;
         self.places.insert(place, PlaceState::Initialized);
         Ok(())
     }
@@ -360,10 +416,21 @@ impl OwnershipState {
         place: &Place,
         access: AccessKind,
     ) -> Result<(), OwnershipError> {
+        self.ensure_access_allowed_except(place, access, &BTreeSet::new())
+    }
+
+    fn ensure_access_allowed_except(
+        &self,
+        place: &Place,
+        access: AccessKind,
+        authorized_regions: &BTreeSet<String>,
+    ) -> Result<(), OwnershipError> {
         let related = self
             .loans
             .values()
-            .filter(|loan| places_overlap(&loan.place, place))
+            .filter(|loan| {
+                !authorized_regions.contains(&loan.region) && places_overlap(&loan.place, place)
+            })
             .collect::<Vec<_>>();
 
         for loan in related {
@@ -393,10 +460,28 @@ impl OwnershipState {
         Ok(())
     }
 
-    fn conflicting_loan(&self, place: &Place, mutable: bool) -> Option<&Loan> {
-        self.loans
-            .values()
-            .find(|loan| places_overlap(&loan.place, place) && (mutable || loan.mutable))
+    fn validate_parent_loans(
+        &self,
+        place: &Place,
+        parents: &BTreeSet<String>,
+        mutable: bool,
+    ) -> Result<(), OwnershipError> {
+        for region in parents {
+            let loan = self
+                .loans
+                .get(region)
+                .ok_or_else(|| OwnershipError::UnknownLoan(region.clone()))?;
+            if !places_overlap(&loan.place, place) {
+                return Err(OwnershipError::BorrowConflict {
+                    place: place.clone(),
+                    existing: "unrelated parent".into(),
+                });
+            }
+            if mutable && !loan.mutable {
+                return Err(OwnershipError::WriteThroughSharedBorrow(place.clone()));
+            }
+        }
+        Ok(())
     }
 }
 
