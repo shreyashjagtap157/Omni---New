@@ -120,7 +120,7 @@ pub enum ExecutionError {
     /// Invalid operand evaluation
     InvalidOperand { operand: Operand, message: String },
     /// Invalid rvalue evaluation
-    InvalidRvalue { rvalue: Rvalue, message: String },
+    InvalidRvalue { rvalue: Box<Rvalue>, message: String },
     /// Control flow error
     ControlFlowError { message: String },
     /// Bounds check failure
@@ -680,11 +680,11 @@ impl Interpreter {
             (BinOp::Ne, Value::Bool(l), Value::Bool(r)) => Ok(Value::Bool(l != r)),
             (BinOp::Eq, Value::String(l), Value::String(r)) => Ok(Value::Bool(l == r)),
             _ => Err(ExecutionError::InvalidRvalue {
-                rvalue: Rvalue::BinaryOp(
+                rvalue: Box::new(Rvalue::BinaryOp(
                     op,
                     Operand::Constant(Constant::Lit(Lit::Int(0))),
                     Operand::Constant(Constant::Lit(Lit::Int(0))),
-                ),
+                )),
                 message: "Invalid binary operation operands".to_string(),
             }),
         }
@@ -700,7 +700,7 @@ impl Interpreter {
             (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
             (UnOp::BitNot, Value::Int(i)) => Ok(Value::Int(!i)),
             _ => Err(ExecutionError::InvalidRvalue {
-                rvalue: Rvalue::UnaryOp(op, Operand::Constant(Constant::Lit(Lit::Int(0)))),
+                rvalue: Box::new(Rvalue::UnaryOp(op, Operand::Constant(Constant::Lit(Lit::Int(0))))),
                 message: "Invalid unary operation operand".to_string(),
             }),
         }
