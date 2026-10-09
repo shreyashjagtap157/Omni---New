@@ -3169,7 +3169,8 @@ mod tests {
 
     #[test]
     fn source_pipeline_matches_tuple_pattern_and_binds_fields() {
-        let source = "fn main() -> i64 { let pair = (41, 0); return match pair { (value, _) => value }; }";
+        let source =
+            "fn main() -> i64 { let pair = (41, 0); return match pair { (value, _) => value }; }";
         assert_eq!(
             compile_source_to_interpreter_value(source, manifest())
                 .expect("tuple pattern bindings must execute through verified MIR"),

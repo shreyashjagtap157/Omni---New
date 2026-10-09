@@ -535,25 +535,23 @@ impl Interpreter {
                         variant: actual_variant,
                         fields,
                     } if actual_enum == *enum_name && actual_variant == *variant => {
-                        fields.get(*index).cloned().ok_or_else(|| {
-                            ExecutionError::InvalidOperand {
-                                operand: base.clone(),
-                                message: format!(
-                                    "Enum payload index {} is out of range for '{}::{}'",
-                                    index, enum_name, variant
-                                ),
-                            }
-                        })
-                    }
-                    Value::EnumVariant { enum_name: actual_enum, variant: actual_variant, .. } => {
-                        Err(ExecutionError::InvalidOperand {
+                        fields.get(*index).cloned().ok_or_else(|| ExecutionError::InvalidOperand {
                             operand: base.clone(),
                             message: format!(
-                                "Enum payload expected '{}::{}', found '{}::{}'",
-                                enum_name, variant, actual_enum, actual_variant
+                                "Enum payload index {} is out of range for '{}::{}'",
+                                index, enum_name, variant
                             ),
                         })
                     }
+                    Value::EnumVariant {
+                        enum_name: actual_enum, variant: actual_variant, ..
+                    } => Err(ExecutionError::InvalidOperand {
+                        operand: base.clone(),
+                        message: format!(
+                            "Enum payload expected '{}::{}', found '{}::{}'",
+                            enum_name, variant, actual_enum, actual_variant
+                        ),
+                    }),
                     other => Err(ExecutionError::InvalidOperand {
                         operand: base.clone(),
                         message: format!(
@@ -829,10 +827,11 @@ impl Interpreter {
     ) -> Result<Value, ExecutionError> {
         match base {
             Value::Tuple(values) => {
-                let index = field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
-                    place: place.clone(),
-                    message: format!("Invalid tuple field index '{}'", field),
-                })?;
+                let index =
+                    field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
+                        place: place.clone(),
+                        message: format!("Invalid tuple field index '{}'", field),
+                    })?;
                 values.get(index).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
                     place: place.clone(),
                     message: format!(

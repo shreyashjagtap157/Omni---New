@@ -247,7 +247,9 @@ fn transfer_order_rvalue(rvalue: &Rvalue, order: &mut Vec<Local>) {
             transfer_order_operand(start, order);
             transfer_order_operand(end, order);
         }
-        Rvalue::Field { base, .. } => transfer_order_operand(base, order),
+        Rvalue::Field { base, .. } | Rvalue::EnumField { base, .. } => {
+            transfer_order_operand(base, order)
+        }
         Rvalue::Index { base, index, .. } => {
             transfer_order_operand(base, order);
             transfer_order_operand(index, order);
@@ -344,7 +346,9 @@ fn transfer_rvalue(rvalue: &Rvalue, state: &mut HashSet<Local>) {
             transfer_operand(start, state);
             transfer_operand(end, state);
         }
-        Rvalue::Field { base, .. } | Rvalue::EnumField { base, .. } => transfer_operand(base, state),
+        Rvalue::Field { base, .. } | Rvalue::EnumField { base, .. } => {
+            transfer_operand(base, state)
+        }
         Rvalue::Index { base, index, .. } => {
             transfer_operand(base, state);
             transfer_operand(index, state);

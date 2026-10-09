@@ -1381,7 +1381,8 @@ impl<'a> FnMirBuilder<'a> {
                     let next = if index + 1 == patterns.len() { success } else { self.new_block() };
                     self.current_block = Some(test_block);
                     if matches!(subpattern, Pattern::Wildcard | Pattern::Binding(_)) {
-                        self.blocks[test_block].terminator = Some(crate::ir::Terminator::Goto(next));
+                        self.blocks[test_block].terminator =
+                            Some(crate::ir::Terminator::Goto(next));
                     } else {
                         let local = self.new_temp(Some(format!("_tuple_test_{index}")), *sub_ty);
                         let place = crate::ir::Place::local(local);
@@ -1437,15 +1438,20 @@ impl<'a> FnMirBuilder<'a> {
                         .iter()
                         .find(|field| field.name == *field_name)
                         .ok_or_else(|| {
-                            format!("MIR lowering error: field '{}' not found on '{}'", field_name, name)
+                            format!(
+                                "MIR lowering error: field '{}' not found on '{}'",
+                                field_name, name
+                            )
                         })?;
                     let field_ty = self.tcx.lower_type_spec(&field_def.ty, &substitutions);
                     let next = if index + 1 == fields.len() { success } else { self.new_block() };
                     self.current_block = Some(test_block);
                     if matches!(subpattern, Pattern::Wildcard | Pattern::Binding(_)) {
-                        self.blocks[test_block].terminator = Some(crate::ir::Terminator::Goto(next));
+                        self.blocks[test_block].terminator =
+                            Some(crate::ir::Terminator::Goto(next));
                     } else {
-                        let local = self.new_temp(Some(format!("_struct_test_{field_name}")), field_ty);
+                        let local =
+                            self.new_temp(Some(format!("_struct_test_{field_name}")), field_ty);
                         let place = crate::ir::Place::local(local);
                         self.blocks[test_block].statements.push(crate::ir::Statement::Assign(
                             place.clone(),
@@ -1519,8 +1525,7 @@ impl<'a> FnMirBuilder<'a> {
                 let block = self.current_block.ok_or_else(|| {
                     "MIR lowering error: enum pattern has no current dispatch block".to_string()
                 })?;
-                let payload_entry =
-                    if subpatterns.is_empty() { success } else { self.new_block() };
+                let payload_entry = if subpatterns.is_empty() { success } else { self.new_block() };
                 self.blocks[block].terminator = Some(crate::ir::Terminator::SwitchEnum {
                     place: scrutinee.clone(),
                     enum_name: enum_name.clone(),
@@ -1533,12 +1538,15 @@ impl<'a> FnMirBuilder<'a> {
 
                 let mut test_block = payload_entry;
                 for (index, subpattern) in subpatterns.iter().enumerate() {
-                    let next = if index + 1 == subpatterns.len() { success } else { self.new_block() };
+                    let next =
+                        if index + 1 == subpatterns.len() { success } else { self.new_block() };
                     self.current_block = Some(test_block);
                     if matches!(subpattern, Pattern::Wildcard | Pattern::Binding(_)) {
-                        self.blocks[test_block].terminator = Some(crate::ir::Terminator::Goto(next));
+                        self.blocks[test_block].terminator =
+                            Some(crate::ir::Terminator::Goto(next));
                     } else {
-                        let local = self.new_temp(Some(format!("_enum_test_{index}")), payload_tys[index]);
+                        let local =
+                            self.new_temp(Some(format!("_enum_test_{index}")), payload_tys[index]);
                         let place = crate::ir::Place::local(local);
                         self.blocks[test_block].statements.push(crate::ir::Statement::Assign(
                             place.clone(),
