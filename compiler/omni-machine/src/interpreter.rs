@@ -527,6 +527,42 @@ impl Interpreter {
                     fields: values,
                 })
             }
+            Rvalue::EnumField { base, enum_name, variant, index, .. } => {
+                let value = self.evaluate_operand(base, function)?;
+                match value {
+                    Value::EnumVariant {
+                        enum_name: actual_enum,
+                        variant: actual_variant,
+                        fields,
+                    } if actual_enum == *enum_name && actual_variant == *variant => {
+                        fields.get(*index).cloned().ok_or_else(|| {
+                            ExecutionError::InvalidOperand {
+                                operand: base.clone(),
+                                message: format!(
+                                    "Enum payload index {} is out of range for '{}::{}'",
+                                    index, enum_name, variant
+                                ),
+                            }
+                        })
+                    }
+                    Value::EnumVariant { enum_name: actual_enum, variant: actual_variant, .. } => {
+                        Err(ExecutionError::InvalidOperand {
+                            operand: base.clone(),
+                            message: format!(
+                                "Enum payload expected '{}::{}', found '{}::{}'",
+                                enum_name, variant, actual_enum, actual_variant
+                            ),
+                        })
+                    }
+                    other => Err(ExecutionError::InvalidOperand {
+                        operand: base.clone(),
+                        message: format!(
+                            "Enum payload expected '{}::{}', found {:?}",
+                            enum_name, variant, other
+                        ),
+                    }),
+                }
+            }
             Rvalue::Range { start, end, inclusive, ty } => {
                 let start_val = self.evaluate_operand(start, function.clone())?;
                 let end_val = self.evaluate_operand(end, function)?;
@@ -792,6 +828,20 @@ impl Interpreter {
         place: &Place,
     ) -> Result<Value, ExecutionError> {
         match base {
+            Value::Tuple(values) => {
+                let index = field.parse::<usize>().map_err(|_| ExecutionError::InvalidProjection {
+                    place: place.clone(),
+                    message: format!("Invalid tuple field index '{}'", field),
+                })?;
+                values.get(index).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
+                    place: place.clone(),
+                    message: format!(
+                        "Tuple field index {} out of range for tuple of length {}",
+                        index,
+                        values.len()
+                    ),
+                })
+            }
             Value::Struct { name, fields } => {
                 fields.get(field).cloned().ok_or_else(|| ExecutionError::InvalidProjection {
                     place: place.clone(),

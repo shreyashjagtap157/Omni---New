@@ -344,7 +344,7 @@ fn transfer_rvalue(rvalue: &Rvalue, state: &mut HashSet<Local>) {
             transfer_operand(start, state);
             transfer_operand(end, state);
         }
-        Rvalue::Field { base, .. } => transfer_operand(base, state),
+        Rvalue::Field { base, .. } | Rvalue::EnumField { base, .. } => transfer_operand(base, state),
         Rvalue::Index { base, index, .. } => {
             transfer_operand(base, state);
             transfer_operand(index, state);

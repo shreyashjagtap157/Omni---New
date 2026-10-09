@@ -203,11 +203,19 @@ impl LoweringContext {
 }
 
 fn pattern_binding_names(pattern: &omni_types::ast::Pattern) -> Vec<String> {
+    use omni_types::ast::Pattern;
     match pattern {
-        omni_types::ast::Pattern::Binding(name) => vec![name.clone()],
-        omni_types::ast::Pattern::Or(patterns) => {
+        Pattern::Binding(name) if name != "_" => vec![name.clone()],
+        Pattern::Tuple(patterns) | Pattern::Or(patterns) => {
             patterns.iter().flat_map(pattern_binding_names).collect()
         }
+        Pattern::Struct { fields, .. } => {
+            fields.iter().flat_map(|(_, pattern)| pattern_binding_names(pattern)).collect()
+        }
+        Pattern::Variant { subpatterns, .. } => {
+            subpatterns.iter().flat_map(pattern_binding_names).collect()
+        }
+        Pattern::Reference { inner, .. } => pattern_binding_names(inner),
         _ => Vec::new(),
     }
 }
@@ -965,6 +973,7 @@ impl<'a> FnMirBuilder<'a> {
         let arm_blocks = (0..arms.len()).map(|_| self.new_block()).collect::<Vec<_>>();
         let otherwise = self.new_block();
         let join = self.new_block();
+        let mut arm_bindings = Vec::with_capacity(arms.len());
 
         // Lower match dispatch as an ordered decision chain. This represents
         // ranges and guards directly in CFG form instead of trying to encode
@@ -983,8 +992,14 @@ impl<'a> FnMirBuilder<'a> {
                 failure_block,
             )?;
 
+            let saved_scope = self.scope.clone();
+            self.current_block = Some(pattern_success);
+            let bindings = self.bind_match_pattern(&arm.pattern, &scrutinee_place, scrutinee_ty)?;
+            for (name, local) in &bindings {
+                self.scope.insert(name.clone(), *local);
+            }
+
             if let Some(guard) = &arm.guard {
-                self.current_block = Some(pattern_success);
                 let guard_result = self
                     .lower_expr(guard)?
                     .ok_or_else(|| "MIR lowering error: match guard is Unit".to_string())?;
@@ -1010,6 +1025,8 @@ impl<'a> FnMirBuilder<'a> {
                 }
             }
 
+            self.scope = saved_scope;
+            arm_bindings.push(bindings);
             test_block = failure_block;
         }
 
@@ -1022,8 +1039,8 @@ impl<'a> FnMirBuilder<'a> {
         for (index, arm) in arms.iter().enumerate() {
             self.current_block = Some(arm_blocks[index]);
             let saved_scope = self.scope.clone();
-            for name in pattern_binding_names(&arm.pattern) {
-                self.scope.insert(name, scrutinee_place.local);
+            for (name, local) in &arm_bindings[index] {
+                self.scope.insert(name.clone(), *local);
             }
 
             let body = self.lower_expr(&arm.body)?;
@@ -1080,6 +1097,214 @@ impl<'a> FnMirBuilder<'a> {
         }
     }
 
+    fn bind_match_pattern(
+        &mut self,
+        pattern: &omni_types::ast::Pattern,
+        scrutinee: &crate::ir::Place,
+        scrutinee_ty: Ty,
+    ) -> Result<Vec<(String, crate::ir::Local)>, String> {
+        use omni_types::ast::Pattern;
+        if pattern_binding_names(pattern).is_empty() {
+            return Ok(Vec::new());
+        }
+
+        match pattern {
+            Pattern::Binding(name) if name != "_" => {
+                if scrutinee.projections.is_empty() {
+                    Ok(vec![(name.clone(), scrutinee.local)])
+                } else {
+                    let local = self.new_temp(Some(name.clone()), scrutinee_ty);
+                    let place = crate::ir::Place::local(local);
+                    let block = self.current_block.ok_or_else(|| {
+                        "MIR lowering error: projected binding has no live block".to_string()
+                    })?;
+                    self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                        place.clone(),
+                        crate::ir::Rvalue::Use(crate::ir::Operand::Copy(scrutinee.clone())),
+                    ));
+                    Ok(vec![(name.clone(), local)])
+                }
+            }
+            Pattern::Or(patterns) => {
+                let first = patterns.first().ok_or_else(|| {
+                    "MIR lowering error: empty or-pattern has no bindings".to_string()
+                })?;
+                if patterns.iter().all(|candidate| candidate == first) {
+                    self.bind_match_pattern(first, scrutinee, scrutinee_ty)
+                } else {
+                    Err("MIR lowering error: bindings across distinct or-pattern alternatives require binding-join lowering".into())
+                }
+            }
+            Pattern::Variant { enum_name, variant, subpatterns } => {
+                let type_args = match self.tcx.get(scrutinee_ty).clone() {
+                    TyKind::Enum(actual_name, args) if actual_name == *enum_name => args,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: enum binding pattern '{}::{}' applied to {:?}",
+                            enum_name, variant, other
+                        ));
+                    }
+                };
+                let definition = self.enum_defs.get(enum_name).cloned().ok_or_else(|| {
+                    format!("MIR lowering error: enum '{}' has no HIR declaration", enum_name)
+                })?;
+                if definition.type_params.len() != type_args.len() {
+                    return Err(format!(
+                        "MIR lowering error: enum '{}' expects {} type arguments, found {}",
+                        enum_name,
+                        definition.type_params.len(),
+                        type_args.len()
+                    ));
+                }
+                let variant_def = definition
+                    .variants
+                    .iter()
+                    .find(|candidate| candidate.name == *variant)
+                    .cloned()
+                    .ok_or_else(|| {
+                        format!(
+                            "MIR lowering error: enum '{}' has no variant '{}'",
+                            enum_name, variant
+                        )
+                    })?;
+                if subpatterns.len() != variant_def.payload.len() {
+                    return Err(format!(
+                        "MIR lowering error: enum pattern '{}::{}' expects {} payload patterns, found {}",
+                        enum_name, variant, variant_def.payload.len(), subpatterns.len()
+                    ));
+                }
+                let mut substitutions = omni_types::checker::SubstEnv::new();
+                for (param, arg) in definition.type_params.iter().zip(type_args.iter()) {
+                    substitutions.insert(param.clone(), *arg);
+                }
+
+                let mut bindings = Vec::new();
+                for (index, subpattern) in subpatterns.iter().enumerate() {
+                    if pattern_binding_names(subpattern).is_empty() {
+                        continue;
+                    }
+                    let payload_ty =
+                        self.tcx.lower_type_spec(&variant_def.payload[index], &substitutions);
+                    let local = self.new_temp(Some(format!("_enum_payload_{index}")), payload_ty);
+                    let payload_place = crate::ir::Place::local(local);
+                    let block = self.current_block.ok_or_else(|| {
+                        "MIR lowering error: enum binding has no live block".to_string()
+                    })?;
+                    self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                        payload_place.clone(),
+                        crate::ir::Rvalue::EnumField {
+                            base: crate::ir::Operand::Copy(scrutinee.clone()),
+                            enum_name: enum_name.clone(),
+                            variant: variant.clone(),
+                            index,
+                            ty: payload_ty,
+                        },
+                    ));
+                    bindings.extend(self.bind_match_pattern(subpattern, &payload_place, payload_ty)?);
+                }
+                Ok(bindings)
+            }
+            Pattern::Tuple(patterns) => {
+                let types = match self.tcx.get(scrutinee_ty).clone() {
+                    TyKind::Tuple(types) => types,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: tuple binding pattern applied to {:?}",
+                            other
+                        ));
+                    }
+                };
+                if patterns.len() != types.len() {
+                    return Err(format!(
+                        "MIR lowering error: tuple pattern has {} elements, initializer has {}",
+                        patterns.len(),
+                        types.len()
+                    ));
+                }
+                let mut bindings = Vec::new();
+                for (index, (subpattern, sub_ty)) in patterns.iter().zip(types.iter()).enumerate() {
+                    if pattern_binding_names(subpattern).is_empty() {
+                        continue;
+                    }
+                    let local = self.new_temp(Some(format!("_tuple_field_{index}")), *sub_ty);
+                    let field_place = crate::ir::Place::local(local);
+                    let block = self.current_block.ok_or_else(|| {
+                        "MIR lowering error: tuple binding has no live block".to_string()
+                    })?;
+                    self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                        field_place.clone(),
+                        crate::ir::Rvalue::Field {
+                            base: crate::ir::Operand::Copy(scrutinee.clone()),
+                            field: index.to_string(),
+                            ty: *sub_ty,
+                        },
+                    ));
+                    bindings.extend(self.bind_match_pattern(subpattern, &field_place, *sub_ty)?);
+                }
+                Ok(bindings)
+            }
+            Pattern::Struct { name, fields } => {
+                let type_args = match self.tcx.get(scrutinee_ty).clone() {
+                    TyKind::Struct(actual_name, args) if actual_name == *name => args,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: struct binding pattern '{}' applied to {:?}",
+                            name, other
+                        ));
+                    }
+                };
+                let definition = self.struct_defs.get(name).cloned().ok_or_else(|| {
+                    format!("MIR lowering error: struct '{}' has no HIR declaration", name)
+                })?;
+                if definition.type_params.len() != type_args.len() {
+                    return Err(format!(
+                        "MIR lowering error: struct '{}' expects {} type arguments, found {}",
+                        name,
+                        definition.type_params.len(),
+                        type_args.len()
+                    ));
+                }
+                let mut substitutions = omni_types::checker::SubstEnv::new();
+                for (param, arg) in definition.type_params.iter().zip(type_args.iter()) {
+                    substitutions.insert(param.clone(), *arg);
+                }
+                let mut bindings = Vec::new();
+                for (field_name, subpattern) in fields {
+                    if pattern_binding_names(subpattern).is_empty() {
+                        continue;
+                    }
+                    let field_def = definition
+                        .fields
+                        .iter()
+                        .find(|field| field.name == *field_name)
+                        .ok_or_else(|| {
+                            format!("MIR lowering error: field '{}' not found on '{}'", field_name, name)
+                        })?;
+                    let field_ty = self.tcx.lower_type_spec(&field_def.ty, &substitutions);
+                    let local = self.new_temp(Some(format!("_struct_field_{field_name}")), field_ty);
+                    let field_place = crate::ir::Place::local(local);
+                    let block = self.current_block.ok_or_else(|| {
+                        "MIR lowering error: struct binding has no live block".to_string()
+                    })?;
+                    self.blocks[block].statements.push(crate::ir::Statement::Assign(
+                        field_place.clone(),
+                        crate::ir::Rvalue::Field {
+                            base: crate::ir::Operand::Copy(scrutinee.clone()),
+                            field: field_name.clone(),
+                            ty: field_ty,
+                        },
+                    ));
+                    bindings.extend(self.bind_match_pattern(subpattern, &field_place, field_ty)?);
+                }
+                Ok(bindings)
+            }
+            _ => Err(format!(
+                "MIR lowering error: bindings in pattern {:?} require unsupported MIR binding lowering",
+                pattern
+            )),
+        }
+    }
+
     fn lower_match_pattern_branch(
         &mut self,
         scrutinee: &crate::ir::Place,
@@ -1087,21 +1312,20 @@ impl<'a> FnMirBuilder<'a> {
         success: crate::ir::BasicBlock,
         failure: crate::ir::BasicBlock,
     ) -> Result<(), String> {
+        use omni_types::ast::Pattern;
         match pattern {
-            omni_types::ast::Pattern::Wildcard | omni_types::ast::Pattern::Binding(_) => {
+            Pattern::Wildcard | Pattern::Binding(_) => {
                 let block = self.current_block.ok_or_else(|| {
                     "MIR lowering error: pattern has no current dispatch block".to_string()
                 })?;
                 self.blocks[block].terminator = Some(crate::ir::Terminator::Goto(success));
                 Ok(())
             }
-            omni_types::ast::Pattern::Lit(lit) => {
-                self.emit_match_literal_branch(scrutinee, lit, success, failure)
-            }
-            omni_types::ast::Pattern::Range { start, end } => {
+            Pattern::Lit(lit) => self.emit_match_literal_branch(scrutinee, lit, success, failure),
+            Pattern::Range { start, end } => {
                 self.emit_match_range_branch(scrutinee, start, end, success, failure)
             }
-            omni_types::ast::Pattern::Or(patterns) => {
+            Pattern::Or(patterns) => {
                 if patterns.is_empty() {
                     return Err("MIR lowering error: empty or-pattern".into());
                 }
@@ -1125,12 +1349,128 @@ impl<'a> FnMirBuilder<'a> {
                 }
                 Ok(())
             }
-            omni_types::ast::Pattern::Variant { enum_name, variant, subpatterns } => {
-                let scrutinee_ty = self.local_decls[scrutinee.local].ty.ok_or_else(|| {
+            Pattern::Tuple(patterns) => {
+                let root_ty = self.local_decls[scrutinee.local].ty.ok_or_else(|| {
+                    "MIR lowering error: tuple pattern scrutinee has no concrete type".to_string()
+                })?;
+                let scrutinee_ty = self.projected_ty(root_ty, &scrutinee.projections)?;
+                let types = match self.tcx.get(scrutinee_ty).clone() {
+                    TyKind::Tuple(types) => types,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: tuple pattern applied to {:?}",
+                            other
+                        ));
+                    }
+                };
+                if patterns.len() != types.len() {
+                    return Err(format!(
+                        "MIR lowering error: tuple pattern has {} elements, tuple has {}",
+                        patterns.len(),
+                        types.len()
+                    ));
+                }
+                let mut test_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: tuple pattern has no current dispatch block".to_string()
+                })?;
+                if patterns.is_empty() {
+                    self.blocks[test_block].terminator = Some(crate::ir::Terminator::Goto(success));
+                    return Ok(());
+                }
+                for (index, (subpattern, sub_ty)) in patterns.iter().zip(types.iter()).enumerate() {
+                    let next = if index + 1 == patterns.len() { success } else { self.new_block() };
+                    self.current_block = Some(test_block);
+                    if matches!(subpattern, Pattern::Wildcard | Pattern::Binding(_)) {
+                        self.blocks[test_block].terminator = Some(crate::ir::Terminator::Goto(next));
+                    } else {
+                        let local = self.new_temp(Some(format!("_tuple_test_{index}")), *sub_ty);
+                        let place = crate::ir::Place::local(local);
+                        self.blocks[test_block].statements.push(crate::ir::Statement::Assign(
+                            place.clone(),
+                            crate::ir::Rvalue::Field {
+                                base: crate::ir::Operand::Copy(scrutinee.clone()),
+                                field: index.to_string(),
+                                ty: *sub_ty,
+                            },
+                        ));
+                        self.lower_match_pattern_branch(&place, subpattern, next, failure)?;
+                    }
+                    test_block = next;
+                }
+                Ok(())
+            }
+            Pattern::Struct { name, fields } => {
+                let root_ty = self.local_decls[scrutinee.local].ty.ok_or_else(|| {
+                    "MIR lowering error: struct pattern scrutinee has no concrete type".to_string()
+                })?;
+                let scrutinee_ty = self.projected_ty(root_ty, &scrutinee.projections)?;
+                let type_args = match self.tcx.get(scrutinee_ty).clone() {
+                    TyKind::Struct(actual_name, args) if actual_name == *name => args,
+                    other => {
+                        return Err(format!(
+                            "MIR lowering error: struct pattern '{}' applied to {:?}",
+                            name, other
+                        ));
+                    }
+                };
+                let definition = self.struct_defs.get(name).cloned().ok_or_else(|| {
+                    format!("MIR lowering error: struct '{}' has no HIR declaration", name)
+                })?;
+                if definition.type_params.len() != type_args.len() {
+                    return Err(format!(
+                        "MIR lowering error: struct '{}' expects {} type arguments, found {}",
+                        name,
+                        definition.type_params.len(),
+                        type_args.len()
+                    ));
+                }
+                let mut substitutions = omni_types::checker::SubstEnv::new();
+                for (param, arg) in definition.type_params.iter().zip(type_args.iter()) {
+                    substitutions.insert(param.clone(), *arg);
+                }
+                let mut test_block = self.current_block.ok_or_else(|| {
+                    "MIR lowering error: struct pattern has no current dispatch block".to_string()
+                })?;
+                for (index, (field_name, subpattern)) in fields.iter().enumerate() {
+                    let field_def = definition
+                        .fields
+                        .iter()
+                        .find(|field| field.name == *field_name)
+                        .ok_or_else(|| {
+                            format!("MIR lowering error: field '{}' not found on '{}'", field_name, name)
+                        })?;
+                    let field_ty = self.tcx.lower_type_spec(&field_def.ty, &substitutions);
+                    let next = if index + 1 == fields.len() { success } else { self.new_block() };
+                    self.current_block = Some(test_block);
+                    if matches!(subpattern, Pattern::Wildcard | Pattern::Binding(_)) {
+                        self.blocks[test_block].terminator = Some(crate::ir::Terminator::Goto(next));
+                    } else {
+                        let local = self.new_temp(Some(format!("_struct_test_{field_name}")), field_ty);
+                        let place = crate::ir::Place::local(local);
+                        self.blocks[test_block].statements.push(crate::ir::Statement::Assign(
+                            place.clone(),
+                            crate::ir::Rvalue::Field {
+                                base: crate::ir::Operand::Copy(scrutinee.clone()),
+                                field: field_name.clone(),
+                                ty: field_ty,
+                            },
+                        ));
+                        self.lower_match_pattern_branch(&place, subpattern, next, failure)?;
+                    }
+                    test_block = next;
+                }
+                if fields.is_empty() {
+                    self.blocks[test_block].terminator = Some(crate::ir::Terminator::Goto(success));
+                }
+                Ok(())
+            }
+            Pattern::Variant { enum_name, variant, subpatterns } => {
+                let root_ty = self.local_decls[scrutinee.local].ty.ok_or_else(|| {
                     "MIR lowering error: enum pattern scrutinee has no concrete type".to_string()
                 })?;
-                let type_arg_count = match self.tcx.get(scrutinee_ty) {
-                    TyKind::Enum(actual_name, args) if actual_name == enum_name => args.len(),
+                let scrutinee_ty = self.projected_ty(root_ty, &scrutinee.projections)?;
+                let type_args = match self.tcx.get(scrutinee_ty).clone() {
+                    TyKind::Enum(actual_name, args) if actual_name == *enum_name => args,
                     other => {
                         return Err(format!(
                             "MIR lowering error: enum pattern '{}::{}' applied to {:?}",
@@ -1138,21 +1478,22 @@ impl<'a> FnMirBuilder<'a> {
                         ));
                     }
                 };
-                let definition = self.enum_defs.get(enum_name).ok_or_else(|| {
+                let definition = self.enum_defs.get(enum_name).cloned().ok_or_else(|| {
                     format!("MIR lowering error: enum '{}' has no HIR declaration", enum_name)
                 })?;
-                if definition.type_params.len() != type_arg_count {
+                if definition.type_params.len() != type_args.len() {
                     return Err(format!(
                         "MIR lowering error: enum '{}' expects {} type arguments, found {}",
                         enum_name,
                         definition.type_params.len(),
-                        type_arg_count
+                        type_args.len()
                     ));
                 }
                 let variant_def = definition
                     .variants
                     .iter()
                     .find(|candidate| candidate.name == *variant)
+                    .cloned()
                     .ok_or_else(|| {
                         format!(
                             "MIR lowering error: enum '{}' has no variant '{}'",
@@ -1165,23 +1506,54 @@ impl<'a> FnMirBuilder<'a> {
                         enum_name, variant, variant_def.payload.len(), subpatterns.len()
                     ));
                 }
-                if subpatterns
-                    .iter()
-                    .any(|pattern| !matches!(pattern, omni_types::ast::Pattern::Wildcard))
-                {
-                    return Err(
-                        "MIR lowering error: enum payload binding or nested testing requires payload projection lowering".into()
-                    );
+                let mut substitutions = omni_types::checker::SubstEnv::new();
+                for (param, arg) in definition.type_params.iter().zip(type_args.iter()) {
+                    substitutions.insert(param.clone(), *arg);
                 }
+                let payload_tys = variant_def
+                    .payload
+                    .iter()
+                    .map(|payload| self.tcx.lower_type_spec(payload, &substitutions))
+                    .collect::<Vec<_>>();
+
                 let block = self.current_block.ok_or_else(|| {
                     "MIR lowering error: enum pattern has no current dispatch block".to_string()
                 })?;
+                let payload_entry =
+                    if subpatterns.is_empty() { success } else { self.new_block() };
                 self.blocks[block].terminator = Some(crate::ir::Terminator::SwitchEnum {
                     place: scrutinee.clone(),
                     enum_name: enum_name.clone(),
-                    targets: vec![(variant.clone(), success)],
+                    targets: vec![(variant.clone(), payload_entry)],
                     otherwise: failure,
                 });
+                if subpatterns.is_empty() {
+                    return Ok(());
+                }
+
+                let mut test_block = payload_entry;
+                for (index, subpattern) in subpatterns.iter().enumerate() {
+                    let next = if index + 1 == subpatterns.len() { success } else { self.new_block() };
+                    self.current_block = Some(test_block);
+                    if matches!(subpattern, Pattern::Wildcard | Pattern::Binding(_)) {
+                        self.blocks[test_block].terminator = Some(crate::ir::Terminator::Goto(next));
+                    } else {
+                        let local = self.new_temp(Some(format!("_enum_test_{index}")), payload_tys[index]);
+                        let place = crate::ir::Place::local(local);
+                        self.blocks[test_block].statements.push(crate::ir::Statement::Assign(
+                            place.clone(),
+                            crate::ir::Rvalue::EnumField {
+                                base: crate::ir::Operand::Copy(scrutinee.clone()),
+                                enum_name: enum_name.clone(),
+                                variant: variant.clone(),
+                                index,
+                                ty: payload_tys[index],
+                            },
+                        ));
+                        self.lower_match_pattern_branch(&place, subpattern, next, failure)?;
+                    }
+                    test_block = next;
+                }
                 Ok(())
             }
             other => Err(format!(

@@ -546,7 +546,7 @@ fn record_rvalue_uses(
             record_operand_use(start, point, origin_by_local, active_loans, facts);
             record_operand_use(end, point, origin_by_local, active_loans, facts);
         }
-        Rvalue::Field { base, .. } => {
+        Rvalue::Field { base, .. } | Rvalue::EnumField { base, .. } => {
             record_operand_use(base, point, origin_by_local, active_loans, facts);
         }
         Rvalue::Index { base, index, .. } => {

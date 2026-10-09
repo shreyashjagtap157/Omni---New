@@ -2105,6 +2105,10 @@ fn emit_aggregate_store(
             )?;
             copy_aggregate(builder, emitter, site, &src, context)
         }
+        omni_mir::ir::Rvalue::EnumField { enum_name, variant, .. } => Err(format!(
+            "Codegen error: aggregate enum payload '{}::{}' requires target tagged-layout metadata",
+            enum_name, variant
+        )),
         other => Err(format!(
             "Codegen error: {} cannot be initialized from scalar rvalue {:?}; aggregates initialize from constructors and aggregate copies",
             context, other
@@ -2274,6 +2278,10 @@ fn lower_rvalue_to_cl(
         )),
         omni_mir::ir::Rvalue::EnumVariant { enum_name, variant, .. } => Err(format!(
             "Codegen error: enum constructor '{}::{}' requires target tagged-layout metadata",
+            enum_name, variant
+        )),
+        omni_mir::ir::Rvalue::EnumField { enum_name, variant, .. } => Err(format!(
+            "Codegen error: enum payload '{}::{}' requires target tagged-layout metadata",
             enum_name, variant
         )),
         omni_mir::ir::Rvalue::Reference { .. } => Err(

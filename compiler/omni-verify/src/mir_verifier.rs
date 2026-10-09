@@ -490,6 +490,9 @@ impl MirVerifier {
                                     Self::check_operand(fn_name, operand, num_locals)?;
                                 }
                             }
+                            Rvalue::EnumField { base, .. } => {
+                                Self::check_operand(fn_name, base, num_locals)?;
+                            }
                             Rvalue::Reference { place, .. } => {
                                 Self::check_place(fn_name, place, num_locals)?;
                             }
@@ -959,7 +962,7 @@ impl MirVerifier {
                 Self::check_operand_initialized(func, block, start, assigned)?;
                 Self::check_operand_initialized(func, block, end, assigned)
             }
-            Rvalue::Field { base, .. } => {
+            Rvalue::Field { base, .. } | Rvalue::EnumField { base, .. } => {
                 Self::check_operand_initialized(func, block, base, assigned)
             }
             Rvalue::Index { base, index, .. } => {
@@ -1763,6 +1766,75 @@ impl MirVerifier {
                 }
                 for operand in operands {
                     let _ = Self::operand_type(tcx, defs, func, operand)?;
+                }
+                Ok(*ty)
+            }
+            Rvalue::EnumField { base, enum_name, variant, index, ty } => {
+                let base_ty = Self::operand_type(tcx, defs, func, base)?;
+                let type_args = match tcx.get(base_ty) {
+                    TyKind::Enum(actual_name, args) if actual_name == enum_name => args.clone(),
+                    _ => {
+                        return Err(MirVerificationError::AggregateTypeMismatch {
+                            func: func.name.clone(),
+                            context: format!(
+                                "enum payload '{}::{}[{}]' does not match its base type",
+                                enum_name, variant, index
+                            ),
+                        });
+                    }
+                };
+                let definition = enum_defs.get(enum_name).ok_or_else(|| {
+                    MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!(
+                            "enum payload '{}' has no declaration in MIR metadata",
+                            enum_name
+                        ),
+                    }
+                })?;
+                if definition.type_params.len() != type_args.len() {
+                    return Err(MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!(
+                            "enum '{}' expects {} type arguments, found {}",
+                            enum_name,
+                            definition.type_params.len(),
+                            type_args.len()
+                        ),
+                    });
+                }
+                let variant_def = definition
+                    .variants
+                    .iter()
+                    .find(|candidate| candidate.name == *variant)
+                    .ok_or_else(|| MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!("enum '{}' has no variant '{}'", enum_name, variant),
+                    })?;
+                let payload_ty = variant_def.payload.get(*index).ok_or_else(|| {
+                    MirVerificationError::AggregateTypeMismatch {
+                        func: func.name.clone(),
+                        context: format!(
+                            "enum payload index {} is out of range for '{}::{}'",
+                            index, enum_name, variant
+                        ),
+                    }
+                })?;
+                let mut field_env = SubstEnv::new();
+                for (param, arg) in definition.type_params.iter().zip(type_args.iter()) {
+                    field_env.insert(param.clone(), *arg);
+                }
+                let expected = tcx.lower_type_spec(payload_ty, &field_env);
+                if expected != *ty {
+                    return Err(MirVerificationError::TypeMismatch {
+                        func: func.name.clone(),
+                        context: format!(
+                            "enum payload '{}::{}[{}]' declares a different result type",
+                            enum_name, variant, index
+                        ),
+                        expected,
+                        actual: *ty,
+                    });
                 }
                 Ok(*ty)
             }

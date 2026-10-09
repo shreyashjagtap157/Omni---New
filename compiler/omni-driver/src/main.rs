@@ -3136,4 +3136,44 @@ mod tests {
             42
         );
     }
+
+    #[test]
+    fn source_pipeline_binds_enum_payload_in_match_arm() {
+        let source = "enum Maybe { Some(i64), None } fn main() -> i64 { let maybe = Maybe::Some(41); return match maybe { Maybe::Some(value) => value, Maybe::None => 0 }; }";
+        assert_eq!(
+            compile_source_to_interpreter_value(source, manifest())
+                .expect("enum payload binding must execute through verified MIR"),
+            41
+        );
+    }
+
+    #[test]
+    fn source_pipeline_matches_enum_payload_literals_in_order() {
+        let source = "enum Maybe { Some(i64), None } fn main() -> i64 { let maybe = Maybe::Some(41); return match maybe { Maybe::Some(40) => 0, Maybe::Some(41) => 42, Maybe::Some(_) => 1, Maybe::None => 2 }; }";
+        assert_eq!(
+            compile_source_to_interpreter_value(source, manifest())
+                .expect("enum payload literal tests must preserve ordered match semantics"),
+            42
+        );
+    }
+
+    #[test]
+    fn source_pipeline_matches_nested_enum_payload_and_binds_inner_value() {
+        let source = "enum Inner { Value(i64), Empty } enum Outer { Wrap(Inner), None } fn main() -> i64 { let outer = Outer::Wrap(Inner::Value(9)); return match outer { Outer::Wrap(Inner::Value(value)) => value, Outer::Wrap(_) => 0, Outer::None => 1 }; }";
+        assert_eq!(
+            compile_source_to_interpreter_value(source, manifest())
+                .expect("nested enum payload matching must execute through verified MIR"),
+            9
+        );
+    }
+
+    #[test]
+    fn source_pipeline_matches_tuple_pattern_and_binds_fields() {
+        let source = "fn main() -> i64 { let pair = (41, 0); return match pair { (value, _) => value }; }";
+        assert_eq!(
+            compile_source_to_interpreter_value(source, manifest())
+                .expect("tuple pattern bindings must execute through verified MIR"),
+            41
+        );
+    }
 }

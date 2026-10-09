@@ -325,6 +325,18 @@ pub enum Rvalue {
         operands: Vec<Operand>,
         ty: Ty,
     },
+    /// Reads one payload field after semantic enum-variant dispatch.
+    ///
+    /// The variant identity is carried explicitly so the reference machine and
+    /// verifier can reject a mismatched active variant without assuming a
+    /// target-specific tagged representation.
+    EnumField {
+        base: Operand,
+        enum_name: String,
+        variant: String,
+        index: usize,
+        ty: Ty,
+    },
     /// Reifies a borrow of a place as a typed logical reference.
     ///
     /// Native representation is a later ABI concern; MIR keeps the semantic

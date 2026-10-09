@@ -469,7 +469,7 @@ fn rvalue_local_uses(rvalue: &Rvalue, uses: &mut BTreeSet<Local>) {
             operand_local_uses(start, uses);
             operand_local_uses(end, uses);
         }
-        Rvalue::Field { base, .. } => operand_local_uses(base, uses),
+        Rvalue::Field { base, .. } | Rvalue::EnumField { base, .. } => operand_local_uses(base, uses),
         Rvalue::Index { base, index, .. } => {
             operand_local_uses(base, uses);
             operand_local_uses(index, uses);
@@ -590,7 +590,7 @@ fn transfer_rvalue(
             transfer_operand(function, block, &format!("{context} range start"), start, state)?;
             transfer_operand(function, block, &format!("{context} range end"), end, state)
         }
-        Rvalue::Field { base, .. } => transfer_operand(function, block, context, base, state),
+        Rvalue::Field { base, .. } | Rvalue::EnumField { base, .. } => transfer_operand(function, block, context, base, state),
         Rvalue::Index { base, index, .. } => {
             transfer_operand(function, block, &format!("{context} base"), base, state)?;
             transfer_operand(function, block, &format!("{context} index"), index, state)
