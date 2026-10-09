@@ -107,6 +107,12 @@ fn enforce_stage0_profile(
     ))
 }
 
+type FrontendOutput = (
+    omni_types::monomorph::MonomorphizedProgram,
+    HashMap<String, StructDef>,
+    HashMap<String, omni_types::ast::EnumDef>,
+);
+
 /// Runs the authoritative frontend, semantic, and monomorphization stages.
 ///
 /// Returns the concrete program plus the struct declarations registered along the
@@ -118,14 +124,7 @@ fn enforce_stage0_profile(
 fn lower_to_concrete_program(
     source_code: &str,
     manifest: &omni_registry::Manifest,
-) -> Result<
-    (
-        omni_types::monomorph::MonomorphizedProgram,
-        HashMap<String, StructDef>,
-        HashMap<String, omni_types::ast::EnumDef>,
-    ),
-    String,
-> {
+) -> Result<FrontendOutput, String> {
     let mut parser = omni_parse::Parser::from_source(source_code);
     let parsed = parser.parse_source();
     if !parsed.is_ok() {
