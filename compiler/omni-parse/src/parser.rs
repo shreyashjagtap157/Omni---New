@@ -2669,11 +2669,7 @@ mod tests {
             parsed.diagnostics
         );
         assert_eq!(
-            parsed
-                .syntax()
-                .descendants()
-                .filter(|node| node.kind() == K::WildcardPattern)
-                .count(),
+            parsed.syntax().descendants().filter(|node| node.kind() == K::WildcardPattern).count(),
             1
         );
         assert_eq!(
