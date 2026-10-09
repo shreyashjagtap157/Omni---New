@@ -53,13 +53,6 @@ including cascading release of now-unreferenced parents. Typed-MIR regressions r
 borrowed place before the moved destination's last use and accept a write after that last use. This does
 not qualify the remaining projected-place, aggregate, dereference-origin, or call/return paths.
 
-The regression coverage now constructs typed MIR in which a mutable reference is moved to a new local.
-A write to the borrowed place before the destination's last use must be rejected, while a write after
-that last use must be accepted. The verifier's root-local move path transfers the tracked loan association
-to the destination, and loan release checks for remaining reference associations and active child
-reborrows before ending a region. This qualifies the direct root-local move case; projected reference
-storage, reference arguments/returns, and dereference-to-origin resolution remain outstanding.
-
 The broader verifier must continue to reject invalid MIR and must not make valid programs fail solely
 because the analysis is conservative. CFG joins, nested reborrows, aggregate-contained references, and
 all call/return provenance paths still require dedicated qualification.
