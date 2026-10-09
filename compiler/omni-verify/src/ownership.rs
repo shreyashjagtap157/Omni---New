@@ -342,6 +342,7 @@ fn transfer_block(
         }
         Some(Terminator::Return) => {
             if !matches!(function.return_type, omni_mir::ast::TypeSpec::Unit) {
+                verify_reference_return_provenance(function, block, &state, tcx)?;
                 let return_place = Place::local(function.return_place);
                 transfer_place_access(
                     function,
@@ -356,6 +357,95 @@ fn transfer_block(
         }
         Some(Terminator::Unreachable) | None => Ok(Vec::new()),
     }
+}
+
+
+/// Verify that a direct reference-valued return preserves a tracked origin
+/// whose storage is not owned by this function. Until global/heap and
+/// aggregate-contained provenance are modeled, only abstract origins seeded
+/// from reference parameters can cross this boundary.
+fn verify_reference_return_provenance(
+    function: &MirFunction,
+    block: BasicBlock,
+    state: &FlowState,
+    tcx: &omni_mir::TyCtxt,
+) -> Result<(), OwnershipVerificationError> {
+    let declared_reference = match &function.return_type {
+        omni_mir::ast::TypeSpec::Reference { .. } => true,
+        omni_mir::ast::TypeSpec::Known(ty) => {
+            tcx.contains(*ty) && matches!(tcx.get(*ty), omni_mir::TyKind::Reference { .. })
+        }
+        _ => false,
+    };
+    let return_place_ty = function.body.local_decls[function.return_place].ty;
+    let return_place_is_reference = return_place_ty.is_some_and(|ty| {
+        tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })
+    });
+
+    if declared_reference != return_place_is_reference {
+        return Err(OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: "function return".into(),
+            message: "reference return declaration and typed MIR return place disagree".into(),
+        });
+    }
+    if !declared_reference {
+        return Ok(());
+    }
+
+    let regions = state
+        .reference_loans
+        .get(&function.return_place)
+        .cloned()
+        .unwrap_or_default();
+    if regions.is_empty() {
+        return Err(OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: "function return".into(),
+            message: "reference return has no tracked loan provenance".into(),
+        });
+    }
+
+    let external_origins = function
+        .params
+        .iter()
+        .filter_map(|&param| {
+            let ty = function.body.local_decls[param].ty?;
+            (tcx.contains(ty)
+                && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
+            .then(|| format!("\0external-reference-origin:{}:{}", function.name, param.index()))
+        })
+        .collect::<BTreeSet<_>>();
+
+    for region in regions {
+        let loan = state
+            .ownership
+            .loans()
+            .find(|loan| loan.region == region)
+            .ok_or_else(|| {
+                violation(
+                    function,
+                    block,
+                    "function return",
+                    OwnershipError::UnknownLoan(region.clone()),
+                )
+            })?;
+        if !external_origins.contains(&loan.place.root) {
+            return Err(OwnershipVerificationError {
+                function: function.name.clone(),
+                block,
+                context: "function return".into(),
+                message: format!(
+                    "reference return may escape function-local or untracked storage rooted at '{}'",
+                    loan.place.root
+                ),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 fn compute_local_liveness(function: &MirFunction) -> Vec<Vec<BTreeSet<Local>>> {
@@ -1979,4 +2069,143 @@ mod tests {
             .expect_err("a suspended mutable parent and child cannot be passed together");
         assert!(error.message.contains("child reborrow"), "unexpected ownership error: {error:?}");
     }
+
+    fn reference_return_type(mutable: bool) -> TypeSpec {
+        TypeSpec::Reference { lifetime: None, mutable, inner: Box::new(TypeSpec::Int) }
+    }
+
+    #[test]
+    fn returning_reference_to_local_storage_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference = tcx.intern(omni_mir::TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int,
+        });
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("value".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("borrowed".into()), ty: Some(reference) });
+        let ret = Local::from_usize(0);
+        let value = Local::from_usize(1);
+        let borrowed = Local::from_usize(2);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(value), integer(1)),
+                Statement::Assign(
+                    Place::local(borrowed),
+                    Rvalue::Reference { place: Place::local(value), mutable: true, ty: reference },
+                ),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Move(Place::local(borrowed))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_local_reference".into(),
+                params: vec![],
+                return_place: ret,
+                return_type: reference_return_type(true),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        let error = verify_program(&program)
+            .expect_err("a reference to function-local storage must not escape");
+        assert!(
+            error.message.contains("function-local or untracked storage"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn returning_moved_reference_parameter_preserves_external_origin() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference = tcx.intern(omni_mir::TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int,
+        });
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("input".into()), ty: Some(reference) });
+        let ret = Local::from_usize(0);
+        let input = Local::from_usize(1);
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Use(Operand::Move(Place::local(input))),
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_reference_parameter".into(),
+                params: vec![input],
+                return_place: ret,
+                return_type: reference_return_type(true),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        verify_program(&program)
+            .expect("a moved reference parameter must retain its tracked external origin");
+    }
+
+    #[test]
+    fn returning_reference_call_result_without_provenance_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference = tcx.intern(omni_mir::TyKind::Reference {
+            lifetime: None,
+            mutable: false,
+            inner: int,
+        });
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
+        let ret = Local::from_usize(0);
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::Call {
+                func: Operand::Constant(Constant::FnRef("make_reference".into())),
+                args: Vec::new(),
+                destination: Some(Place::local(ret)),
+                target: BasicBlock::from_usize(1),
+                cleanup: None,
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_untracked_call_reference".into(),
+                params: vec![],
+                return_place: ret,
+                return_type: reference_return_type(false),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        let error = verify_program(&program)
+            .expect_err("a reference call result without a provenance summary must fail closed");
+        assert!(
+            error.message.contains("no tracked loan provenance"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
 }
