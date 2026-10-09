@@ -4,6 +4,17 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### Enum payload patterns through verified MIR
+
+- Added typed enum-payload extraction through `Rvalue::EnumField`, preserving enum and variant identity so the verifier and reference machine can validate payload access against declaration metadata and the active variant.
+- Added end-to-end driver coverage for wildcard payload matching, payload bindings, ordered payload-literal matching, and nested enum payload binding through verified MIR and the reference machine.
+- Native enum construction and payload dispatch remain fail-closed until a target tagged-layout and ABI contract is defined.
+
+### Interpreter error layout and strict Clippy
+
+- Boxed the `Rvalue` carried by `ExecutionError::InvalidRvalue` so the expanded MIR rvalue representation does not inflate the error enum and trigger `clippy::result_large_err` across interpreter entry points.
+- Kept the diagnostic's debug/display behavior and the underlying error details intact.
+
 ### Unsafe assumption tokens now carry verified obligations
 
 - Connected the existing `omni-mir::assume` token model to the live MIR `Statement::Assume` type, replacing the former empty marker with `AssumptionId`, an explicit obligation, and dependency places.
