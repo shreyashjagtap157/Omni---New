@@ -40,13 +40,18 @@ qualification across the supported observation set, and later package/tooling/se
 
 ### Next ownership/lifetime qualification blocker: reference provenance
 
-A source review of `compiler/omni-verify/src/ownership.rs` identified an unqualified reference-provenance
-transfer path. `FlowState.reference_loans` maps MIR locals to loan-region identifiers. Assignments using
-`Rvalue::Use(Operand::Copy(place))` perform an ordinary read but do not transfer the source local's
-loan associations to the destination. The move path removes the source associations and ends those loans
-immediately. Loan shortening also reasons about dead locals individually rather than explicitly
-preserving a region while another live local still carries the same region. The state does not expose a
-canonical loan-to-place provenance map for resolving dereference accesses against the borrowed storage.
+The reference-provenance model remains incomplete. `FlowState.reference_loans` maps MIR locals to
+loan-region identifiers, so it cannot yet represent references stored in projected places or aggregates,
+or resolve a dereference back to its borrowed origin. `Rvalue::Use(Operand::Copy(place))` does not
+propagate loan associations to the destination; copy propagation remains blocked until the normative
+reference-copyability rule is resolved. Moves into projected/aggregate storage and through call
+arguments/returns are also not fully represented.
+
+The root-local assignment move path is now qualified: it transfers tracked loan associations to the
+destination, and loan release checks remaining reference-local associations and active child reborrows,
+including cascading release of now-unreferenced parents. Typed-MIR regressions reject a write to the
+borrowed place before the moved destination's last use and accept a write after that last use. This does
+not qualify the remaining projected-place, aggregate, dereference-origin, or call/return paths.
 
 The regression coverage now constructs typed MIR in which a mutable reference is moved to a new local.
 A write to the borrowed place before the destination's last use must be rejected, while a write after
