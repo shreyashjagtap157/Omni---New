@@ -473,5 +473,6 @@ The complete Edition 1 parser remains future 0.0.2.3-B+ work.
 - A returned reference must carry a live tracked loan whose origin is an abstract external origin seeded from a reference parameter. Returns with missing provenance, a local-storage origin, or an unrecognized origin fail closed.
 - Added regressions for returning a reference to a local, preserving provenance when moving a reference parameter into the return place, and rejecting a reference-valued call result without a provenance summary.
 - Added a CFG-join regression proving a return is rejected when any incoming reference origin is function-local, even if another predecessor carries an external reference parameter.
+- Added the positive counterpart: a return join whose incoming origins are two distinct external reference parameters remains accepted.
 - This is a conservative verifier boundary, not a normative language-semantics change. Aggregate-contained references, global/heap origins, complete call/return summaries, and the Edition 1 reference-copyability decision remain unresolved.
 - The normative grammar, rule registry, specification manifest, and release/version metadata are unchanged.

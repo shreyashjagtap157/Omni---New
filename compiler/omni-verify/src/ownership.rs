@@ -2338,6 +2338,67 @@ mod tests {
     }
 
     #[test]
+    fn reference_return_join_accepts_external_parameter_origins() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let boolean = tcx.intern(omni_mir::TyKind::Bool);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
+
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("left".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("right".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("cond".into()), ty: Some(boolean) });
+        let ret = Local::from_usize(0);
+        let left = Local::from_usize(1);
+        let right = Local::from_usize(2);
+        let cond = Local::from_usize(3);
+
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::SwitchInt {
+                discr: Operand::Copy(Place::local(cond)),
+                targets: vec![(1, BasicBlock::from_usize(1))],
+                otherwise: BasicBlock::from_usize(2),
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Use(Operand::Move(Place::local(left))),
+            )],
+            terminator: Some(Terminator::Goto(BasicBlock::from_usize(3))),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Use(Operand::Move(Place::local(right))),
+            )],
+            terminator: Some(Terminator::Goto(BasicBlock::from_usize(3))),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::Return),
+        });
+
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "reference_return_join_with_external_origins".into(),
+                params: vec![left, right, cond],
+                return_place: ret,
+                return_type: reference_return_type(true),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        verify_program(&program)
+            .expect("a join of external reference-parameter origins must remain valid");
+    }
+
+    #[test]
     fn reference_return_join_rejects_possible_local_origin() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);

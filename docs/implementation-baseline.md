@@ -54,9 +54,7 @@ borrowed place before the moved destination's last use and accept a write after 
 not qualify the remaining projected-place, aggregate, dereference-origin, or call/return paths.
 
 The broader verifier must continue to reject invalid MIR and must not make valid programs fail solely
-because the analysis is conservative. A direct-reference-return regression now covers a CFG join where
-one predecessor carries a local-storage origin and another carries an external parameter origin; the join
-must fail closed. This is one qualified join shape, not complete CFG provenance coverage. Nested reborrows,
+because the analysis is conservative. Direct-reference-return regressions now cover a CFG join where one predecessor carries a local-storage origin and another carries an external parameter origin (which must fail closed), and a join where both predecessors carry distinct external parameter origins (which must remain valid). These qualify those join shapes, not complete CFG provenance coverage. Nested reborrows,
 aggregate-contained references, and all call/return provenance paths still require dedicated qualification.
 
 ### Reference-origin-aware dereference verification
