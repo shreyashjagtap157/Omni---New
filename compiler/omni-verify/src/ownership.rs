@@ -2468,6 +2468,59 @@ mod tests {
     }
 
     #[test]
+    fn projected_non_reference_call_argument_remains_supported() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(Place::local(ret), integer(0))],
+            terminator: Some(Terminator::Call {
+                func: Operand::Constant(Constant::FnRef("consume_scalar".into())),
+                args: vec![Operand::Copy(Place {
+                    local: holder,
+                    projections: vec![Projection::Field("slot".into())],
+                })],
+                destination: None,
+                target: BasicBlock::from_usize(1),
+                cleanup: None,
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: TypeSpec::Int,
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "projected_scalar_call_argument".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        verify_program(&program)
+            .expect("projected non-reference call arguments must remain supported");
+    }
+
+    #[test]
     fn projected_reference_call_argument_without_provenance_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
