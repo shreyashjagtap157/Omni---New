@@ -479,7 +479,7 @@ fn verify_reference_storage_boundary(
         let result_ty = match rvalue {
             Rvalue::Field { ty, .. } | Rvalue::Index { ty, .. } | Rvalue::EnumField { ty, .. } => {
                 Some(*ty)
-            },
+            }
             Rvalue::Cast { to, .. } => Some(*to),
             Rvalue::Reference { .. } => None, // Rejected by the creation-specific check below.
             _ => None,
