@@ -475,9 +475,9 @@ fn verify_reference_storage_boundary(
     }
 
     let reference_source = match rvalue {
-        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
-            operands.iter().find_map(|operand| direct_reference_operand_local(function, tcx, operand))
-        }
+        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => operands
+            .iter()
+            .find_map(|operand| direct_reference_operand_local(function, tcx, operand)),
         Rvalue::Struct { fields, .. } => fields
             .iter()
             .find_map(|(_, operand)| direct_reference_operand_local(function, tcx, operand)),
@@ -2267,11 +2267,8 @@ mod tests {
     fn returning_tuple_with_local_reference_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let tuple_ty = tcx.intern(omni_mir::TyKind::Tuple(vec![reference]));
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(tuple_ty) });
@@ -2314,7 +2311,9 @@ mod tests {
         let error = verify_program(&program)
             .expect_err("a local reference must not escape inside an aggregate");
         assert!(
-            error.message.contains("aggregate-contained reference provenance is not yet representable"),
+            error
+                .message
+                .contains("aggregate-contained reference provenance is not yet representable"),
             "unexpected ownership error: {error:?}"
         );
     }
@@ -2323,11 +2322,8 @@ mod tests {
     fn reference_move_into_projected_storage_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
@@ -2349,10 +2345,7 @@ mod tests {
                 ),
                 Statement::Assign(Place::local(ret), integer(0)),
                 Statement::Assign(
-                    Place {
-                        local: holder,
-                        projections: vec![Projection::Field("slot".into())],
-                    },
+                    Place { local: holder, projections: vec![Projection::Field("slot".into())] },
                     Rvalue::Use(Operand::Move(Place::local(borrowed))),
                 ),
             ],
@@ -2376,5 +2369,4 @@ mod tests {
             "unexpected ownership error: {error:?}"
         );
     }
-
 }
