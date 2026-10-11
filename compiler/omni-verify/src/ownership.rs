@@ -2286,6 +2286,81 @@ mod tests {
     }
 
     #[test]
+    fn reference_return_join_rejects_possible_local_origin() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let boolean = tcx.intern(omni_mir::TyKind::Bool);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
+
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("value".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("borrowed".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("input".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("cond".into()), ty: Some(boolean) });
+        let ret = Local::from_usize(0);
+        let value = Local::from_usize(1);
+        let borrowed = Local::from_usize(2);
+        let input = Local::from_usize(3);
+        let cond = Local::from_usize(4);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::SwitchInt {
+                discr: Operand::Copy(Place::local(cond)),
+                targets: vec![(1, BasicBlock::from_usize(1))],
+                otherwise: BasicBlock::from_usize(2),
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(value), integer(1)),
+                Statement::Assign(
+                    Place::local(borrowed),
+                    Rvalue::Reference { place: Place::local(value), mutable: true, ty: reference },
+                ),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Move(Place::local(borrowed))),
+                ),
+            ],
+            terminator: Some(Terminator::Goto(BasicBlock::from_usize(3))),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Use(Operand::Move(Place::local(input))),
+            )],
+            terminator: Some(Terminator::Goto(BasicBlock::from_usize(3))),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::Return),
+        });
+
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "reference_return_join_with_local_origin".into(),
+                params: vec![input, cond],
+                return_place: ret,
+                return_type: reference_return_type(true),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        let error = verify_program(&program)
+            .expect_err("a return join must reject any incoming local-storage reference origin");
+        assert!(
+            error.message.contains("function-local or untracked storage"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
     fn returning_tuple_with_local_reference_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
