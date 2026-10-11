@@ -34,6 +34,9 @@ jobs:
       - name: Check Code Formatting
         run: cargo fmt --all -- --check
 
+      - name: Run focused ownership verifier tests
+        run: cargo test -j 1 -p omni-verify --locked -- --test-threads=1
+
       - name: Run Strict Clippy Lints
         run: cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
 
