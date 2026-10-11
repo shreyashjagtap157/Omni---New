@@ -1315,7 +1315,7 @@ impl MirVerifier {
     /// This returns the type the place denotes rather than reporting only that
     /// the chain is well formed, so assignment and call destinations can be
     /// type-checked against the slot they actually write.
-    fn place_ty(
+    pub(crate) fn place_ty(
         tcx: &mut TyCtxt,
         defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
         func: &MirFunction,

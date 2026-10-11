@@ -8,7 +8,8 @@ All notable project changes are documented here. Entries describe repository sta
 
 - Reject direct reference-local operands when constructing tuple/array, struct, or enum aggregates, and reject direct reference-local moves/copies into projected destination places, before the source transfer can discard its tracked loan association.
 - Also reject typed reference-valued field, index, enum-field, and cast rvalues that write directly into projected places; these values bypass a reference local and otherwise cannot enter the local-to-loan provenance map.
-- Add focused ownership-verifier regressions for a tuple containing a reference to function-local storage and a reference moved into a projected destination.
+- Resolve projected call-argument types with the structural MIR projection typer and reject reference-valued projected arguments when their place-specific provenance cannot be represented.
+- Add focused ownership-verifier regressions for a tuple containing a reference to function-local storage, reference moves into projected destinations, and projected reference-valued call arguments.
 - These checks close direct storage paths only. They do not provide aggregate-field provenance or interprocedural aggregate call/return summaries, and they do not settle Edition 1 reference-copyability or other normative semantics.
 
 ### Reference-origin-aware dereference verification

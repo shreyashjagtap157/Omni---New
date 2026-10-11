@@ -63,7 +63,7 @@ impl FlowState {
 
 pub(crate) fn verify_program(program: &MirProgram) -> Result<(), OwnershipVerificationError> {
     for function in &program.functions {
-        verify_function(function, &program.tcx)?;
+        verify_function(function, &program.tcx, &program.struct_defs)?;
     }
     Ok(())
 }
@@ -71,6 +71,7 @@ pub(crate) fn verify_program(program: &MirProgram) -> Result<(), OwnershipVerifi
 fn verify_function(
     function: &MirFunction,
     tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
 ) -> Result<(), OwnershipVerificationError> {
     if function.body.blocks.is_empty() {
         return Ok(());
@@ -150,7 +151,7 @@ fn verify_function(
                 changed = true;
             }
 
-            let new_edges = transfer_block(function, block, entry, &live_after, tcx)?;
+            let new_edges = transfer_block(function, block, entry, &live_after, tcx, struct_defs)?;
             if edge_states[block_index] != new_edges {
                 edge_states[block_index] = new_edges;
                 changed = true;
@@ -170,6 +171,7 @@ fn verify_function(
                 entry,
                 &live_after,
                 tcx,
+                struct_defs,
             )?;
         }
     }
@@ -182,6 +184,7 @@ fn transfer_block(
     mut state: FlowState,
     live_after: &[Vec<BTreeSet<Local>>],
     tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
 ) -> Result<Vec<(BasicBlock, FlowState)>, OwnershipVerificationError> {
     let data = &function.body.blocks[block];
 
@@ -327,7 +330,7 @@ fn transfer_block(
             Ok(edges)
         }
         Some(Terminator::Call { func: callee, args, destination, target, cleanup }) => {
-            verify_call_argument_aliases(function, block, args, &state, tcx)?;
+            verify_call_argument_aliases(function, block, args, &state, tcx, struct_defs)?;
             transfer_operand(function, block, "call callee", callee, &mut state)?;
             for (index, argument) in args.iter().enumerate() {
                 transfer_operand(
@@ -1219,21 +1222,69 @@ fn verify_call_argument_aliases(
     args: &[Operand],
     state: &FlowState,
     tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
 ) -> Result<(), OwnershipVerificationError> {
     let mut loans = Vec::<CallArgumentLoan>::new();
     for (argument_index, argument) in args.iter().enumerate() {
         let place = match argument {
-            Operand::Copy(place) | Operand::Move(place) if place.projections.is_empty() => place,
-            _ => continue,
+            Operand::Copy(place) | Operand::Move(place) => place,
+            Operand::Constant(_) => continue,
         };
-        let is_reference = match function.body.local_decls[place.local].ty {
-            Some(ty) if tcx.contains(ty) => {
-                matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })
+        let context = format!("call argument {argument_index}");
+        let is_reference = if place.projections.is_empty() {
+            match function.body.local_decls[place.local].ty {
+                Some(ty) if tcx.contains(ty) => {
+                    matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })
+                }
+                _ => false,
             }
-            _ => false,
+        } else {
+            let root_ty = function.body.local_decls[place.local].ty.ok_or_else(|| {
+                OwnershipVerificationError {
+                    function: function.name.clone(),
+                    block,
+                    context: context.clone(),
+                    message: "projected call argument has no root type for provenance verification".into(),
+                }
+            })?;
+            if !tcx.contains(root_ty) {
+                return Err(OwnershipVerificationError {
+                    function: function.name.clone(),
+                    block,
+                    context: context.clone(),
+                    message: "projected call argument has an invalid root type for provenance verification".into(),
+                });
+            }
+            let mut projected_tcx = tcx.clone();
+            let projected_ty = crate::MirVerifier::place_ty(
+                &mut projected_tcx,
+                struct_defs,
+                function,
+                place,
+                root_ty,
+            )
+            .map_err(|error| OwnershipVerificationError {
+                function: function.name.clone(),
+                block,
+                context: context.clone(),
+                message: format!("cannot resolve projected call argument type for provenance verification: {error:?}"),
+            })?;
+            projected_tcx.contains(projected_ty)
+                && matches!(projected_tcx.get(projected_ty), omni_mir::TyKind::Reference { .. })
         };
         if !is_reference {
             continue;
+        }
+        if !place.projections.is_empty() {
+            return Err(OwnershipVerificationError {
+                function: function.name.clone(),
+                block,
+                context,
+                message: format!(
+                    "projected reference call argument '{}' has no tracked loan provenance",
+                    place
+                ),
+            });
         }
         let is_copy = matches!(argument, Operand::Copy(_));
         let regions = state.reference_loans.get(&place.local).cloned().unwrap_or_default();
@@ -2411,6 +2462,66 @@ mod tests {
             error
                 .message
                 .contains("aggregate-contained reference provenance is not yet representable"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn projected_reference_call_argument_without_provenance_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: false, inner: int });
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(Place::local(ret), integer(0))],
+            terminator: Some(Terminator::Call {
+                func: Operand::Constant(Constant::FnRef("consume_reference".into())),
+                args: vec![Operand::Move(Place {
+                    local: holder,
+                    projections: vec![Projection::Field("slot".into())],
+                })],
+                destination: None,
+                target: BasicBlock::from_usize(1),
+                cleanup: None,
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(false),
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "projected_reference_call_argument".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        let error = verify_program(&program)
+            .expect_err("a projected reference call argument needs provenance tracking");
+        assert!(
+            error.message.contains("projected reference call argument")
+                && error.message.contains("no tracked loan provenance"),
             "unexpected ownership error: {error:?}"
         );
     }
