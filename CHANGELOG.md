@@ -15,6 +15,7 @@ All notable project changes are documented here. Entries describe repository sta
 - Resolve projected operands in aggregate constructors and projected writes; reject reference-field transfers whose provenance is untracked while preserving scalar projected moves/copies.
 - Add paired regressions proving a projected reference field cannot escape inside a returned tuple, while a projected scalar field remains valid as a tuple operand.
 - Add paired struct-constructor regressions for projected reference fields (rejected) and projected scalar fields (accepted), exercising the struct-field operand branch separately from tuple aggregates.
+- Add paired array-element aggregate regressions confirming constant-index projected references fail closed while scalar array elements remain valid aggregate operands.
 - Add a regression for extracting a reference field from an aggregate parameter into the return local; the direct-return boundary rejects it because the current model has no tracked field provenance.
 - These checks close direct storage paths only. They do not provide aggregate-field provenance or interprocedural aggregate call/return summaries, and they do not settle Edition 1 reference-copyability or other normative semantics.
 

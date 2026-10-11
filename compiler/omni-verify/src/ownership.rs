@@ -2722,6 +2722,90 @@ mod tests {
     }
 
     #[test]
+    fn array_constructor_rejects_projected_reference_element_operand() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: false, inner: int });
+        let array_ty = tcx.intern(omni_mir::TyKind::Array(reference, 1));
+        let tuple_ty = tcx.intern(omni_mir::TyKind::Tuple(vec![reference]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(tuple_ty) });
+        locals.push(LocalDecl { name: Some("values".into()), ty: Some(array_ty) });
+        let ret = Local::from_usize(0);
+        let values = Local::from_usize(1);
+        let element = Place { local: values, projections: vec![Projection::ConstantIndex(0)] };
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Aggregate {
+                    kind: omni_mir::ir::AggregateKind::Tuple,
+                    operands: vec![Operand::Copy(element)],
+                    ty: tuple_ty,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_tuple_with_projected_array_reference_element".into(),
+                params: vec![values],
+                return_place: ret,
+                return_type: TypeSpec::Tuple(vec![reference_return_type(false)]),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        let error = verify_program(&program)
+            .expect_err("an array reference element must not bypass aggregate provenance checks");
+        assert!(
+            error.message.contains("aggregate-contained reference provenance is not yet representable"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn array_constructor_accepts_projected_scalar_element_operand() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let array_ty = tcx.intern(omni_mir::TyKind::Array(int, 1));
+        let tuple_ty = tcx.intern(omni_mir::TyKind::Tuple(vec![int]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(tuple_ty) });
+        locals.push(LocalDecl { name: Some("values".into()), ty: Some(array_ty) });
+        let ret = Local::from_usize(0);
+        let values = Local::from_usize(1);
+        let element = Place { local: values, projections: vec![Projection::ConstantIndex(0)] };
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Aggregate {
+                    kind: omni_mir::ir::AggregateKind::Tuple,
+                    operands: vec![Operand::Copy(element)],
+                    ty: tuple_ty,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_tuple_with_projected_array_scalar_element".into(),
+                params: vec![values],
+                return_place: ret,
+                return_type: TypeSpec::Tuple(vec![TypeSpec::Int]),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        verify_program(&program)
+            .expect("a projected scalar array element in an aggregate must remain supported");
+    }
+
+    #[test]
     fn returning_reference_extracted_from_aggregate_field_without_provenance_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
