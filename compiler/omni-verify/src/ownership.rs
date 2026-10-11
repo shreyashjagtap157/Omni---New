@@ -2591,6 +2591,134 @@ mod tests {
     }
 
     #[test]
+    fn struct_constructor_rejects_projected_reference_field_operand() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let wrapper_ty = tcx.intern(omni_mir::TyKind::Struct("Wrapper".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        locals.push(LocalDecl { name: Some("wrapper".into()), ty: Some(wrapper_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let wrapper = Local::from_usize(2);
+        let field = |local| Place { local, projections: vec![Projection::Field("slot".into())] };
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(ret), integer(0)),
+                Statement::Assign(
+                    Place::local(wrapper),
+                    Rvalue::Struct {
+                        name: "Wrapper".into(),
+                        fields: vec![("slot".into(), Operand::Move(field(holder)))],
+                        ty: wrapper_ty,
+                    },
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(false),
+            }],
+        };
+        let wrapper_def = omni_mir::ast::StructDef {
+            name: "Wrapper".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(false),
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "construct_wrapper_from_projected_reference_field".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([
+            ("Holder".into(), holder_def),
+            ("Wrapper".into(), wrapper_def),
+        ]));
+
+        let error = verify_program(&program)
+            .expect_err("struct construction must not bypass projected reference provenance checks");
+        assert!(
+            error.message.contains("aggregate-contained reference provenance is not yet representable"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn struct_constructor_accepts_projected_scalar_field_operand() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let wrapper_ty = tcx.intern(omni_mir::TyKind::Struct("Wrapper".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        locals.push(LocalDecl { name: Some("wrapper".into()), ty: Some(wrapper_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let wrapper = Local::from_usize(2);
+        let field = |local| Place { local, projections: vec![Projection::Field("slot".into())] };
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(ret), integer(0)),
+                Statement::Assign(
+                    Place::local(wrapper),
+                    Rvalue::Struct {
+                        name: "Wrapper".into(),
+                        fields: vec![("slot".into(), Operand::Copy(field(holder)))],
+                        ty: wrapper_ty,
+                    },
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef { name: "slot".into(), ty: TypeSpec::Int }],
+        };
+        let wrapper_def = omni_mir::ast::StructDef {
+            name: "Wrapper".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef { name: "slot".into(), ty: TypeSpec::Int }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "construct_wrapper_from_projected_scalar_field".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([
+            ("Holder".into(), holder_def),
+            ("Wrapper".into(), wrapper_def),
+        ]));
+
+        verify_program(&program)
+            .expect("struct construction from projected scalar fields must remain supported");
+    }
+
+    #[test]
     fn returning_reference_extracted_from_aggregate_field_without_provenance_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
