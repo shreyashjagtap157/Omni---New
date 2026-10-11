@@ -2761,7 +2761,9 @@ mod tests {
         let error = verify_program(&program)
             .expect_err("an array reference element must not bypass aggregate provenance checks");
         assert!(
-            error.message.contains("aggregate-contained reference provenance is not yet representable"),
+            error
+                .message
+                .contains("aggregate-contained reference provenance is not yet representable"),
             "unexpected ownership error: {error:?}"
         );
     }
