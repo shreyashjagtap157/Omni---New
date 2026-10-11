@@ -2499,10 +2499,7 @@ mod tests {
         let holder_def = omni_mir::ast::StructDef {
             name: "Holder".into(),
             type_params: Vec::new(),
-            fields: vec![omni_mir::ast::StructFieldDef {
-                name: "slot".into(),
-                ty: TypeSpec::Int,
-            }],
+            fields: vec![omni_mir::ast::StructFieldDef { name: "slot".into(), ty: TypeSpec::Int }],
         };
         let program = MirProgram::new(
             tcx,
