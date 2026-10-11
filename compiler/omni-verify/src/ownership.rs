@@ -2470,7 +2470,6 @@ mod tests {
     #[test]
     fn projected_reference_call_argument_without_provenance_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
-        let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
         let mut locals = IndexVec::new();
