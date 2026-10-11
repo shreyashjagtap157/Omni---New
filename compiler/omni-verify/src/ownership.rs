@@ -189,6 +189,15 @@ fn transfer_block(
         let context = format!("statement {}", statement_index);
         match statement {
             Statement::Assign(destination, rvalue) => {
+                verify_reference_storage_boundary(
+                    function,
+                    block,
+                    &context,
+                    destination,
+                    rvalue,
+                    tcx,
+                )?;
+
                 // A moved reference transfers its loan associations to the
                 // destination; a self-reborrow replaces the local's association
                 // only after the child loan has captured its parent dependency.
@@ -436,6 +445,71 @@ fn verify_reference_return_provenance(
     }
 
     Ok(())
+}
+
+/// Fail closed when a reference local crosses a storage boundary for which
+/// FlowState.reference_loans has no representation. Check before transfer so
+/// moving the source cannot silently discard the only provenance association.
+fn verify_reference_storage_boundary(
+    function: &MirFunction,
+    block: BasicBlock,
+    context: &str,
+    destination: &Place,
+    rvalue: &Rvalue,
+    tcx: &omni_mir::TyCtxt,
+) -> Result<(), OwnershipVerificationError> {
+    if !destination.projections.is_empty() {
+        if let Rvalue::Use(operand) = rvalue {
+            if let Some(source) = direct_reference_operand_local(function, tcx, operand) {
+                return Err(OwnershipVerificationError {
+                    function: function.name.clone(),
+                    block,
+                    context: context.to_string(),
+                    message: format!(
+                        "reference local '{}' stored in a projected place has no tracked provenance representation",
+                        local_name(function, source)
+                    ),
+                });
+            }
+        }
+    }
+
+    let reference_source = match rvalue {
+        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
+            operands.iter().find_map(|operand| direct_reference_operand_local(function, tcx, operand))
+        }
+        Rvalue::Struct { fields, .. } => fields
+            .iter()
+            .find_map(|(_, operand)| direct_reference_operand_local(function, tcx, operand)),
+        _ => None,
+    };
+    if let Some(source) = reference_source {
+        return Err(OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: context.to_string(),
+            message: format!(
+                "aggregate-contained reference provenance is not yet representable (source local '{}')",
+                local_name(function, source)
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+fn direct_reference_operand_local(
+    function: &MirFunction,
+    tcx: &omni_mir::TyCtxt,
+    operand: &Operand,
+) -> Option<Local> {
+    let place = match operand {
+        Operand::Copy(place) | Operand::Move(place) if place.projections.is_empty() => place,
+        _ => return None,
+    };
+    let ty = function.body.local_decls[place.local].ty?;
+    (tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
+        .then_some(place.local)
 }
 
 fn compute_local_liveness(function: &MirFunction) -> Vec<Vec<BTreeSet<Local>>> {
@@ -2188,4 +2262,119 @@ mod tests {
             "unexpected ownership error: {error:?}"
         );
     }
+
+    #[test]
+    fn returning_tuple_with_local_reference_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference = tcx.intern(omni_mir::TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int,
+        });
+        let tuple_ty = tcx.intern(omni_mir::TyKind::Tuple(vec![reference]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(tuple_ty) });
+        locals.push(LocalDecl { name: Some("value".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("borrowed".into()), ty: Some(reference) });
+        let ret = Local::from_usize(0);
+        let value = Local::from_usize(1);
+        let borrowed = Local::from_usize(2);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(value), integer(1)),
+                Statement::Assign(
+                    Place::local(borrowed),
+                    Rvalue::Reference { place: Place::local(value), mutable: true, ty: reference },
+                ),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Aggregate {
+                        kind: omni_mir::ir::AggregateKind::Tuple,
+                        operands: vec![Operand::Move(Place::local(borrowed))],
+                        ty: tuple_ty,
+                    },
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_tuple_with_local_reference".into(),
+                params: vec![],
+                return_place: ret,
+                return_type: TypeSpec::Tuple(vec![reference_return_type(true)]),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        let error = verify_program(&program)
+            .expect_err("a local reference must not escape inside an aggregate");
+        assert!(
+            error.message.contains("aggregate-contained reference provenance is not yet representable"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn reference_move_into_projected_storage_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference = tcx.intern(omni_mir::TyKind::Reference {
+            lifetime: None,
+            mutable: true,
+            inner: int,
+        });
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        locals.push(LocalDecl { name: Some("value".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("borrowed".into()), ty: Some(reference) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let value = Local::from_usize(2);
+        let borrowed = Local::from_usize(3);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(value), integer(1)),
+                Statement::Assign(
+                    Place::local(borrowed),
+                    Rvalue::Reference { place: Place::local(value), mutable: true, ty: reference },
+                ),
+                Statement::Assign(Place::local(ret), integer(0)),
+                Statement::Assign(
+                    Place {
+                        local: holder,
+                        projections: vec![Projection::Field("slot".into())],
+                    },
+                    Rvalue::Use(Operand::Move(Place::local(borrowed))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "store_reference_in_projected_place".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        let error = verify_program(&program)
+            .expect_err("a reference stored in a projected place needs provenance tracking");
+        assert!(
+            error.message.contains("has no tracked provenance representation"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
 }

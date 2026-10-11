@@ -4,6 +4,12 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### Fail-closed reference storage boundaries
+
+- Reject direct reference-local operands when constructing tuple/array, struct, or enum aggregates, and reject direct reference-local moves/copies into projected destination places, before the source transfer can discard its tracked loan association.
+- Add focused ownership-verifier regressions for a tuple containing a reference to function-local storage and a reference moved into a projected destination.
+- These checks close direct storage paths only. They do not provide aggregate-field provenance or interprocedural aggregate call/return summaries, and they do not settle Edition 1 reference-copyability or other normative semantics.
+
 ### Reference-origin-aware dereference verification
 
 - Resolve tracked dereference accesses to their borrowed origin and check them against unrelated active loans, rather than treating a reference local's dereference projection as independent storage.
