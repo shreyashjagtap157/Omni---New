@@ -1244,7 +1244,8 @@ fn verify_call_argument_aliases(
                     function: function.name.clone(),
                     block,
                     context: context.clone(),
-                    message: "projected call argument has no root type for provenance verification".into(),
+                    message: "projected call argument has no root type for provenance verification"
+                        .into(),
                 }
             })?;
             if !tcx.contains(root_ty) {
