@@ -1,43 +1,22 @@
-# Goal: align-omni-parse-driver
+# Goal: align-omni-parse-driver (superseded)
 
-## User Request
+**Status: STALE — do not execute as an implementation plan.**
 
-The user requests that the Omni compiler's parser and driver layers be fully aligned with the current authoritative Omni Candidate 3 specification while preserving all existing MIR, ownership, and code‑generation logic.
+## Reason for supersession
 
-## Refined Goal
+This record asks for alignment with an alleged “Candidate 3” specification and requires changing the Edition 1 manifest to `candidate: 3` and `status: released`. The live normative contract does not support those requirements:
 
-Resolve the 13 failing parser/driver integration tests by implementing or correcting any missing or incorrect parsing behavior for language constructs defined in Candidate 3. Update the grammar artifact and manifest as necessary to reflect the authoritative specification. Ensure all existing MIR, ownership, and code‑generation tests continue to pass.
+- `spec/grammar/omni-edition1.ebnf` explicitly identifies itself as the normative grammar for Omni Edition 1.
+- `spec/manifest/omni-edition1.manifest.json` identifies edition 1 and status `1.0.0-candidate.1`; it does not authorize Candidate 3.
+- `spec/grammar/candidate2-erratum.md` and `docs/grammar-reconciliation.md` record the Candidate 2 overlay as pre-release/pending and not in force. Candidate 2 remains disabled.
+- The Candidate 3 acceptance criteria in the original goal conflict with the above sources and cannot override normative specification artifacts.
 
-## Acceptance Criteria
+## Disposition
 
-- [ ] All 13 omni‑driver parser failures are removed; `cargo test -p omni‑parse --quiet` and `cargo test -p omni‑driver --quiet` complete with zero failures.
-- [ ] The emitted CST for the failing examples matches the expected source exactly, confirming loss‑less parsing.
-- [ ] The manifest file `omni-edition1.manifest.json` (or equivalent) shows `candidate: 3`, `status: released`, and all rule references correspond to Candidate 3.
-- [ ] `cargo test --workspace --all-targets --quiet` passes with no regressions.
-- [ ] No prior MIR or ownership behaviours are altered; MIR and ownership test suites continue to succeed.
+Keep this file as a historical record of a superseded request, not as an active target. Do not change the Edition 1 grammar, registry, manifest, hashes, or release metadata to satisfy this goal. Do not introduce Candidate 3 syntax or revive the historical Candidate 2 `|>` projection/pipeline surface.
 
-## Scope Boundaries
+Any future parser/driver work must be independently grounded in the active Edition 1 grammar and applicable normative rules, with parser/driver regression tests and the repository's pinned qualification workflow. If a future ratified edition or signed amendment changes the authority boundary, first reconcile the specification artifacts and release identity through the project's explicit qualification process.
 
-**In scope:**
-- Parser and driver source files under `compiler/omni-parse` and `compiler/omni-driver`.
-- Grammar artifact (`spec/grammar/omni-edition1.ebnf`), manifest, and related metadata.
-- Test harnesses for parser and driver only.
+## Retired acceptance criteria (historical only)
 
-**Out of scope:**
-- Any changes to MIR, ownership, or code‑generation other than preserving existing behavior.
-- Adding new language features beyond the fixes required to satisfy the current Candidate 3 spec.
-- Refactoring unrelated modules.
-
-## Applicable Project Conventions
-
-**Quality gate command:**
-- `cargo test --workspace --all-targets`
-
-**Commit convention:**
-- Conventional commits (default). Each agent commit must include a `[B]` or `[I]` marker and an `Assisted‑by` trailer.
-
-**Guidelines:**
-- None specific beyond the standard quality gates.
-
-**Rules:**
-- All changes must be made in the `main` branch, no separate feature branch.
+The superseded request asked to resolve 13 parser/driver failures against Candidate 3, update the grammar/manifest to Candidate 3 released, preserve MIR/ownership/codegen behaviour, and run workspace tests. These are not current acceptance criteria because their asserted specification authority is unsupported.

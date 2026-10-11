@@ -1,10 +1,17 @@
 {
   "goal_id": "align-omni-parse-driver",
-  "status": "building",
+  "status": "stale",
   "iteration": 1,
   "builder_model": "GPT:5.6-Luna",
   "inspector_model": "GPT:5.6-Sol",
   "initial_sha": "c825ba6",
   "created_at": "2026-10-07T00:00:00Z",
-  "history": []
+  "history": [
+    {
+      "date": "2026-10-11",
+      "event": "marked_stale",
+      "reason": "Candidate 3 requirements are unsupported by the current normative Edition 1 contract; Candidate 2 remains disabled."
+    }
+  ],
+  "status_reason": "Superseded: the goal's Candidate 3 requirements contradict the normative Edition 1 grammar and current manifest; Candidate 2 is not in force."
 }
