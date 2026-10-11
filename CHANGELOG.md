@@ -12,6 +12,7 @@ All notable project changes are documented here. Entries describe repository sta
 - Apply the same type-resolved fail-closed rule to reference-valued call results targeting projected places, with a positive regression preserving scalar projected destinations.
 - Add a positive regression preserving projected scalar call arguments so the conservative guard does not become a blanket ban on projected arguments.
 - Add focused ownership-verifier regressions for a tuple containing a reference to function-local storage, reference moves into projected destinations, and projected reference-valued call arguments.
+- Add a regression for extracting a reference field from an aggregate parameter into the return local; the direct-return boundary rejects it because the current model has no tracked field provenance.
 - These checks close direct storage paths only. They do not provide aggregate-field provenance or interprocedural aggregate call/return summaries, and they do not settle Edition 1 reference-copyability or other normative semantics.
 
 ### Reference-origin-aware dereference verification

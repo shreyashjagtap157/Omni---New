@@ -2415,6 +2415,58 @@ mod tests {
     }
 
     #[test]
+    fn returning_reference_extracted_from_aggregate_field_without_provenance_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: false, inner: int });
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Field {
+                    base: Operand::Copy(Place::local(holder)),
+                    field: "slot".into(),
+                    ty: reference,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(false),
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_reference_from_aggregate_field".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: reference_return_type(false),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        let error = verify_program(&program)
+            .expect_err("a reference extracted from an aggregate field has no tracked origin");
+        assert!(
+            error.message.contains("no tracked loan provenance"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
     fn reference_return_join_accepts_external_parameter_origins() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
