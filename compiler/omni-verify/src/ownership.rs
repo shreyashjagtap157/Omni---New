@@ -199,6 +199,7 @@ fn transfer_block(
                     destination,
                     rvalue,
                     tcx,
+                    struct_defs,
                 )?;
 
                 // A moved reference transfers its loan associations to the
@@ -469,17 +470,25 @@ fn verify_reference_storage_boundary(
     destination: &Place,
     rvalue: &Rvalue,
     tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
 ) -> Result<(), OwnershipVerificationError> {
     if !destination.projections.is_empty() {
         if let Rvalue::Use(operand) = rvalue {
-            if let Some(source) = direct_reference_operand_local(function, tcx, operand) {
+            if let Some(source) = reference_operand_source_name(
+                function,
+                block,
+                context,
+                tcx,
+                struct_defs,
+                operand,
+            )? {
                 return Err(OwnershipVerificationError {
                     function: function.name.clone(),
                     block,
                     context: context.to_string(),
                     message: format!(
-                        "reference local '{}' stored in a projected place has no tracked provenance representation",
-                        local_name(function, source)
+                        "reference operand '{}' stored in a projected place has no tracked provenance representation",
+                        source
                     ),
                 });
             }
@@ -509,12 +518,40 @@ fn verify_reference_storage_boundary(
     }
 
     let reference_source = match rvalue {
-        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => operands
-            .iter()
-            .find_map(|operand| direct_reference_operand_local(function, tcx, operand)),
-        Rvalue::Struct { fields, .. } => fields
-            .iter()
-            .find_map(|(_, operand)| direct_reference_operand_local(function, tcx, operand)),
+        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
+            let mut source = None;
+            for operand in operands {
+                if let Some(found) = reference_operand_source_name(
+                    function,
+                    block,
+                    context,
+                    tcx,
+                    struct_defs,
+                    operand,
+                )? {
+                    source = Some(found);
+                    break;
+                }
+            }
+            source
+        }
+        Rvalue::Struct { fields, .. } => {
+            let mut source = None;
+            for (_, operand) in fields {
+                if let Some(found) = reference_operand_source_name(
+                    function,
+                    block,
+                    context,
+                    tcx,
+                    struct_defs,
+                    operand,
+                )? {
+                    source = Some(found);
+                    break;
+                }
+            }
+            source
+        }
         _ => None,
     };
     if let Some(source) = reference_source {
@@ -523,8 +560,8 @@ fn verify_reference_storage_boundary(
             block,
             context: context.to_string(),
             message: format!(
-                "aggregate-contained reference provenance is not yet representable (source local '{}')",
-                local_name(function, source)
+                "aggregate-contained reference provenance is not yet representable (source '{}')",
+                source
             ),
         });
     }
@@ -532,18 +569,64 @@ fn verify_reference_storage_boundary(
     Ok(())
 }
 
-fn direct_reference_operand_local(
+fn reference_operand_source_name(
     function: &MirFunction,
+    block: BasicBlock,
+    context: &str,
     tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
     operand: &Operand,
-) -> Option<Local> {
+) -> Result<Option<String>, OwnershipVerificationError> {
     let place = match operand {
-        Operand::Copy(place) | Operand::Move(place) if place.projections.is_empty() => place,
-        _ => return None,
+        Operand::Copy(place) | Operand::Move(place) => place,
+        Operand::Constant(_) => return Ok(None),
     };
-    let ty = function.body.local_decls[place.local].ty?;
-    (tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
-        .then_some(place.local)
+
+    if place.projections.is_empty() {
+        let Some(ty) = function.body.local_decls[place.local].ty else {
+            return Ok(None);
+        };
+        return Ok((tcx.contains(ty)
+            && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
+        .then(|| format!("local '{}'", local_name(function, place.local))));
+    }
+
+    let root_ty = function.body.local_decls[place.local].ty.ok_or_else(|| {
+        OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: context.to_string(),
+            message: "projected operand has no root type for provenance verification".into(),
+        }
+    })?;
+    if !tcx.contains(root_ty) {
+        return Err(OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: context.to_string(),
+            message: "projected operand has an invalid root type for provenance verification".into(),
+        });
+    }
+
+    let mut projected_tcx = tcx.clone();
+    let projected_ty = crate::MirVerifier::place_ty(
+        &mut projected_tcx,
+        struct_defs,
+        function,
+        place,
+        root_ty,
+    )
+    .map_err(|error| OwnershipVerificationError {
+        function: function.name.clone(),
+        block,
+        context: context.to_string(),
+        message: format!(
+            "cannot resolve projected operand type for provenance verification: {error:?}"
+        ),
+    })?;
+    Ok((projected_tcx.contains(projected_ty)
+        && matches!(projected_tcx.get(projected_ty), omni_mir::TyKind::Reference { .. }))
+    .then(|| format!("projected place '{}'", place)))
 }
 
 fn compute_local_liveness(function: &MirFunction) -> Vec<Vec<BTreeSet<Local>>> {
@@ -2923,6 +3006,110 @@ mod tests {
             error.message.contains("reference-valued rvalue stored in a projected place"),
             "unexpected ownership error: {error:?}"
         );
+    }
+
+    #[test]
+    fn projected_reference_field_move_into_projected_storage_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("source".into()), ty: Some(holder_ty) });
+        locals.push(LocalDecl { name: Some("destination".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let source = Local::from_usize(1);
+        let destination = Local::from_usize(2);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let field = |local| Place {
+            local,
+            projections: vec![Projection::Field("slot".into())],
+        };
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(ret), integer(0)),
+                Statement::Assign(field(destination), Rvalue::Use(Operand::Move(field(source)))),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(false),
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "move_projected_reference_between_aggregate_fields".into(),
+                params: vec![source, destination],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        let error = verify_program(&program)
+            .expect_err("projected reference moves need field-level provenance tracking");
+        assert!(
+            error.message.contains("reference operand")
+                && error.message.contains("no tracked provenance representation"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn projected_scalar_move_between_aggregate_fields_remains_supported() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("source".into()), ty: Some(holder_ty) });
+        locals.push(LocalDecl { name: Some("destination".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let source = Local::from_usize(1);
+        let destination = Local::from_usize(2);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let field = |local| Place {
+            local,
+            projections: vec![Projection::Field("slot".into())],
+        };
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(ret), integer(0)),
+                Statement::Assign(field(destination), Rvalue::Use(Operand::Copy(field(source)))),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Copy(field(destination))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef { name: "slot".into(), ty: TypeSpec::Int }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "move_projected_scalar_between_aggregate_fields".into(),
+                params: vec![source, destination],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        verify_program(&program)
+            .expect("projected scalar transfers must remain supported");
     }
 
     #[test]
