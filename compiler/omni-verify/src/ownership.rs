@@ -2499,10 +2499,8 @@ mod tests {
         locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
         let ret = Local::from_usize(0);
         let holder = Local::from_usize(1);
-        let projected_field = Place {
-            local: holder,
-            projections: vec![Projection::Field("slot".into())],
-        };
+        let projected_field =
+            Place { local: holder, projections: vec![Projection::Field("slot".into())] };
         let mut blocks = IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![Statement::Assign(
@@ -2538,7 +2536,9 @@ mod tests {
         let error = verify_program(&program)
             .expect_err("a projected reference field must not bypass aggregate provenance checks");
         assert!(
-            error.message.contains("aggregate-contained reference provenance is not yet representable"),
+            error
+                .message
+                .contains("aggregate-contained reference provenance is not yet representable"),
             "unexpected ownership error: {error:?}"
         );
     }
@@ -2572,10 +2572,7 @@ mod tests {
         let holder_def = omni_mir::ast::StructDef {
             name: "Holder".into(),
             type_params: Vec::new(),
-            fields: vec![omni_mir::ast::StructFieldDef {
-                name: "slot".into(),
-                ty: TypeSpec::Int,
-            }],
+            fields: vec![omni_mir::ast::StructFieldDef { name: "slot".into(), ty: TypeSpec::Int }],
         };
         let program = MirProgram::new(
             tcx,
