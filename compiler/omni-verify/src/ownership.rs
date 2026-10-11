@@ -2487,6 +2487,113 @@ mod tests {
     }
 
     #[test]
+    fn returning_tuple_with_projected_reference_field_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: false, inner: int });
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let tuple_ty = tcx.intern(omni_mir::TyKind::Tuple(vec![reference]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(tuple_ty) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let projected_field = Place {
+            local: holder,
+            projections: vec![Projection::Field("slot".into())],
+        };
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Aggregate {
+                    kind: omni_mir::ir::AggregateKind::Tuple,
+                    operands: vec![Operand::Copy(projected_field)],
+                    ty: tuple_ty,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(false),
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_tuple_with_projected_reference_field".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Tuple(vec![reference_return_type(false)]),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        let error = verify_program(&program)
+            .expect_err("a projected reference field must not bypass aggregate provenance checks");
+        assert!(
+            error.message.contains("aggregate-contained reference provenance is not yet representable"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn aggregate_constructor_accepts_projected_scalar_field_operand() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let tuple_ty = tcx.intern(omni_mir::TyKind::Tuple(vec![int]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(tuple_ty) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Aggregate {
+                    kind: omni_mir::ir::AggregateKind::Tuple,
+                    operands: vec![Operand::Copy(Place {
+                        local: holder,
+                        projections: vec![Projection::Field("slot".into())],
+                    })],
+                    ty: tuple_ty,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: TypeSpec::Int,
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_tuple_with_projected_scalar_field".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Tuple(vec![TypeSpec::Int]),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        verify_program(&program)
+            .expect("a projected scalar field in an aggregate constructor must remain supported");
+    }
+
+    #[test]
     fn returning_reference_extracted_from_aggregate_field_without_provenance_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
