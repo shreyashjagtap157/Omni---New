@@ -330,6 +330,15 @@ fn transfer_block(
             Ok(edges)
         }
         Some(Terminator::Call { func: callee, args, destination, target, cleanup }) => {
+            if let Some(destination) = destination {
+                verify_projected_reference_call_destination(
+                    function,
+                    block,
+                    destination,
+                    tcx,
+                    struct_defs,
+                )?;
+            }
             verify_call_argument_aliases(function, block, args, &state, tcx, struct_defs)?;
             transfer_operand(function, block, "call callee", callee, &mut state)?;
             for (index, argument) in args.iter().enumerate() {
@@ -1214,6 +1223,71 @@ struct CallArgumentLoan {
     argument_index: usize,
     place: OwnershipPlace,
     mutable: bool,
+}
+
+/// Reject call results stored in projected reference slots, because the
+/// current provenance map tracks loans by local rather than by aggregate field.
+fn verify_projected_reference_call_destination(
+    function: &MirFunction,
+    block: BasicBlock,
+    destination: &Place,
+    tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+) -> Result<(), OwnershipVerificationError> {
+    if destination.projections.is_empty() {
+        return Ok(());
+    }
+
+    let context = "call destination";
+    let root_ty = function.body.local_decls[destination.local].ty.ok_or_else(|| {
+        OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: context.into(),
+            message: "projected call destination has no root type for provenance verification".into(),
+        }
+    })?;
+    if !tcx.contains(root_ty) {
+        return Err(OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: context.into(),
+            message: "projected call destination has an invalid root type for provenance verification".into(),
+        });
+    }
+
+    let mut projected_tcx = tcx.clone();
+    let projected_ty = crate::MirVerifier::place_ty(
+        &mut projected_tcx,
+        struct_defs,
+        function,
+        destination,
+        root_ty,
+    )
+    .map_err(|error| OwnershipVerificationError {
+        function: function.name.clone(),
+        block,
+        context: context.into(),
+        message: format!(
+            "cannot resolve projected call destination type for provenance verification: {error:?}"
+        ),
+    })?;
+
+    if projected_tcx.contains(projected_ty)
+        && matches!(projected_tcx.get(projected_ty), omni_mir::TyKind::Reference { .. })
+    {
+        return Err(OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: context.into(),
+            message: format!(
+                "projected reference call destination '{}' has no tracked loan provenance",
+                destination
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 fn verify_call_argument_aliases(
@@ -2634,6 +2708,121 @@ mod tests {
                 && error.message.contains("no tracked loan provenance"),
             "unexpected ownership error: {error:?}"
         );
+    }
+
+    #[test]
+    fn reference_call_result_into_projected_storage_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(Place::local(ret), integer(0))],
+            terminator: Some(Terminator::Call {
+                func: Operand::Constant(Constant::FnRef("make_reference".into())),
+                args: Vec::new(),
+                destination: Some(Place {
+                    local: holder,
+                    projections: vec![Projection::Field("slot".into())],
+                }),
+                target: BasicBlock::from_usize(1),
+                cleanup: None,
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: Vec::new(),
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(false),
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "reference_call_result_into_projected_storage".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        let error = verify_program(&program)
+            .expect_err("projected reference call results need place-specific provenance tracking");
+        assert!(
+            error.message.contains("projected reference call destination")
+                && error.message.contains("no tracked loan provenance"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn scalar_call_result_into_projected_storage_remains_supported() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let field = Place {
+            local: holder,
+            projections: vec![Projection::Field("slot".into())],
+        };
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(Place::local(ret), integer(0))],
+            terminator: Some(Terminator::Call {
+                func: Operand::Constant(Constant::FnRef("make_integer".into())),
+                args: Vec::new(),
+                destination: Some(field.clone()),
+                target: BasicBlock::from_usize(1),
+                cleanup: None,
+            }),
+        });
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Use(Operand::Copy(field)),
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: TypeSpec::Int,
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "scalar_call_result_into_projected_storage".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        verify_program(&program)
+            .expect("scalar projected call destinations must remain supported");
     }
 
     #[test]
