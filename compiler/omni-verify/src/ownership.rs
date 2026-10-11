@@ -477,9 +477,9 @@ fn verify_reference_storage_boundary(
         // When they produce a reference directly into projected storage, no
         // reference local exists for the local-to-loan map to track.
         let result_ty = match rvalue {
-            Rvalue::Field { ty, .. }
-            | Rvalue::Index { ty, .. }
-            | Rvalue::EnumField { ty, .. } => Some(*ty),
+            Rvalue::Field { ty, .. } | Rvalue::Index { ty, .. } | Rvalue::EnumField { ty, .. } => {
+                Some(*ty)
+            },
             Rvalue::Cast { to, .. } => Some(*to),
             Rvalue::Reference { .. } => None, // Rejected by the creation-specific check below.
             _ => None,
