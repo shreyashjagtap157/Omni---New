@@ -474,14 +474,9 @@ fn verify_reference_storage_boundary(
 ) -> Result<(), OwnershipVerificationError> {
     if !destination.projections.is_empty() {
         if let Rvalue::Use(operand) = rvalue {
-            if let Some(source) = reference_operand_source_name(
-                function,
-                block,
-                context,
-                tcx,
-                struct_defs,
-                operand,
-            )? {
+            if let Some(source) =
+                reference_operand_source_name(function, block, context, tcx, struct_defs, operand)?
+            {
                 return Err(OwnershipVerificationError {
                     function: function.name.clone(),
                     block,
@@ -586,44 +581,38 @@ fn reference_operand_source_name(
         let Some(ty) = function.body.local_decls[place.local].ty else {
             return Ok(None);
         };
-        return Ok((tcx.contains(ty)
-            && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
-        .then(|| format!("local '{}'", local_name(function, place.local))));
+        return Ok((tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
+            .then(|| format!("local '{}'", local_name(function, place.local))));
     }
 
-    let root_ty = function.body.local_decls[place.local].ty.ok_or_else(|| {
-        OwnershipVerificationError {
+    let root_ty =
+        function.body.local_decls[place.local].ty.ok_or_else(|| OwnershipVerificationError {
             function: function.name.clone(),
             block,
             context: context.to_string(),
             message: "projected operand has no root type for provenance verification".into(),
-        }
-    })?;
+        })?;
     if !tcx.contains(root_ty) {
         return Err(OwnershipVerificationError {
             function: function.name.clone(),
             block,
             context: context.to_string(),
-            message: "projected operand has an invalid root type for provenance verification".into(),
+            message: "projected operand has an invalid root type for provenance verification"
+                .into(),
         });
     }
 
     let mut projected_tcx = tcx.clone();
-    let projected_ty = crate::MirVerifier::place_ty(
-        &mut projected_tcx,
-        struct_defs,
-        function,
-        place,
-        root_ty,
-    )
-    .map_err(|error| OwnershipVerificationError {
-        function: function.name.clone(),
-        block,
-        context: context.to_string(),
-        message: format!(
-            "cannot resolve projected operand type for provenance verification: {error:?}"
-        ),
-    })?;
+    let projected_ty =
+        crate::MirVerifier::place_ty(&mut projected_tcx, struct_defs, function, place, root_ty)
+            .map_err(|error| OwnershipVerificationError {
+                function: function.name.clone(),
+                block,
+                context: context.to_string(),
+                message: format!(
+                    "cannot resolve projected operand type for provenance verification: {error:?}"
+                ),
+            })?;
     Ok((projected_tcx.contains(projected_ty)
         && matches!(projected_tcx.get(projected_ty), omni_mir::TyKind::Reference { .. }))
     .then(|| format!("projected place '{}'", place)))
@@ -3021,10 +3010,7 @@ mod tests {
         let source = Local::from_usize(1);
         let destination = Local::from_usize(2);
         let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
-        let field = |local| Place {
-            local,
-            projections: vec![Projection::Field("slot".into())],
-        };
+        let field = |local| Place { local, projections: vec![Projection::Field("slot".into())] };
         let mut blocks = IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![
@@ -3075,10 +3061,7 @@ mod tests {
         let source = Local::from_usize(1);
         let destination = Local::from_usize(2);
         let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
-        let field = |local| Place {
-            local,
-            projections: vec![Projection::Field("slot".into())],
-        };
+        let field = |local| Place { local, projections: vec![Projection::Field("slot".into())] };
         let mut blocks = IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
             statements: vec![
@@ -3108,8 +3091,7 @@ mod tests {
         )
         .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
 
-        verify_program(&program)
-            .expect("projected scalar transfers must remain supported");
+        verify_program(&program).expect("projected scalar transfers must remain supported");
     }
 
     #[test]
