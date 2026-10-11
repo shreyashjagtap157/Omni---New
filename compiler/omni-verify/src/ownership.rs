@@ -359,7 +359,6 @@ fn transfer_block(
     }
 }
 
-
 /// Verify that a direct reference-valued return preserves a tracked origin
 /// whose storage is not owned by this function. Until global/heap and
 /// aggregate-contained provenance are modeled, only abstract origins seeded
@@ -394,11 +393,7 @@ fn verify_reference_return_provenance(
         return Ok(());
     }
 
-    let regions = state
-        .reference_loans
-        .get(&function.return_place)
-        .cloned()
-        .unwrap_or_default();
+    let regions = state.reference_loans.get(&function.return_place).cloned().unwrap_or_default();
     if regions.is_empty() {
         return Err(OwnershipVerificationError {
             function: function.name.clone(),
@@ -413,25 +408,20 @@ fn verify_reference_return_provenance(
         .iter()
         .filter_map(|&param| {
             let ty = function.body.local_decls[param].ty?;
-            (tcx.contains(ty)
-                && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
-            .then(|| format!("\0external-reference-origin:{}:{}", function.name, param.index()))
+            (tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
+                .then(|| format!("\0external-reference-origin:{}:{}", function.name, param.index()))
         })
         .collect::<BTreeSet<_>>();
 
     for region in regions {
-        let loan = state
-            .ownership
-            .loans()
-            .find(|loan| loan.region == region)
-            .ok_or_else(|| {
-                violation(
-                    function,
-                    block,
-                    "function return",
-                    OwnershipError::UnknownLoan(region.clone()),
-                )
-            })?;
+        let loan = state.ownership.loans().find(|loan| loan.region == region).ok_or_else(|| {
+            violation(
+                function,
+                block,
+                "function return",
+                OwnershipError::UnknownLoan(region.clone()),
+            )
+        })?;
         if !external_origins.contains(&loan.place.root) {
             return Err(OwnershipVerificationError {
                 function: function.name.clone(),
@@ -2078,11 +2068,8 @@ mod tests {
     fn returning_reference_to_local_storage_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
         locals.push(LocalDecl { name: Some("value".into()), ty: Some(int) });
@@ -2129,11 +2116,8 @@ mod tests {
     fn returning_moved_reference_parameter_preserves_external_origin() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: true,
-            inner: int,
-        });
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
         locals.push(LocalDecl { name: Some("input".into()), ty: Some(reference) });
@@ -2166,11 +2150,8 @@ mod tests {
     fn returning_reference_call_result_without_provenance_is_rejected() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
-        let reference = tcx.intern(omni_mir::TyKind::Reference {
-            lifetime: None,
-            mutable: false,
-            inner: int,
-        });
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: false, inner: int });
         let mut locals = IndexVec::new();
         locals.push(LocalDecl { name: Some("ret".into()), ty: Some(reference) });
         let ret = Local::from_usize(0);
@@ -2207,5 +2188,4 @@ mod tests {
             "unexpected ownership error: {error:?}"
         );
     }
-
 }
