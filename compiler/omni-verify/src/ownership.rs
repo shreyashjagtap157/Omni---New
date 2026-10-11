@@ -472,6 +472,28 @@ fn verify_reference_storage_boundary(
                 });
             }
         }
+
+        // Field/index/enum-field and cast rvalues carry an explicit result type.
+        // When they produce a reference directly into projected storage, no
+        // reference local exists for the local-to-loan map to track.
+        let result_ty = match rvalue {
+            Rvalue::Field { ty, .. }
+            | Rvalue::Index { ty, .. }
+            | Rvalue::EnumField { ty, .. } => Some(*ty),
+            Rvalue::Cast { to, .. } => Some(*to),
+            Rvalue::Reference { .. } => None, // Rejected by the creation-specific check below.
+            _ => None,
+        };
+        if result_ty.is_some_and(|ty| {
+            tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })
+        }) {
+            return Err(OwnershipVerificationError {
+                function: function.name.clone(),
+                block,
+                context: context.to_string(),
+                message: "reference-valued rvalue stored in a projected place has no tracked provenance representation".into(),
+            });
+        }
     }
 
     let reference_source = match rvalue {
@@ -2314,6 +2336,58 @@ mod tests {
             error
                 .message
                 .contains("aggregate-contained reference provenance is not yet representable"),
+            "unexpected ownership error: {error:?}"
+        );
+    }
+
+    #[test]
+    fn reference_valued_field_rvalue_into_projected_storage_is_rejected() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: false, inner: int });
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("source".into()), ty: Some(holder_ty) });
+        locals.push(LocalDecl { name: Some("destination".into()), ty: Some(holder_ty) });
+        let ret = Local::from_usize(0);
+        let source = Local::from_usize(1);
+        let destination = Local::from_usize(2);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(ret), integer(0)),
+                Statement::Assign(
+                    Place {
+                        local: destination,
+                        projections: vec![Projection::Field("slot".into())],
+                    },
+                    Rvalue::Field {
+                        base: Operand::Copy(Place::local(source)),
+                        field: "slot".into(),
+                        ty: reference,
+                    },
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "store_field_reference_into_projected_place".into(),
+                params: vec![source, destination],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        let error = verify_program(&program)
+            .expect_err("an extracted reference cannot be stored into projected storage without provenance tracking");
+        assert!(
+            error.message.contains("reference-valued rvalue stored in a projected place"),
             "unexpected ownership error: {error:?}"
         );
     }
