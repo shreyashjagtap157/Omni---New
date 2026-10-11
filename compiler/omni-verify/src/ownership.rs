@@ -1244,7 +1244,8 @@ fn verify_projected_reference_call_destination(
             function: function.name.clone(),
             block,
             context: context.into(),
-            message: "projected call destination has no root type for provenance verification".into(),
+            message: "projected call destination has no root type for provenance verification"
+                .into(),
         }
     })?;
     if !tcx.contains(root_ty) {
@@ -1252,7 +1253,9 @@ fn verify_projected_reference_call_destination(
             function: function.name.clone(),
             block,
             context: context.into(),
-            message: "projected call destination has an invalid root type for provenance verification".into(),
+            message:
+                "projected call destination has an invalid root type for provenance verification"
+                    .into(),
         });
     }
 
@@ -2778,10 +2781,7 @@ mod tests {
         locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
         let ret = Local::from_usize(0);
         let holder = Local::from_usize(1);
-        let field = Place {
-            local: holder,
-            projections: vec![Projection::Field("slot".into())],
-        };
+        let field = Place { local: holder, projections: vec![Projection::Field("slot".into())] };
         let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
         let mut blocks = IndexVec::new();
         blocks.push(omni_mir::ir::BlockData {
@@ -2804,10 +2804,7 @@ mod tests {
         let holder_def = omni_mir::ast::StructDef {
             name: "Holder".into(),
             type_params: Vec::new(),
-            fields: vec![omni_mir::ast::StructFieldDef {
-                name: "slot".into(),
-                ty: TypeSpec::Int,
-            }],
+            fields: vec![omni_mir::ast::StructFieldDef { name: "slot".into(), ty: TypeSpec::Int }],
         };
         let program = MirProgram::new(
             tcx,
@@ -2821,8 +2818,7 @@ mod tests {
         )
         .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
 
-        verify_program(&program)
-            .expect("scalar projected call destinations must remain supported");
+        verify_program(&program).expect("scalar projected call destinations must remain supported");
     }
 
     #[test]
