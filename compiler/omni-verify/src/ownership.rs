@@ -236,11 +236,14 @@ fn transfer_block(
 
                 let new_reference_loans = if let Rvalue::Reference { place, mutable, .. } = rvalue {
                     if !destination.projections.is_empty() {
+                        // For projected places, we need to track provenance differently.
+                        // Until aggregate-contained reference provenance is modeled, reject
+                        // storage of references in projected places to maintain fail-closed behavior.
                         return Err(OwnershipVerificationError {
                             function: function.name.clone(),
                             block,
                             context: context.clone(),
-                            message: "reference stored in a projected place has no tracked provenance representation".into(),
+                            message: "reference stored in a projected place has no tracked provenance representation - projected reference storage requires aggregate-contained reference provenance modeling".into(),
                         });
                     }
                     Some(create_reference_loans(
@@ -274,6 +277,8 @@ fn transfer_block(
                 assign_place(function, block, &context, destination, &mut state)?;
             }
             Statement::Drop(place) => {
+                // Drop a reference place - only end loans if the place has no projections
+                // (i.e., it's a local, not a projected/aggregate storage)
                 if place.projections.is_empty() {
                     if let Some(loans) = state.reference_loans.remove(&place.local) {
                         for region in loans {
@@ -2188,7 +2193,7 @@ mod tests {
         let program =
             dereference_access_program("self_reborrow_live", true, true, false, true, false, false);
         let error = verify_program(&program)
-            .expect_err("self-reborrow must keep the borrowed origin protected");
+            .expect_err("self-reborrow must keep the borrowed origin protected until the destination's last use");
         assert!(error.message.contains("borrow conflict"), "unexpected ownership error: {error:?}");
     }
 
