@@ -238,6 +238,9 @@ range_pattern = expression ".." [ expression ] | expression "..=" expression;
 (* Guard pattern *)
 guard_pattern = pattern "if" expression;
 
+(* Let expression *)
+let_expr = "let" [ "mut" ] pattern [ ":" type ] "=" expression;
+
 (* If expression *)
 if_expr = "if" expression block_expr [ "else" ( if_expr | block_expr ) ];
 
@@ -385,3 +388,9 @@ XID_Continue = ? Unicode XID_Continue property ?;
    14. unary: - ! & &mut * ~
    15. postfix: . () [] await
    16. primary: literals, paths, parentheses, blocks *)
+
+(* VIBE-GRAM extensions – normatively required productions that the baseline EBNF omitted *)
+pipeline_operator = (expression) "|>" expression;
+newline_termination = statement "\n";
+projection_shorthand = struct_field "=" identifier;
+command_call = identifier "(" [ expression { "," expression } [ "," ] ] ")";
