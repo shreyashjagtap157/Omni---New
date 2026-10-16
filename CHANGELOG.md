@@ -4,9 +4,11 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### 0.2.1 patch (2026-10-13)
+- Patch release: bump all workspace crates to `0.2.1` (patch) following semver major.minor.patch
+- Minor clarification in grammar: added VIBE‑GRAM production `newline_termination` and `projection_shorthand` notes
+
 ### 0.2.0 release (minor)
-- Added VIBE‑GRAM productions (pipeline_operator, newline_termination, projection_shorthand, command_call) to `spec/grammar/omni-edition1.ebnf`
-- Bumped all workspace crates to `0.2.0` (minor) following semver major.minor.patch
 
 ### Fail-closed reference storage boundaries
 
