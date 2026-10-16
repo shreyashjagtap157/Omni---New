@@ -4,6 +4,10 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### 0.2.0 release (minor)
+- Added VIBE‑GRAM productions (pipeline_operator, newline_termination, projection_shorthand, command_call) to `spec/grammar/omni-edition1.ebnf`
+- Bumped all workspace crates to `0.2.0` (minor) following semver major.minor.patch
+
 ### Fail-closed reference storage boundaries
 
 - Reject direct reference-local operands when constructing tuple/array, struct, or enum aggregates, and reject direct reference-local moves/copies into projected destination places, before the source transfer can discard its tracked loan association.
