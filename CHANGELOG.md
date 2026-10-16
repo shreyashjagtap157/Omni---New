@@ -7,6 +7,9 @@ All notable project changes are documented here. Entries describe repository sta
 ### 0.2.2 patch (2026-10-13)
 - Patch release: bump all workspace crates to `0.2.2` (patch) following semver major.minor.patch
 
+### 0.2.3 patch (2026-10-13)
+- Patch release: bump all workspace crates to `0.2.3` (patch) following semver major.minor.patch
+
 ### 0.2.1 patch (2026-10-13)
 
 ### Fail-closed reference storage boundaries
