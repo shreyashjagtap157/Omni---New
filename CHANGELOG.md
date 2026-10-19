@@ -16,6 +16,9 @@ All notable project changes are documented here. Entries describe repository sta
 ### 0.2.6 development (in progress)
 - Begin ERR3‑0010 compliance: lossless CST, BOM/CR‑CRLF handling, exact source reconstruction (see CHANGELOG for details)
 
+### 0.2.7 development (in progress)
+- Continue ERR3‑0010 compliance: scanner BOM handling reviewed, parser contracts added for lossless CST reconstruction, crate versions bumped to 0.2.7
+
 ### 0.2.5 patch (2026-10-13)
 - Patch release: bump all workspace crates to `0.2.5` (patch) following semver major.minor.patch
 
