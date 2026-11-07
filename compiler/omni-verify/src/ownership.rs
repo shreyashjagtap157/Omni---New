@@ -1670,17 +1670,15 @@ mod tests {
             .expect("child reborrow");
         state.loan_parents.insert("child".into(), parent_authority);
 
-        let grandchild_authority =
-            BTreeSet::from(["parent".to_string(), "child".to_string()]);
+        let grandchild_authority = BTreeSet::from(["parent".to_string(), "child".to_string()]);
         state
             .ownership
             .borrow_shared_with_parents(origin, "grandchild", &grandchild_authority)
             .expect("grandchild reborrow");
         state.loan_parents.insert("grandchild".into(), BTreeSet::from(["child".into()]));
-        state.reference_loans.insert(
-            Local::from_usize(3),
-            BTreeSet::from(["grandchild".to_string()]),
-        );
+        state
+            .reference_loans
+            .insert(Local::from_usize(3), BTreeSet::from(["grandchild".to_string()]));
 
         assert!(
             loan_has_active_children(&state, "parent"),

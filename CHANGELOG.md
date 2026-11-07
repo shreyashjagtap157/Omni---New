@@ -11,6 +11,7 @@ All notable project changes are documented here. Entries describe repository sta
 - Hardened `omni-runtime::Runtime::allocate` similarly. Its initial signed-`i64` handle entry point now enforces that width before publishing an allocation; tests cover the largest representable handle and rejection beyond it.
 
 ### Ownership loan-region integrity
+- Made active-child detection traverse the entire reborrow-descendant graph. An ancestor loan now remains live when only a deeper descendant reference is reachable and intermediate reference locals have died. Added a parent → child → grandchild regression.
 - Made verifier loan release propagate `UnknownLoan` rather than discard the result of `OwnershipState::end_loan`. Parent/reference bookkeeping is changed only after the underlying loan is successfully removed, and invariant failures are reported at the responsible MIR statement/operand context. Added a corruption-path regression to ensure missing live loans fail closed without erasing tracking metadata.
 
 - Prevented a live loan region from being silently rebound to a different place or mutability. Re-observing the exact same region/place/mutability is idempotent for CFG fixed-point processing; conflicting reuse returns a typed ownership error and preserves the original loan.
