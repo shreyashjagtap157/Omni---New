@@ -700,10 +700,7 @@ mod tests {
         assert_eq!(state.loans().count(), 1);
         assert_eq!(state.loans().next().expect("original loan").place, x);
         state.assign(y).expect("rejected duplicate must not create a loan on y");
-        assert!(matches!(
-            state.assign(x),
-            Err(OwnershipError::BorrowConflict { .. })
-        ));
+        assert!(matches!(state.assign(x), Err(OwnershipError::BorrowConflict { .. })));
     }
 
     #[test]
@@ -719,10 +716,7 @@ mod tests {
         );
         let loan = state.loans().next().expect("original shared loan");
         assert!(!loan.mutable);
-        assert!(matches!(
-            state.assign(x),
-            Err(OwnershipError::BorrowConflict { .. })
-        ));
+        assert!(matches!(state.assign(x), Err(OwnershipError::BorrowConflict { .. })));
     }
 
     #[test]
@@ -733,10 +727,7 @@ mod tests {
         state.borrow_shared(x.clone(), "region").expect("first observation");
         state.borrow_shared(x.clone(), "region").expect("same loan on another dataflow iteration");
         assert_eq!(state.loans().count(), 1);
-        assert!(matches!(
-            state.assign(x),
-            Err(OwnershipError::BorrowConflict { .. })
-        ));
+        assert!(matches!(state.assign(x), Err(OwnershipError::BorrowConflict { .. })));
     }
 
     #[test]
