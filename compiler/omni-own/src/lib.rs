@@ -400,6 +400,10 @@ impl OwnershipState {
     }
 
     /// Joins ownership states at a control-flow merge conservatively.
+    ///
+    /// The same region may appear on several predecessors only when it denotes
+    /// the same place and mutability. Conflicting identities fail closed rather
+    /// than silently discarding a may-live loan.
     pub fn join_all(states: &[&Self]) -> Result<Self, OwnershipError> {
         if states.is_empty() {
             return Ok(Self::new());
@@ -658,6 +662,25 @@ mod tests {
             .ensure_access_allowed(&x, AccessKind::Write)
             .expect_err("join must conservatively retain a branch-local loan");
         assert!(matches!(error, OwnershipError::MutableBorrowConflict { .. }));
+    }
+
+    #[test]
+    fn cfg_join_merges_the_same_abstract_loan_once() {
+        let mut left = OwnershipState::new();
+        let mut right = OwnershipState::new();
+        let x = Place::root("x");
+        left.initialize(x.clone());
+        right.initialize(x.clone());
+        left.borrow_shared(x.clone(), "same-region").expect("left predecessor loan");
+        right.borrow_shared(x.clone(), "same-region").expect("right predecessor loan");
+
+        let joined =
+            OwnershipState::join_all(&[&left, &right]).expect("identical loan identities merge");
+        assert_eq!(joined.loans().count(), 1);
+        assert!(matches!(
+            joined.assign(x),
+            Err(OwnershipError::BorrowConflict { .. })
+        ));
     }
 
     #[test]
