@@ -1070,7 +1070,7 @@ impl TypeChecker {
                         found: self.tcx.mangle(value_ty),
                     });
                 }
-                Ok(target_ty)
+                Ok(self.tcx.intern(TyKind::Unit))
             }
             Expr::CompoundAssign { op, target, value } => {
                 self.ensure_assignable(target, local_vars)?;
@@ -1083,7 +1083,7 @@ impl TypeChecker {
                     });
                 }
                 match op {
-                    crate::ast::AssignOp::Assign => Ok(target_ty),
+                    crate::ast::AssignOp::Assign => Ok(self.tcx.intern(TyKind::Unit)),
                     crate::ast::AssignOp::Add
                     | crate::ast::AssignOp::Sub
                     | crate::ast::AssignOp::Mul
@@ -1097,7 +1097,7 @@ impl TypeChecker {
                         if !matches!(self.tcx.get(target_ty), TyKind::Int) {
                             return Err(TypeError::UnsupportedOperator(format!("{op:?}")));
                         }
-                        Ok(target_ty)
+                        Ok(self.tcx.intern(TyKind::Unit))
                     }
                 }
             }

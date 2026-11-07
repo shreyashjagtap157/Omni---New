@@ -25,6 +25,19 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut iter = args.iter().skip(1);
     while let Some(arg) = iter.next() {
         match arg.as_str() {
+            "-h" | "--help" => {
+                println!(
+                    "Omni Systems Programming Language Compiler v{}",
+                    env!("CARGO_PKG_VERSION")
+                );
+                println!("Usage: omni-driver [OPTIONS] <INPUT_FILE>\n");
+                println!("Options:");
+                println!("  -o, --output <FILE>   Set output artifact path");
+                println!("  -O, --opt-level <NUM> Set optimization level (0-3)");
+                println!("      --native          Emit native object / executable");
+                println!("  -h, --help            Show this help message");
+                std::process::exit(0);
+            }
             "-o" | "--output" => {
                 if let Some(val) = iter.next() {
                     output_file = Some(PathBuf::from(val));

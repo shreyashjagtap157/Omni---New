@@ -2395,7 +2395,7 @@ impl<'a> FnMirBuilder<'a> {
                     target_place.clone(),
                     crate::ir::Rvalue::Use(value_op),
                 ));
-                Ok(Some((crate::ir::Operand::Copy(target_place.clone()), target_ty)))
+                Ok(None)
             }
             omni_types::ast::Expr::Range { start, end, inclusive } => {
                 let (start_op, start_ty) = self
@@ -2505,7 +2505,7 @@ impl<'a> FnMirBuilder<'a> {
                     target_place.clone(),
                     crate::ir::Rvalue::BinaryOp(mir_op, target_op, value_op),
                 ));
-                Ok(Some((crate::ir::Operand::Copy(target_place), target_ty)))
+                Ok(None)
             }
             omni_types::ast::Expr::If { condition, then_branch, else_branch } => {
                 self.lower_if_expression(condition, then_branch, else_branch.as_deref())
@@ -2596,9 +2596,10 @@ mod tests {
             .collect()
     }
 
-    /// Lowers a function whose body is `body`, with `params` as the bound names.
-    fn lower_with(
+    /// Lowers a function whose body is `body`, with `params` as the bound names and an explicit return type.
+    fn lower_with_return(
         params: Vec<(String, TypeSpec)>,
+        return_type: TypeSpec,
         body: Expr,
     ) -> Result<crate::ir::MirFunction, String> {
         let mut ctx = LoweringContext::new();
@@ -2608,7 +2609,7 @@ mod tests {
                 type_params: vec![],
                 bounds: vec![],
                 params,
-                return_type: TypeSpec::Int,
+                return_type,
                 effects: omni_effects::EffectRow::pure(),
                 capabilities: vec![],
                 body,
@@ -2618,15 +2619,17 @@ mod tests {
     }
 
     fn lower(body: Expr) -> crate::ir::MirFunction {
-        lower_with(vec![("x".to_string(), TypeSpec::Int)], body).expect("lowering should succeed")
+        lower_with_return(vec![("x".to_string(), TypeSpec::Int)], TypeSpec::Unit, body)
+            .expect("lowering should succeed")
     }
 
     #[test]
     fn tuple_field_assignment_targets_a_projected_place() {
         // `p.0 = 30` must name p.0, not the whole of p. Before the place model
         // carried a projection chain this destination was not expressible.
-        let func = lower_with(
+        let func = lower_with_return(
             vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
+            TypeSpec::Unit,
             Expr::Assign {
                 target: Box::new(Expr::Field {
                     expr: Box::new(Expr::Var("p".to_string())),
@@ -2645,8 +2648,9 @@ mod tests {
 
     #[test]
     fn array_constant_index_assignment_uses_a_constant_projection() {
-        let func = lower_with(
+        let func = lower_with_return(
             vec![("a".to_string(), TypeSpec::Array(Box::new(TypeSpec::Int), 3))],
+            TypeSpec::Unit,
             Expr::Assign {
                 target: Box::new(Expr::Index {
                     expr: Box::new(Expr::Var("a".to_string())),
@@ -2676,8 +2680,9 @@ mod tests {
         // The destination type comes from the same projection authority the read
         // path uses, so an out-of-range position is a lowering error rather than
         // a silently accepted store.
-        let err = lower_with(
+        let err = lower_with_return(
             vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
+            TypeSpec::Unit,
             Expr::Assign {
                 target: Box::new(Expr::Field {
                     expr: Box::new(Expr::Var("p".to_string())),
@@ -2692,8 +2697,9 @@ mod tests {
 
     #[test]
     fn assignment_type_mismatch_names_the_projected_destination() {
-        let err = lower_with(
+        let err = lower_with_return(
             vec![("p".to_string(), TypeSpec::Tuple(vec![TypeSpec::Int]))],
+            TypeSpec::Unit,
             Expr::Assign {
                 target: Box::new(Expr::Field {
                     expr: Box::new(Expr::Var("p".to_string())),
@@ -2710,8 +2716,9 @@ mod tests {
     fn constant_array_index_outside_the_array_is_rejected() {
         // A literal subscript is bounds-checked against the array length, so a
         // provably out-of-range store is refused at lowering time.
-        let err = lower_with(
+        let err = lower_with_return(
             vec![("a".to_string(), TypeSpec::Array(Box::new(TypeSpec::Int), 2))],
+            TypeSpec::Unit,
             Expr::Assign {
                 target: Box::new(Expr::Index {
                     expr: Box::new(Expr::Var("a".to_string())),

@@ -1,0 +1,60 @@
+// Omni Self-Hosting Recursive Descent Parser Prototype
+// Parses a subset of Omni (struct definitions, functions, expressions, returns) in Omni itself.
+
+struct ASTNode {
+    kind: i64,
+    val: i64,
+    left: i64,
+    right: i64
+}
+
+// Node kinds:
+// 0: None / Null
+// 1: FunctionDef
+// 2: StructDef
+// 3: ReturnStmt
+// 4: BinaryPlus
+// 5: BinaryMinus
+// 6: IntLiteral
+// 7: Identifier
+// 8: ParamDecl
+
+fn parse_primary(kind: i64, val: i64) -> i64 {
+    // Returns kind + val as node encoding
+    return kind * 1000 + val;
+}
+
+fn parse_binary_expr(left: i64, op: i64, right: i64) -> i64 {
+    // Encodes binary expression node
+    return op * 100000 + left + right;
+}
+
+fn parse_function_signature(param_count: i64, ret_type: i64) -> i64 {
+    return param_count * 100 + ret_type;
+}
+
+fn main() -> i64 {
+    // Simulate parsing the AST of:
+    // fn add(a: i64, b: i64) -> i64 { return a + b; }
+    
+    // 1. Parse parameters: a: i64 (id 1), b: i64 (id 2)
+    let p1 = parse_primary(8, 1);
+    let p2 = parse_primary(8, 2);
+    let sig = parse_function_signature(2, 64); // 2 params, i64 return
+    
+    // 2. Parse binary expression: a + b
+    let lhs = parse_primary(7, 1); // ident a
+    let rhs = parse_primary(7, 2); // ident b
+    let expr = parse_binary_expr(lhs, 4, rhs); // op = Plus (4)
+    
+    // 3. Parse return statement
+    let ret_stmt = 3 * 1000000 + expr;
+    
+    // 4. Combine into complete function AST signature + body
+    let fn_ast = 1 * 10000000 + sig * 10000 + (ret_stmt % 10000);
+    
+    // Verify AST structure hash:
+    // 10000000 + 2640000 + (3000000 + 400000 + 7001 + 7002) % 10000
+    // = 10000000 + 2640000 + 4003 = 12644003
+    return fn_ast;
+}

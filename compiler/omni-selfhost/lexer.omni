@@ -1,0 +1,219 @@
+// Omni Self-Hosting Lexer Module
+// Implements tokenization of Omni language source in Omni itself.
+
+struct Token {
+    kind: i64,
+    start: i64,
+    len: i64,
+    val: i64
+}
+
+// Token kind constants:
+// 0: EndOfFile
+// 1: Ident
+// 2: IntLiteral
+// 3: KwFn ("fn")
+// 4: KwLet ("let")
+// 5: KwMut ("mut")
+// 6: KwStruct ("struct")
+// 7: KwReturn ("return")
+// 8: KwIf ("if")
+// 9: KwElse ("else")
+// 10: KwWhile ("while")
+// 11: Plus '+'
+// 12: Minus '-'
+// 13: Star '*'
+// 14: Slash '/'
+// 15: Eq '='
+// 16: EqEq "=="
+// 17: Semi ';'
+// 18: Colon ':'
+// 19: Arrow "->"
+// 20: LParen '('
+// 21: RParen ')'
+// 22: LBrace '{'
+// 23: RBrace '}'
+// 24: LBracket '['
+// 25: RBracket ']'
+// 26: Comma ','
+
+fn is_space(b: i64) -> bool {
+    return b == 32 || b == 9 || b == 10 || b == 13;
+}
+
+fn is_digit(b: i64) -> bool {
+    return b >= 48 && b <= 57;
+}
+
+fn is_alpha(b: i64) -> bool {
+    return (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || b == 95;
+}
+
+fn main() -> i64 {
+    // Test input string: "fn add(a: i64, b: i64) -> i64 { return a + b; }"
+    let src = [
+        102, 110, 32, 97, 100, 100, 40, 97, 58, 32, 105, 54, 52, 44, 32, 
+        98, 58, 32, 105, 54, 52, 41, 32, 45, 62, 32, 105, 54, 52, 32, 
+        123, 32, 114, 101, 116, 117, 114, 110, 32, 97, 32, 43, 32, 98, 59, 32, 125
+    ];
+    let src_len = 47;
+
+    let mut cursor = 0;
+    let mut token_count = 0;
+    let mut hash_accumulator = 0;
+
+    while cursor < src_len {
+        let b = src[cursor];
+        if is_space(b) {
+            cursor += 1;
+        } else {
+            if is_alpha(b) {
+                let start = cursor;
+                let mut h = 0;
+                while cursor < src_len && (is_alpha(src[cursor]) || is_digit(src[cursor])) {
+                    h = h * 31 + src[cursor];
+                    cursor += 1;
+                }
+                let span_len = cursor - start;
+                let mut kind = 1;
+
+                // Keyword checks
+                if span_len == 2 && src[start] == 102 && src[start + 1] == 110 {
+                    kind = 3; // "fn"
+                } else {
+                    if span_len == 3 && src[start] == 108 && src[start + 1] == 101 && src[start + 2] == 116 {
+                        kind = 4; // "let"
+                    } else {
+                        if span_len == 3 && src[start] == 109 && src[start + 1] == 117 && src[start + 2] == 116 {
+                            kind = 5; // "mut"
+                        } else {
+                            if span_len == 6 && src[start] == 115 && src[start + 1] == 116 && src[start + 2] == 114 && src[start + 3] == 117 && src[start + 4] == 99 && src[start + 5] == 116 {
+                                kind = 6; // "struct"
+                            } else {
+                                if span_len == 6 && src[start] == 114 && src[start + 1] == 101 && src[start + 2] == 116 && src[start + 3] == 117 && src[start + 4] == 114 && src[start + 5] == 110 {
+                                    kind = 7; // "return"
+                                } else {
+                                    if span_len == 2 && src[start] == 105 && src[start + 1] == 102 {
+                                        kind = 8; // "if"
+                                    } else {
+                                        if span_len == 4 && src[start] == 101 && src[start + 1] == 108 && src[start + 2] == 115 && src[start + 3] == 101 {
+                                            kind = 9; // "else"
+                                        } else {
+                                            if span_len == 5 && src[start] == 119 && src[start + 1] == 104 && src[start + 2] == 105 && src[start + 3] == 108 && src[start + 4] == 101 {
+                                                kind = 10; // "while"
+                                            } else {
+                                                kind = 1; // generic ident
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                token_count += 1;
+                hash_accumulator = (hash_accumulator * 17 + kind) % 100000;
+            } else {
+                if is_digit(b) {
+                    let mut val = 0;
+                    while cursor < src_len && is_digit(src[cursor]) {
+                        val = val * 10 + (src[cursor] - 48);
+                        cursor += 1;
+                    }
+                    token_count += 1;
+                    hash_accumulator = (hash_accumulator * 17 + 2) % 100000;
+                } else {
+                    let mut kind = 0;
+                    if b == 43 {
+                        kind = 11; // '+'
+                        cursor += 1;
+                    } else {
+                        if b == 45 {
+                            if cursor + 1 < src_len && src[cursor + 1] == 62 {
+                                kind = 19; // "->"
+                                cursor += 2;
+                            } else {
+                                kind = 12; // '-'
+                                cursor += 1;
+                            }
+                        } else {
+                            if b == 42 {
+                                kind = 13; // '*'
+                                cursor += 1;
+                            } else {
+                                if b == 47 {
+                                    kind = 14; // '/'
+                                    cursor += 1;
+                                } else {
+                                    if b == 61 {
+                                        if cursor + 1 < src_len && src[cursor + 1] == 61 {
+                                            kind = 16; // "=="
+                                            cursor += 2;
+                                        } else {
+                                            kind = 15; // '='
+                                            cursor += 1;
+                                        }
+                                    } else {
+                                        if b == 59 {
+                                            kind = 17; // ';'
+                                            cursor += 1;
+                                        } else {
+                                            if b == 58 {
+                                                kind = 18; // ':'
+                                                cursor += 1;
+                                            } else {
+                                                if b == 40 {
+                                                    kind = 20; // '('
+                                                    cursor += 1;
+                                                } else {
+                                                    if b == 41 {
+                                                        kind = 21; // ')'
+                                                        cursor += 1;
+                                                    } else {
+                                                        if b == 123 {
+                                                            kind = 22; // '{'
+                                                            cursor += 1;
+                                                        } else {
+                                                            if b == 125 {
+                                                                kind = 23; // '}'
+                                                                cursor += 1;
+                                                            } else {
+                                                                if b == 91 {
+                                                                    kind = 24; // '['
+                                                                    cursor += 1;
+                                                                } else {
+                                                                    if b == 93 {
+                                                                        kind = 25; // ']'
+                                                                        cursor += 1;
+                                                                    } else {
+                                                                        if b == 44 {
+                                                                            kind = 26; // ','
+                                                                            cursor += 1;
+                                                                        } else {
+                                                                            cursor += 1;
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if kind > 0 {
+                        token_count += 1;
+                        hash_accumulator = (hash_accumulator * 17 + kind) % 100000;
+                    }
+                }
+            }
+        }
+    }
+
+    // Return combination of token_count and accumulated token hash
+    return token_count * 10000 + (hash_accumulator % 10000);
+}

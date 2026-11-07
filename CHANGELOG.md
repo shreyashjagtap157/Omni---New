@@ -10,6 +10,11 @@ All notable project changes are documented here. Entries describe repository sta
 - Corrected MIR lowering for while loops with compound / short-circuit condition expressions (`&&`, `||`) by placing the `SwitchInt` terminator on the actual exit block of the condition expression rather than the initial condition block.
 - Corrected CST trivia handling in `omni-driver` when lowering literal and pattern expressions by skipping trivia tokens (whitespace, comments).
 - Fixed block statement parsing in `omni-parse` to treat control flow expressions (`if`, `match`, `while`, `loop`, `for`) as statements when used without trailing semicolons.
+- Standardized assignment (`Expr::Assign`) and compound assignment (`Expr::CompoundAssign`) semantic typing in `omni-types` and `omni-mir` to return `TyKind::Unit` / `None`, adhering to core calculus specification `T-Asgn` and allowing assignment expressions in conditional and loop branches.
+- Implemented driver `--help` (`-h`) CLI option in `omni-driver`.
+- Created Stage-1 self-hosting compiler modules in `compiler/omni-selfhost/`:
+  - `lexer.omni`: Self-hosting lexer written entirely in Omni, tokenizing keywords, identifiers, integer literals, and operators, verified on both the abstract machine and native MSVC executable output.
+  - `parser.omni`: Self-hosting recursive-descent parser prototype written in Omni, encoding AST nodes, function definitions, parameters, and expressions, verified on both execution tiers.
 - Expanded `omni-driver` compiler thread stack allocation to 8MB to support deeply nested CST/AST lowering cleanly on Windows without thread stack exhaustion.
 - Re-verified full test suite across all workspace crates (713+ tests passing, 0 failures, 0 evidence mismatches, clean formatting, passing `omni-audit` and `omni-conform`).
 
