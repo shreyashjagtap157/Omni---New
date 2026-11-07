@@ -118,6 +118,8 @@ pub enum OwnershipError {
     WriteThroughSharedBorrow(Place),
     /// A second mutable borrow is attempted.
     MultipleMutableBorrows(Place),
+    /// A live region identifier is reused for a different place or mutability.
+    DuplicateLoanRegion(String),
     /// A loan is referenced after it has ended.
     UnknownLoan(String),
 }
@@ -140,6 +142,9 @@ impl fmt::Display for OwnershipError {
             }
             Self::MultipleMutableBorrows(place) => {
                 write!(f, "multiple mutable borrows of '{place}'")
+            }
+            Self::DuplicateLoanRegion(region) => {
+                write!(f, "ownership loan region '{region}' is already bound to a different loan")
             }
             Self::UnknownLoan(region) => write!(f, "unknown ownership loan region '{region}'"),
         }
@@ -298,8 +303,11 @@ impl OwnershipState {
     ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
         self.validate_parent_loans(&place, parents, false)?;
-        self.ensure_access_allowed_except(&place, AccessKind::BorrowShared, parents)?;
         let region = region.into();
+        if !self.check_loan_region(&region, &place, false)? {
+            return Ok(());
+        }
+        self.ensure_access_allowed_except(&place, AccessKind::BorrowShared, parents)?;
         self.loans.insert(region.clone(), Loan { place, mutable: false, region });
         Ok(())
     }
@@ -323,6 +331,10 @@ impl OwnershipState {
     ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
         self.validate_parent_loans(&place, parents, true)?;
+        let region = region.into();
+        if !self.check_loan_region(&region, &place, true)? {
+            return Ok(());
+        }
         if let Some(existing) = self
             .loans
             .values()
@@ -333,9 +345,29 @@ impl OwnershipState {
                 existing: if existing.mutable { "mutable".into() } else { "shared".into() },
             });
         }
-        let region = region.into();
         self.loans.insert(region.clone(), Loan { place, mutable: true, region });
         Ok(())
+    }
+
+    /// Checks the identity contract for a region before any loan map update.
+    ///
+    /// Returns `true` when the region is unused and a new loan may be inserted,
+    /// or `false` when the exact same abstract loan already exists. Identical
+    /// re-observation is idempotent so CFG fixed-point/loop processing does not
+    /// create spurious duplicate-loan failures. A region may never be rebound to
+    /// a different place or mutability, because doing so would silently discard
+    /// the old live loan and could make a conflicting access appear valid.
+    fn check_loan_region(
+        &self,
+        region: &str,
+        place: &Place,
+        mutable: bool,
+    ) -> Result<bool, OwnershipError> {
+        match self.loans.get(region) {
+            None => Ok(true),
+            Some(existing) if existing.place == *place && existing.mutable == mutable => Ok(false),
+            Some(_) => Err(OwnershipError::DuplicateLoanRegion(region.to_string())),
+        }
     }
 
     /// Ends a live loan by region identifier.
@@ -645,7 +677,65 @@ mod tests {
         checker.declare_initialized("x");
         checker.issue_mut(a.clone(), "ra").expect("field a loan");
         checker.issue_shared(b.clone(), "rb").expect("disjoint field b loan");
-        checker.state().loans().count();
+        assert_eq!(checker.state().loans().count(), 2, "both disjoint field loans must remain live");
+    }
+
+    #[test]
+    fn duplicate_loan_region_for_a_different_place_is_rejected_without_replacing_original() {
+        let mut state = OwnershipState::new();
+        let x = Place::root("x");
+        let y = Place::root("y");
+        state.initialize(x.clone());
+        state.initialize(y.clone());
+        state.borrow_shared(x.clone(), "region").expect("initial loan");
+
+        assert_eq!(
+            state.borrow_shared(y.clone(), "region"),
+            Err(OwnershipError::DuplicateLoanRegion("region".into()))
+        );
+        assert_eq!(state.loans().count(), 1);
+        assert_eq!(state.loans().next().expect("original loan").place, x);
+        assert!(matches!(
+            state.assign(y),
+            Err(OwnershipError::DuplicateLoanRegion(_)) | Err(OwnershipError::BorrowConflict { .. })
+        ));
+        assert!(matches!(
+            state.assign(x),
+            Err(OwnershipError::BorrowConflict { .. })
+        ));
+    }
+
+    #[test]
+    fn duplicate_loan_region_cannot_change_mutability() {
+        let mut state = OwnershipState::new();
+        let x = Place::root("x");
+        state.initialize(x.clone());
+        state.borrow_shared(x.clone(), "region").expect("initial shared loan");
+
+        assert_eq!(
+            state.borrow_mut(x.clone(), "region"),
+            Err(OwnershipError::DuplicateLoanRegion("region".into()))
+        );
+        let loan = state.loans().next().expect("original shared loan");
+        assert!(!loan.mutable);
+        assert!(matches!(
+            state.assign(x),
+            Err(OwnershipError::BorrowConflict { .. })
+        ));
+    }
+
+    #[test]
+    fn repeating_the_same_abstract_loan_is_idempotent() {
+        let mut state = OwnershipState::new();
+        let x = Place::root("x");
+        state.initialize(x.clone());
+        state.borrow_shared(x.clone(), "region").expect("first observation");
+        state.borrow_shared(x.clone(), "region").expect("same loan on another dataflow iteration");
+        assert_eq!(state.loans().count(), 1);
+        assert!(matches!(
+            state.assign(x),
+            Err(OwnershipError::BorrowConflict { .. })
+        ));
     }
 
     #[test]
