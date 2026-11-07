@@ -57,11 +57,7 @@ impl FlowState {
                     .extend(parents.iter().cloned());
             }
         }
-        Ok(Self {
-            ownership: OwnershipState::join_all(&inputs)?,
-            reference_loans,
-            loan_parents,
-        })
+        Ok(Self { ownership: OwnershipState::join_all(&inputs)?, reference_loans, loan_parents })
     }
 }
 
