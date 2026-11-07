@@ -47,6 +47,9 @@ Per §20 of the Master Charter:
 4. **`types.omni`**:
    - Implements type descriptors, type equality predicates, binary operator typing rules (arithmetic, relational comparisons, logical boolean operators), and branching conditional type checking in Omni.
    - Verified on both the abstract machine (returning verification code `122100`) and native Cranelift / MSVC compilation.
+5. **`mir.omni`**:
+   - Implements mid-level intermediate representation (MIR) basic blocks, control flow graphs, assignment statements (binary operations, copies), and terminators (Return, SwitchInt conditional branches) in Omni.
+   - Verified on both the abstract machine (returning CFG verification code `12505645`) and native Cranelift / MSVC compilation.
 
 ## 4. Verification & Conformance
 

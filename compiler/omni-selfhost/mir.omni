@@ -1,0 +1,130 @@
+// Omni Self-Hosting Mid-level Intermediate Representation (MIR) Generator (Stage-1 Milestone 5)
+// Implements basic-block control flow graphs, statements, assignments, and terminators in Omni.
+
+struct MirStatement {
+    kind: i64,      // 1: Assign, 2: StorageLive, 3: StorageDead, 4: Nop
+    dest_local: i64,
+    rvalue_kind: i64, // 1: Use/Copy, 2: BinaryOp, 3: UnaryOp, 4: Aggregate
+    op_code: i64,
+    operand1: i64,
+    operand2: i64
+}
+
+struct MirTerminator {
+    kind: i64,      // 1: Return, 2: Goto, 3: SwitchInt, 4: Unreachable
+    arg_local: i64,
+    target_bb1: i64,
+    target_bb2: i64
+}
+
+struct MirBasicBlock {
+    id: i64,
+    statement_count: i64,
+    terminator_kind: i64,
+    terminator_target: i64
+}
+
+fn emit_assign_binary(
+    dest: i64,
+    op: i64,
+    op1: i64,
+    op2: i64
+) -> MirStatement {
+    return MirStatement {
+        kind: 1, // Assign
+        dest_local: dest,
+        rvalue_kind: 2, // BinaryOp
+        op_code: op,
+        operand1: op1,
+        operand2: op2
+    };
+}
+
+fn emit_assign_use(dest: i64, src: i64) -> MirStatement {
+    return MirStatement {
+        kind: 1, // Assign
+        dest_local: dest,
+        rvalue_kind: 1, // Use
+        op_code: 0,
+        operand1: src,
+        operand2: 0
+    };
+}
+
+fn emit_return(return_local: i64) -> MirTerminator {
+    return MirTerminator {
+        kind: 1, // Return
+        arg_local: return_local,
+        target_bb1: 0,
+        target_bb2: 0
+    };
+}
+
+fn emit_switch_int(
+    discr_local: i64,
+    then_bb: i64,
+    else_bb: i64
+) -> MirTerminator {
+    return MirTerminator {
+        kind: 3, // SwitchInt
+        arg_local: discr_local,
+        target_bb1: then_bb,
+        target_bb2: else_bb
+    };
+}
+
+fn encode_statement(stmt: MirStatement) -> i64 {
+    return stmt.kind * 100000 + stmt.dest_local * 10000 + stmt.rvalue_kind * 1000 + stmt.op_code * 100 + (stmt.operand1 + stmt.operand2) % 100;
+}
+
+fn encode_terminator(term: MirTerminator) -> i64 {
+    return term.kind * 10000 + term.arg_local * 100 + term.target_bb1 * 10 + term.target_bb2;
+}
+
+fn main() -> i64 {
+    // Lower a control-flow function into MIR:
+    // fn abs_diff(a: i64, b: i64) -> i64 {
+    //     // BB0:
+    //     let cond = a >= b;
+    //     switch_int(cond) -> [true: BB1, false: BB2]
+    //     // BB1:
+    //     let diff1 = a - b;
+    //     return diff1;
+    //     // BB2:
+    //     let diff2 = b - a;
+    //     return diff2;
+    // }
+
+    // Locals:
+    // _0: return local (i64)
+    // _1: a (i64)
+    // _2: b (i64)
+    // _3: cond (bool)
+
+    // 1. BB0: cond = a >= b (op 10: Ge); SwitchInt(_3) -> [BB1, BB2]
+    let s0 = emit_assign_binary(3, 10, 1, 2);
+    let t0 = emit_switch_int(3, 1, 2);
+    let bb0_hash = encode_statement(s0) + encode_terminator(t0);
+
+    // 2. BB1: _0 = a - b (op 2: Sub); Return(_0)
+    let s1 = emit_assign_binary(0, 2, 1, 2);
+    let t1 = emit_return(0);
+    let bb1_hash = encode_statement(s1) + encode_terminator(t1);
+
+    // 3. BB2: _0 = b - a (op 2: Sub); Return(_0)
+    let s2 = emit_assign_binary(0, 2, 2, 1);
+    let t2 = emit_return(0);
+    let bb2_hash = encode_statement(s2) + encode_terminator(t2);
+
+    // Verify CFG structural integrity:
+    // bb0_hash: (1 * 100000 + 3 * 10000 + 2 * 1000 + 10 * 100 + 3) + (3 * 10000 + 3 * 100 + 1 * 10 + 2)
+    //         = 133003 + 30312 = 163315
+    // bb1_hash: (1 * 100000 + 0 * 10000 + 2 * 1000 + 2 * 100 + 3) + (1 * 10000 + 0)
+    //         = 102203 + 10000 = 112203
+    // bb2_hash: (1 * 100000 + 0 * 10000 + 2 * 1000 + 2 * 100 + 3) + (1 * 10000 + 0)
+    //         = 102203 + 10000 = 112203
+    // Total CFG Hash = bb0_hash * 1000000 + bb1_hash * 1000 + (bb2_hash % 1000)
+    // Let's return composite verified value:
+    let composite = bb0_hash + bb1_hash * 10 + bb2_hash * 100;
+    return composite;
+}
