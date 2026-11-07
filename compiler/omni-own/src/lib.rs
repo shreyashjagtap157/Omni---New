@@ -677,7 +677,11 @@ mod tests {
         checker.declare_initialized("x");
         checker.issue_mut(a.clone(), "ra").expect("field a loan");
         checker.issue_shared(b.clone(), "rb").expect("disjoint field b loan");
-        assert_eq!(checker.state().loans().count(), 2, "both disjoint field loans must remain live");
+        assert_eq!(
+            checker.state().loans().count(),
+            2,
+            "both disjoint field loans must remain live"
+        );
     }
 
     #[test]
