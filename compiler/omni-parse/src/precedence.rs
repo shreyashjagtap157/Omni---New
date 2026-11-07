@@ -304,9 +304,7 @@ mod tests {
             (2, 1),
             "assignment must be right-associative"
         );
-        for p in
-            [Punct::Plus, Punct::Star, Punct::AmpAmp, Punct::Pipe, Punct::EqEq]
-        {
+        for p in [Punct::Plus, Punct::Star, Punct::AmpAmp, Punct::Pipe, Punct::EqEq] {
             let (l, r) = binding_power(TokenKind::Punct(p));
             assert_eq!(l + 1, r, "{p:?} must be left-associative");
         }

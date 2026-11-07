@@ -124,8 +124,15 @@ mod tests {
         ] {
             let mut parser = Parser::from_source(source);
             let parsed = parser.parse_source();
-            assert!(!parsed.is_ok(), "unratified Vibe-first syntax must not parse in Edition 1: {source:?}");
-            assert_eq!(parsed.syntax().text().to_string(), source, "rejection must preserve source bytes");
+            assert!(
+                !parsed.is_ok(),
+                "unratified Vibe-first syntax must not parse in Edition 1: {source:?}"
+            );
+            assert_eq!(
+                parsed.syntax().text().to_string(),
+                source,
+                "rejection must preserve source bytes"
+            );
         }
     }
 
@@ -138,9 +145,14 @@ mod tests {
             "fn f() { let x = .field; }",
             "fn f() { let x = foo(_, 1); }",
         ] {
-            let mut parser = Parser::from_source_with_profile(source, ParserProfile::ExperimentalVibeSyntax);
+            let mut parser =
+                Parser::from_source_with_profile(source, ParserProfile::ExperimentalVibeSyntax);
             let parsed = parser.parse_source();
-            assert!(parsed.is_ok(), "explicit experimental profile should parse {source:?}: {:?}", parsed.diagnostics);
+            assert!(
+                parsed.is_ok(),
+                "explicit experimental profile should parse {source:?}: {:?}",
+                parsed.diagnostics
+            );
             assert_eq!(parsed.syntax().text().to_string(), source);
         }
     }

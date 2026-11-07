@@ -1492,8 +1492,7 @@ impl<'a> Parser<'a> {
                 }
                 continue;
             }
-            if self.at_punct(Punct::QuestionDot)
-                && !self.profile.allows_experimental_vibe_syntax()
+            if self.at_punct(Punct::QuestionDot) && !self.profile.allows_experimental_vibe_syntax()
             {
                 self.diagnostic("optional navigation is experimental and is not part of Edition 1");
                 break;
@@ -1540,9 +1539,7 @@ impl<'a> Parser<'a> {
                 lhs = n;
                 continue;
             }
-            if self.at_punct(Punct::PipeArrow)
-                && !self.profile.allows_experimental_vibe_syntax()
-            {
+            if self.at_punct(Punct::PipeArrow) && !self.profile.allows_experimental_vibe_syntax() {
                 self.diagnostic("pipeline operator is experimental and is not part of Edition 1");
                 break;
             }
