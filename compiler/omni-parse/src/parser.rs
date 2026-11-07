@@ -1683,6 +1683,17 @@ impl<'a> Parser<'a> {
                     path
                 }
             }
+            Some(TokenKind::Ident) if self.at_standalone_underscore_ident()
+                && self.profile.allows_experimental_vibe_syntax() =>
+            {
+                let underscore = self.bump_child();
+                let mut n = Node::new(SyntaxKind::PlaceholderExpr);
+                n.children.push(underscore);
+                n
+            }
+            Some(TokenKind::Ident) if self.at_standalone_underscore_ident() => {
+                self.error_node("standalone expression placeholder is not part of Edition 1")
+            }
             Some(TokenKind::Ident) => {
                 let path = self.parse_path_expr_or_macro();
                 if self.at_punct(Punct::LBrace) && !self.no_struct_literal {
@@ -2183,14 +2194,19 @@ impl<'a> Parser<'a> {
         lhs
     }
 
-    fn parse_pattern_atom(&mut self) -> Node {
-        // '_' is lexed as an identifier-start token by the Edition 1 lexer,
-        // but the standalone spelling is the wildcard terminal in patterns.
-        let is_standalone_underscore = self.current_kind() == Some(TokenKind::Ident)
+    /// The lexer emits the standalone spelling "_" as an identifier token.
+    /// Its grammatical role is context-sensitive: it is a wildcard in patterns,
+    /// an experimental placeholder in the opt-in Vibe parser, and not an
+    /// Edition 1 expression identifier.
+    fn at_standalone_underscore_ident(&self) -> bool {
+        self.current_kind() == Some(TokenKind::Ident)
             && self.tokens.get(self.pos).and_then(|token| {
                 self.source.get(token.span.start as usize..token.span.end as usize)
-            }) == Some("_");
-        if is_standalone_underscore {
+            }) == Some("_")
+    }
+
+    fn parse_pattern_atom(&mut self) -> Node {
+        if self.at_standalone_underscore_ident() {
             let mut node = Node::new(SyntaxKind::WildcardPattern);
             node.children.push(self.bump_child());
             return node;

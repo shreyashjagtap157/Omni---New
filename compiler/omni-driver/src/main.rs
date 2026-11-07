@@ -3172,6 +3172,7 @@ mod tests {
             "fn f(x: i64) -> i64 { return x |> identity; }",
             "fn f() { let x = value?.field; }",
             "fn f() { let x = .field; }",
+            "fn f() { let x = foo(_, 1); }",
         ] {
             let error = compile_source_to_interpreter_value(source, manifest())
                 .expect_err("production driver must retain the Edition 1 parser profile");
