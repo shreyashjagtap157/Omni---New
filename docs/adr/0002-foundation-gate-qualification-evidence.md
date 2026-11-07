@@ -39,17 +39,22 @@ The current repository state contains several distinct kinds of evidence:
    RUSTSEC-2026-0344 (`ruzstd 0.7.3`). The unused direct `object`
    dependency was removed in `d270e938c64543310f5672070075dd92cfd6691f`,
    eliminating the compression feature path that brought the vulnerable
-   decoder into the lockfile. Cargo Audit run `42363992008` on descendant
-   commit `f8cccbac7cffb9a7a992ca414139e7336aa1363f` completed successfully:
-   zero vulnerabilities and zero warnings.
+   decoder into the lockfile. Cargo Audit run `42364182354` on descendant
+   commit `c81c413961d7ec403d58899ebd7d0bdff443145b` completed successfully:
+   zero vulnerabilities, zero warnings. Later commits through current HEAD
+   `78e23db8` change documentation/ADR/changelog only; `Cargo.toml` and
+   `Cargo.lock` remain unchanged. A fresh audit for commit `4b929084` is
+   still running at the time of this update.
 7. `omni-conform` now requires the declared gate status to be `qualified`
    and `blocked_reasons` to be empty. This validates declaration consistency,
    not independent approval or formal qualification. Full Omni CI on
-   `64f734b97a22ab562a97bacf36979391b763504d` passed, including the new
+   `64f734b97a22ab562a97bacf36979391b763504d` and
+   `c81c413961d7ec403d58899ebd7d0bdff443145b` passed, including the new
    negative gate-status/blocker tests and the Foundation technical gate.
-   The subsequent documentation-only commit `c81c413` also passed full CI.
-   The latest documentation reconciliation commit `cd7f522` was still
-   undergoing CI and Security Audit when this proposal was updated.
+   The latest full CI run on `4b929084` has passed formatting, focused
+   ownership tests, Clippy, workspace check, workspace tests, locked metadata,
+   and manifest binding; topology is in progress and the Foundation gate is
+   pending at the time of this update.
 
 These facts must not be collapsed into a single green checkmark.
 
