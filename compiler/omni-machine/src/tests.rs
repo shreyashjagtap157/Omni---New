@@ -17,7 +17,7 @@ use omni_mir::ir::{
 };
 use omni_mir::{Ty, TyCtxt, TyKind};
 
-use crate::interpreter::{DiagnosticLevel, ExecutionError, Interpreter, Value};
+use crate::interpreter::{DiagnosticLevel, ExecutionError, Interpreter, Memory, Value};
 
 // --- MIR construction helpers ------------------------------------------------
 
@@ -1215,6 +1215,19 @@ fn too_many_arguments_are_rejected() {
     assert!(
         matches!(err, ExecutionError::InvalidFunctionCall { .. }),
         "expected InvalidFunctionCall, got {err:?}"
+    );
+}
+
+#[test]
+fn abstract_machine_allocation_failure_is_reported_without_consuming_a_handle() {
+    let mut memory = Memory::new();
+    let error = memory.allocate(usize::MAX, 1, true).expect_err("oversized allocation must fail");
+    assert!(error.contains("allocation failed"), "unexpected error: {error}");
+    assert!(!memory.allocation_exists(1), "failed allocation must not be published");
+    assert_eq!(
+        memory.allocate(1, 1, true),
+        Ok(1),
+        "failed allocation must not consume its handle"
     );
 }
 

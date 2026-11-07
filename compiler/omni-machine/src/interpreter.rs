@@ -1807,16 +1807,31 @@ impl Memory {
         }
 
         let id = self.next_id;
-        if id > i64::MAX as u64 {
+        if id == 0 || id > i64::MAX as u64 {
             return Err("allocation identifier space exhausted".to_string());
         }
-        self.next_id =
-            id.checked_add(1).ok_or_else(|| "allocation identifier space exhausted".to_string())?;
 
-        let alloc =
-            Allocation { bytes: vec![0; size], initialized: vec![false; size], align, mutable };
+        // Reserve both backing buffers fallibly before publishing the
+        // allocation or consuming its handle. Host allocation failure must
+        // become an abstract-machine memory error rather than a panic/abort.
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(size).map_err(|_| {
+            format!("allocation failed: unable to reserve {size} bytes of storage")
+        })?;
+        bytes.resize(size, 0);
 
+        let mut initialized = Vec::new();
+        initialized.try_reserve_exact(size).map_err(|_| {
+            format!("allocation failed: unable to reserve {size} initialization bytes")
+        })?;
+        initialized.resize(size, false);
+
+        let next_id = id
+            .checked_add(1)
+            .ok_or_else(|| "allocation identifier space exhausted".to_string())?;
+        let alloc = Allocation { bytes, initialized, align, mutable };
         self.allocations.insert(id, alloc);
+        self.next_id = next_id;
         Ok(id)
     }
 
