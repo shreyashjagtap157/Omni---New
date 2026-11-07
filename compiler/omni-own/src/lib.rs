@@ -677,10 +677,7 @@ mod tests {
         let joined =
             OwnershipState::join_all(&[&left, &right]).expect("identical loan identities merge");
         assert_eq!(joined.loans().count(), 1);
-        assert!(matches!(
-            joined.assign(x),
-            Err(OwnershipError::BorrowConflict { .. })
-        ));
+        assert!(matches!(joined.assign(x), Err(OwnershipError::BorrowConflict { .. })));
     }
 
     #[test]
