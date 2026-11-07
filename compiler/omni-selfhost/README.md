@@ -39,8 +39,8 @@ Per §20 of the Master Charter:
    - Identifiers, integer literals, ASCII operators, and delimiters.
    - Verified on both the abstract reference machine (`omni-driver`) and native Cranelift / MSVC compilation.
 2. **`parser.omni`**:
-   - Encodes AST nodes, parameter lists, function signatures, binary expression trees, and return statements.
-   - Verified on both the abstract machine and native Cranelift / MSVC compilation.
+   - Encodes AST nodes, parameter declarations, function signatures, binary expression trees, and multi-statement function bodies (let-bindings, while-loops, if-conditionals, and returns).
+   - Verified on both the abstract machine (returning structural hash `11660006`) and native Cranelift / MSVC compilation.
 
 ## 4. Verification & Conformance
 

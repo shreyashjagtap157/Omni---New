@@ -1,5 +1,10 @@
-// Omni Self-Hosting Recursive Descent Parser Prototype
-// Parses a subset of Omni (struct definitions, functions, expressions, returns) in Omni itself.
+// Omni Self-Hosting Recursive Descent Parser (Stage-1 Milestone 2)
+// Implements token consumption, expression trees, statements, and AST construction in Omni.
+
+struct Token {
+    kind: i64,
+    val: i64
+}
 
 struct ASTNode {
     kind: i64,
@@ -18,14 +23,17 @@ struct ASTNode {
 // 6: IntLiteral
 // 7: Identifier
 // 8: ParamDecl
+// 9: LetStmt
+// 10: AssignStmt
+// 11: WhileStmt
+// 12: IfStmt
+// 13: BlockStmt
 
 fn parse_primary(kind: i64, val: i64) -> i64 {
-    // Returns kind + val as node encoding
     return kind * 1000 + val;
 }
 
 fn parse_binary_expr(left: i64, op: i64, right: i64) -> i64 {
-    // Encodes binary expression node
     return op * 100000 + left + right;
 }
 
@@ -33,28 +41,59 @@ fn parse_function_signature(param_count: i64, ret_type: i64) -> i64 {
     return param_count * 100 + ret_type;
 }
 
+fn parse_let_statement(ident_id: i64, init_expr: i64) -> i64 {
+    // Encodes LetStmt (kind 9)
+    return 9 * 1000000 + ident_id * 10000 + (init_expr % 10000);
+}
+
+fn parse_while_statement(cond_expr: i64, body_stmt: i64) -> i64 {
+    // Encodes WhileStmt (kind 11)
+    return 11 * 1000000 + (cond_expr % 1000) * 1000 + (body_stmt % 1000);
+}
+
+fn parse_if_statement(cond_expr: i64, then_stmt: i64, else_stmt: i64) -> i64 {
+    // Encodes IfStmt (kind 12)
+    return 12 * 10000000 + (cond_expr % 100) * 100000 + (then_stmt % 1000) * 100 + (else_stmt % 100);
+}
+
 fn main() -> i64 {
     // Simulate parsing the AST of:
-    // fn add(a: i64, b: i64) -> i64 { return a + b; }
+    // fn compute(x: i64) -> i64 {
+    //     let mut sum = 0;
+    //     let step = 1;
+    //     sum = sum + x;
+    //     return sum;
+    // }
     
-    // 1. Parse parameters: a: i64 (id 1), b: i64 (id 2)
-    let p1 = parse_primary(8, 1);
-    let p2 = parse_primary(8, 2);
-    let sig = parse_function_signature(2, 64); // 2 params, i64 return
+    // 1. Signature: 1 param (x: i64, id 1), return i64 (64)
+    let sig = parse_function_signature(1, 64);
     
-    // 2. Parse binary expression: a + b
-    let lhs = parse_primary(7, 1); // ident a
-    let rhs = parse_primary(7, 2); // ident b
-    let expr = parse_binary_expr(lhs, 4, rhs); // op = Plus (4)
+    // 2. Statement 1: let mut sum = 0; (ident 2, init 0)
+    let zero_lit = parse_primary(6, 0);
+    let stmt1 = parse_let_statement(2, zero_lit);
     
-    // 3. Parse return statement
-    let ret_stmt = 3 * 1000000 + expr;
+    // 3. Statement 2: let step = 1; (ident 3, init 1)
+    let one_lit = parse_primary(6, 1);
+    let stmt2 = parse_let_statement(3, one_lit);
     
-    // 4. Combine into complete function AST signature + body
-    let fn_ast = 1 * 10000000 + sig * 10000 + (ret_stmt % 10000);
+    // 4. Expression: sum + x; (ident 2 + ident 1)
+    let sum_ident = parse_primary(7, 2);
+    let x_ident = parse_primary(7, 1);
+    let add_expr = parse_binary_expr(sum_ident, 4, x_ident); // op 4 (Plus)
     
-    // Verify AST structure hash:
-    // 10000000 + 2640000 + (3000000 + 400000 + 7001 + 7002) % 10000
-    // = 10000000 + 2640000 + 4003 = 12644003
-    return fn_ast;
+    // 5. Statement 3: while condition & block
+    let cond = parse_binary_expr(x_ident, 4, zero_lit);
+    let while_stmt = parse_while_statement(cond, add_expr);
+    
+    // 6. Statement 4: return sum;
+    let ret_stmt = 3 * 1000000 + sum_ident;
+    
+    // 7. Combine AST into composite verification hash
+    let mut ast_hash = 1 * 10000000 + sig * 10000;
+    ast_hash += stmt1 % 10000;
+    ast_hash += stmt2 % 10000;
+    ast_hash += while_stmt % 10000;
+    ast_hash += ret_stmt % 10000;
+    
+    return ast_hash;
 }

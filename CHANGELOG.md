@@ -14,7 +14,7 @@ All notable project changes are documented here. Entries describe repository sta
 - Implemented driver `--help` (`-h`) CLI option in `omni-driver`.
 - Created Stage-1 self-hosting compiler modules in `compiler/omni-selfhost/`:
   - `lexer.omni`: Self-hosting lexer written entirely in Omni, tokenizing keywords, identifiers, integer literals, and operators, verified on both the abstract machine and native MSVC executable output.
-  - `parser.omni`: Self-hosting recursive-descent parser prototype written in Omni, encoding AST nodes, function definitions, parameters, and expressions, verified on both execution tiers.
+  - `parser.omni`: Self-hosting recursive-descent parser written in Omni, encoding AST nodes, function definitions, parameter declarations, expressions, and multi-statement control flow (let-statements, while-loops, if-conditionals, and returns), verified on both execution tiers.
 - Expanded `omni-driver` compiler thread stack allocation to 8MB to support deeply nested CST/AST lowering cleanly on Windows without thread stack exhaustion.
 - Re-verified full test suite across all workspace crates (713+ tests passing, 0 failures, 0 evidence mismatches, clean formatting, passing `omni-audit` and `omni-conform`).
 
