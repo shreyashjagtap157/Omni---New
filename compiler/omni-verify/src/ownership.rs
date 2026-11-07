@@ -230,7 +230,8 @@ fn transfer_block(
                 if destination.projections.is_empty() && !self_move && !self_reborrow {
                     if let Some(old_loans) = state.reference_loans.remove(&destination.local) {
                         for region in old_loans {
-                            end_tracked_loan_if_unreferenced(&mut state, &region);
+                            end_tracked_loan_if_unreferenced(&mut state, &region)
+                                .map_err(|error| violation(function, block, &context, error))?;
                         }
                     }
                 }
@@ -283,7 +284,8 @@ fn transfer_block(
                 if place.projections.is_empty() {
                     if let Some(loans) = state.reference_loans.remove(&place.local) {
                         for region in loans {
-                            end_tracked_loan_if_unreferenced(&mut state, &region);
+                            end_tracked_loan_if_unreferenced(&mut state, &region)
+                                .map_err(|error| violation(function, block, &context, error))?;
                         }
                     }
                 }
@@ -310,7 +312,8 @@ fn transfer_block(
             Statement::Assume(_) => {}
         }
 
-        shorten_dead_reference_loans(&mut state, &live_after[block.index()][statement_index]);
+        shorten_dead_reference_loans(&mut state, &live_after[block.index()][statement_index])
+            .map_err(|error| violation(function, block, &context, error))?;
     }
 
     match data.terminator.as_ref() {
@@ -840,12 +843,13 @@ fn operand_local_uses(operand: &Operand, uses: &mut BTreeSet<Local>) {
     }
 }
 
-fn end_tracked_loan(state: &mut FlowState, region: &str) {
-    let _ = state.ownership.end_loan(region);
+fn end_tracked_loan(state: &mut FlowState, region: &str) -> Result<(), OwnershipError> {
+    state.ownership.end_loan(region)?;
     state.loan_parents.remove(region);
     for parents in state.loan_parents.values_mut() {
         parents.remove(region);
     }
+    Ok(())
 }
 
 fn loan_has_active_children(state: &FlowState, region: &str) -> bool {
@@ -860,7 +864,10 @@ fn loan_has_active_children(state: &FlowState, region: &str) -> bool {
 /// depends on it. Releasing a child can make an otherwise orphaned parent
 /// eligible for release, so walk parent links transitively and guard against
 /// malformed cyclic metadata.
-fn end_tracked_loan_if_unreferenced(state: &mut FlowState, region: &str) {
+fn end_tracked_loan_if_unreferenced(
+    state: &mut FlowState,
+    region: &str,
+) -> Result<(), OwnershipError> {
     let mut pending = vec![region.to_string()];
     let mut visited = BTreeSet::new();
 
@@ -875,12 +882,16 @@ fn end_tracked_loan_if_unreferenced(state: &mut FlowState, region: &str) {
         }
 
         let parents = state.loan_parents.get(&current).cloned().unwrap_or_default();
-        end_tracked_loan(state, &current);
+        end_tracked_loan(state, &current)?;
         pending.extend(parents);
     }
+    Ok(())
 }
 
-fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Local>) {
+fn shorten_dead_reference_loans(
+    state: &mut FlowState,
+    live_after: &BTreeSet<Local>,
+) -> Result<(), OwnershipError> {
     loop {
         let dead_locals = state
             .reference_loans
@@ -897,7 +908,7 @@ fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Loc
                     active.remove(&region);
                 }
                 changed = true;
-                end_tracked_loan_if_unreferenced(state, &region);
+                end_tracked_loan_if_unreferenced(state, &region)?;
             }
 
             if state.reference_loans.get(&local).is_some_and(BTreeSet::is_empty) {
@@ -909,6 +920,7 @@ fn shorten_dead_reference_loans(state: &mut FlowState, live_after: &BTreeSet<Loc
             break;
         }
     }
+    Ok(())
 }
 
 fn transfer_rvalue(
@@ -983,7 +995,8 @@ fn transfer_operand(
             if place.projections.is_empty() {
                 if let Some(loans) = state.reference_loans.remove(&place.local) {
                     for region in loans {
-                        end_tracked_loan_if_unreferenced(state, &region);
+                        end_tracked_loan_if_unreferenced(state, &region)
+                            .map_err(|error| violation(function, block, context, error))?;
                     }
                 }
             }
@@ -1622,6 +1635,18 @@ mod tests {
     use index_vec::IndexVec;
     use omni_mir::ast::TypeSpec;
     use omni_mir::ir::LocalDecl;
+
+    #[test]
+    fn missing_live_loan_during_release_is_reported_without_erasing_metadata() {
+        let mut state = FlowState::new();
+        state.loan_parents.insert("missing-region".into(), BTreeSet::new());
+
+        assert_eq!(
+            end_tracked_loan_if_unreferenced(&mut state, "missing-region"),
+            Err(OwnershipError::UnknownLoan("missing-region".into()))
+        );
+        assert!(state.loan_parents.contains_key("missing-region"));
+    }
 
     #[test]
     fn dropping_reference_ends_its_associated_loan() {
