@@ -895,6 +895,10 @@ fn direct_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
         node.kind(),
         omni_syntax::SyntaxKind::NameRef | omni_syntax::SyntaxKind::PathSegment
     ) {
+        if let Some(tok) = non_trivia_token(node) {
+            let name = tok.text().trim().to_string();
+            return (!name.is_empty()).then_some(name);
+        }
         let name = node.text().to_string().trim().to_string();
         return (!name.is_empty()).then_some(name);
     }
@@ -905,7 +909,12 @@ fn direct_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
                 omni_syntax::SyntaxKind::NameRef | omni_syntax::SyntaxKind::PathSegment
             )
         })
-        .map(|n| n.text().to_string().trim().to_string())
+        .and_then(|n| {
+            non_trivia_token(&n).map(|t| t.text().trim().to_string()).or_else(|| {
+                let s = n.text().to_string().trim().to_string();
+                (!s.is_empty()).then_some(s)
+            })
+        })
         .filter(|s| !s.is_empty())
 }
 
@@ -1229,7 +1238,9 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             Ok(Expr::Literal(lit_from_text(token.text())?))
         }
         omni_syntax::SyntaxKind::NameRef => {
-            let name = node.text().to_string().trim().to_string();
+            let name = non_trivia_token(node)
+                .map(|t| t.text().trim().to_string())
+                .unwrap_or_else(|| node.text().to_string().trim().to_string());
             (!name.is_empty())
                 .then_some(Expr::Var(name))
                 .ok_or_else(|| "Semantic frontend error: empty name reference".to_string())
@@ -1243,7 +1254,10 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
                     args: Vec::new(),
                 });
             }
-            Ok(Expr::Var(node.text().to_string().trim().to_string()))
+            let name = non_trivia_token(node)
+                .map(|t| t.text().trim().split('<').next().unwrap_or_default().trim().to_string())
+                .unwrap_or_else(|| node.text().to_string().trim().to_string());
+            Ok(Expr::Var(name))
         }
         omni_syntax::SyntaxKind::BinaryExpr
         | omni_syntax::SyntaxKind::AssignExpr

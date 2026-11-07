@@ -1,0 +1,122 @@
+// Omni Self-Hosting Scoped Symbol Table and Name Resolver (Stage-1 Milestone 3)
+// Implements lexical scope stacks, variable binding, lookup, and shadowing resolution in Omni.
+
+struct Symbol {
+    name_id: i64,
+    scope_level: i64,
+    kind: i64,      // 1: Variable, 2: Function, 3: Type/Struct, 4: Parameter
+    ty_id: i64
+}
+
+struct Scope {
+    level: i64,
+    parent_index: i64,
+    symbol_count: i64
+}
+
+fn symbol_matches(sym_name: i64, target_name: i64) -> bool {
+    return sym_name == target_name;
+}
+
+fn resolve_in_scope(
+    target_name: i64,
+    sym_names: [i64; 16],
+    sym_scopes: [i64; 16],
+    sym_kinds: [i64; 16],
+    total_symbols: i64,
+    current_level: i64
+) -> i64 {
+    // Reverse scan from most deeply nested scope outward to respect lexical shadowing
+    let mut i = total_symbols - 1;
+    let mut found_kind = 0;
+    let mut done = false;
+
+    while i >= 0 && !done {
+        if sym_scopes[i] <= current_level {
+            if sym_names[i] == target_name {
+                found_kind = sym_kinds[i];
+                done = true;
+            } else {
+                i -= 1;
+            };
+        } else {
+            i -= 1;
+        };
+    }
+
+    return found_kind;
+}
+
+fn main() -> i64 {
+    // Simulate resolving variables in a nested scope with shadowing:
+    // fn test(a: i64) {
+    //     let x = 10;
+    //     {
+    //         let x = 20; // shadows outer x
+    //         let y = 30;
+    //         // resolve 'x', 'y', 'a'
+    //     }
+    //     // resolve 'x' (outer), 'a'
+    // }
+
+    // Identifiers:
+    // 'a' = 101, 'x' = 102, 'y' = 103
+
+    let mut sym_names = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut sym_scopes = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut sym_kinds = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut total_symbols = 0;
+
+    // 1. Parameter 'a' at scope level 0 (kind 4: Parameter)
+    sym_names[0] = 101;
+    sym_scopes[0] = 0;
+    sym_kinds[0] = 4;
+    total_symbols += 1;
+
+    // 2. Outer 'x' at scope level 0 (kind 1: Variable, val representation 11)
+    sym_names[1] = 102;
+    sym_scopes[1] = 0;
+    sym_kinds[1] = 11;
+    total_symbols += 1;
+
+    // 3. Enter inner scope (level 1)
+    // Inner 'x' at scope level 1 (kind 1: Variable, val representation 12)
+    sym_names[2] = 102;
+    sym_scopes[2] = 1;
+    sym_kinds[2] = 12;
+    total_symbols += 1;
+
+    // Inner 'y' at scope level 1 (kind 1: Variable, val representation 13)
+    sym_names[3] = 103;
+    sym_scopes[3] = 1;
+    sym_kinds[3] = 13;
+    total_symbols += 1;
+
+    // In inner scope (level 1):
+    // Resolve 'x' -> should find inner 'x' (12)
+    let res_inner_x = resolve_in_scope(102, sym_names, sym_scopes, sym_kinds, total_symbols, 1);
+    // Resolve 'y' -> should find inner 'y' (13)
+    let res_inner_y = resolve_in_scope(103, sym_names, sym_scopes, sym_kinds, total_symbols, 1);
+    // Resolve 'a' -> should find parameter 'a' (4)
+    let res_inner_a = resolve_in_scope(101, sym_names, sym_scopes, sym_kinds, total_symbols, 1);
+
+    // In outer scope (level 0):
+    // Resolve 'x' -> should find outer 'x' (11)
+    let res_outer_x = resolve_in_scope(102, sym_names, sym_scopes, sym_kinds, total_symbols, 0);
+    // Resolve 'y' -> should not be found (0)
+    let res_outer_y = resolve_in_scope(103, sym_names, sym_scopes, sym_kinds, total_symbols, 0);
+    // Resolve 'a' -> should find parameter 'a' (4)
+    let res_outer_a = resolve_in_scope(101, sym_names, sym_scopes, sym_kinds, total_symbols, 0);
+
+    // Validate resolution invariant:
+    // res_inner_x == 12
+    // res_inner_y == 13
+    // res_inner_a == 4
+    // res_outer_x == 11
+    // res_outer_y == 0
+    // res_outer_a == 4
+    // Composite verification code:
+    // 12 * 100000 + 13 * 10000 + 4 * 1000 + 11 * 100 + 0 * 10 + 4
+    // = 1200000 + 130000 + 4000 + 1100 + 4 = 1335104
+    return res_inner_x * 100000 + res_inner_y * 10000 + res_inner_a * 1000 + res_outer_x * 100 + res_outer_y * 10 + res_outer_a;
+}

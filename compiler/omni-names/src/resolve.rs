@@ -299,7 +299,8 @@ impl Resolver {
                 }
             }
             SyntaxKind::NameRef => {
-                let text = node.text().to_string().trim().to_string();
+                let text = non_trivia_token_text(node)
+                    .unwrap_or_else(|| node.text().to_string().trim().to_string());
                 if let Ok(id) = self.resolve(&text) {
                     out.references.insert(start_u32(node), id);
                 } else {
@@ -447,15 +448,17 @@ impl Resolver {
                 if node.parent().is_some_and(|p| p.kind() == SyntaxKind::StructExpr) {
                     return;
                 }
-                let text = segments[0]
-                    .text()
-                    .to_string()
-                    .trim()
-                    .split('<')
-                    .next()
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string();
+                let text = non_trivia_token_text(&segments[0]).unwrap_or_else(|| {
+                    segments[0]
+                        .text()
+                        .to_string()
+                        .trim()
+                        .split('<')
+                        .next()
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string()
+                });
                 if text == "_" {
                     // Wildcard / pipeline placeholder slot (ERR3-0030)
                     return;
@@ -535,7 +538,8 @@ impl Resolver {
         _declaration: bool,
         errors: &mut Vec<ResolveError>,
     ) {
-        let name = node.text().to_string().trim().to_string();
+        let name = non_trivia_token_text(node)
+            .unwrap_or_else(|| node.text().to_string().trim().to_string());
         self.declare_name_and_record(node, &name, out, errors);
     }
 
@@ -612,6 +616,23 @@ fn is_expression_node(kind: SyntaxKind) -> bool {
 fn start_u32(node: &SyntaxNode) -> u32 {
     u32::from(node.text_range().start())
 }
+
+fn non_trivia_token_text(node: &SyntaxNode) -> Option<String> {
+    node.descendants_with_tokens()
+        .filter_map(|e| e.into_token())
+        .find(|t| {
+            !matches!(
+                t.kind(),
+                SyntaxKind::Whitespace
+                    | SyntaxKind::LineComment
+                    | SyntaxKind::BlockComment
+                    | SyntaxKind::DocComment
+            )
+        })
+        .map(|t| t.text().trim().split('<').next().unwrap_or_default().trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 fn direct_name(node: &SyntaxNode) -> Option<SyntaxNode> {
     node.children().find(|n| n.kind() == SyntaxKind::NameRef)
 }

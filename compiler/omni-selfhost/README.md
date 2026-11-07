@@ -41,6 +41,9 @@ Per §20 of the Master Charter:
 2. **`parser.omni`**:
    - Encodes AST nodes, parameter declarations, function signatures, binary expression trees, and multi-statement function bodies (let-bindings, while-loops, if-conditionals, and returns).
    - Verified on both the abstract machine (returning structural hash `11660006`) and native Cranelift / MSVC compilation.
+3. **`names.omni`**:
+   - Implements scoped symbol table records, lexical scope levels, reverse outward scope traversal, and variable shadowing resolution in Omni.
+   - Verified on both the abstract machine (returning verification code `1335104`) and native Cranelift / MSVC compilation.
 
 ## 4. Verification & Conformance
 
