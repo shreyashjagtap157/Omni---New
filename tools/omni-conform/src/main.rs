@@ -20,9 +20,11 @@ use omni_registry::load_specification;
 use serde::Deserialize;
 use walkdir::WalkDir;
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct Gate {
     gate: String,
+    status: String,
+    blocked_reasons: Vec<String>,
     spec_tree_sha256: String,
 }
 
@@ -41,6 +43,34 @@ fn fail(msg: String) -> Box<dyn std::error::Error> {
     format!("FAIL-CLOSED: {msg}").into()
 }
 
+/// Validate the release-gate declaration before treating its digest binding as
+/// authoritative. A matching digest alone does not mean that the gate is
+/// declared qualified or free of recorded blockers.
+fn validate_gate_record(gate: &Gate, tree_digest: &str) -> Result<(), String> {
+    if gate.gate.trim().is_empty() {
+        return Err("release gate has no name".to_string());
+    }
+    if gate.status != "qualified" {
+        return Err(format!(
+            "release gate is not qualified: status={}",
+            gate.status
+        ));
+    }
+    if !gate.blocked_reasons.is_empty() {
+        return Err(format!(
+            "release gate has blocked reasons: {}",
+            gate.blocked_reasons.join("; ")
+        ));
+    }
+    if gate.spec_tree_sha256 != tree_digest {
+        return Err(format!(
+            "gate digest mismatch: gate={} loaded={}",
+            gate.spec_tree_sha256, tree_digest
+        ));
+    }
+    Ok(())
+}
+
 /// Verify the specification tree rooted at `spec_root` against its manifest
 /// binding and registry. The tree is loaded through the `omni-registry`
 /// loader (load-time validation authority); this gate adjudicates release
@@ -55,15 +85,7 @@ pub fn verify_spec(spec_root: &Path) -> Result<ConformReport, Box<dyn std::error
         .map_err(|e| fail(format!("release gate unreadable: {e}")))?;
     let gate: Gate =
         serde_json::from_str(&gate_raw).map_err(|e| fail(format!("release gate invalid: {e}")))?;
-    if gate.spec_tree_sha256 != tree_digest {
-        return Err(fail(format!(
-            "gate digest mismatch: gate={} loaded={}",
-            gate.spec_tree_sha256, tree_digest
-        )));
-    }
-    if gate.gate.is_empty() {
-        return Err(fail("release gate has no name".to_string()));
-    }
+    validate_gate_record(&gate, &tree_digest).map_err(fail)?;
 
     // Stage-0 predicate integrity (0.0.0.11): the manifest's predicate sets
     // must be well-formed and conflict-free on every conform run. Query
@@ -292,7 +314,7 @@ mod conform_tests {
         .expect("write");
         fs::write(
             root.join("release/foundation-gate.json"),
-            format!(r#"{{"gate":"T","spec_tree_sha256":"{bound}"}}"#),
+            format!(r#"{{"gate":"T","status":"qualified","blocked_reasons":[],"spec_tree_sha256":"{bound}"}}"#),
         )
         .expect("write");
         root
@@ -362,7 +384,7 @@ mod conform_tests {
         fs::write(root.join("manifest/omni-edition1.manifest.json"), manifest).expect("write");
         fs::write(
             root.join("release/foundation-gate.json"),
-            format!(r#"{{"gate":"T","spec_tree_sha256":"{digest}"}}"#),
+            format!(r#"{{"gate":"T","status":"qualified","blocked_reasons":[],"spec_tree_sha256":"{digest}"}}"#),
         )
         .expect("write");
         root
@@ -438,12 +460,43 @@ mod conform_tests {
         let (digest, _) = spec_tree::spec_tree_digest(&root).expect("digest");
         fs::write(
             root.join("release/foundation-gate.json"),
-            format!(r#"{{"gate":"T","spec_tree_sha256":"{}"}}"#, "f".repeat(64)),
+            format!(r#"{{"gate":"T","status":"qualified","blocked_reasons":[],"spec_tree_sha256":"{}"}}"#, "f".repeat(64)),
         )
         .expect("write");
         let err = verify_spec(&root).expect_err("must reject");
         assert!(err.to_string().contains("gate digest mismatch"));
         assert!(digest.len() == 64);
         cleanup(&root);
+    }
+
+    #[test]
+    fn pre_signoff_gate_fails_closed() {
+        let gate = Gate {
+            gate: "T".to_string(),
+            status: "pre-sign-off".to_string(),
+            blocked_reasons: Vec::new(),
+            spec_tree_sha256: "a".repeat(64),
+        };
+        let err = validate_gate_record(&gate, &gate.spec_tree_sha256).expect_err("must reject");
+        assert!(err.contains("not qualified"), "got: {err}");
+    }
+
+    #[test]
+    fn gate_with_blocked_reasons_fails_closed() {
+        let gate = Gate {
+            gate: "T".to_string(),
+            status: "qualified".to_string(),
+            blocked_reasons: vec!["missing independent review".to_string()],
+            spec_tree_sha256: "a".repeat(64),
+        };
+        let err = validate_gate_record(&gate, &gate.spec_tree_sha256).expect_err("must reject");
+        assert!(err.contains("blocked reasons"), "got: {err}");
+    }
+
+    #[test]
+    fn gate_record_requires_status_and_blocked_reasons() {
+        let raw = format!(r#"{{"gate":"T","spec_tree_sha256":"{}"}}"#, "a".repeat(64));
+        let err = serde_json::from_str::<Gate>(&raw).expect_err("missing fields must reject");
+        assert!(err.to_string().contains("status") || err.to_string().contains("blocked_reasons"));
     }
 }
