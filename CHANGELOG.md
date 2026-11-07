@@ -4,6 +4,15 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### Security, qualification integrity, and implementation evidence
+
+- Removed the unused direct `object = "0.36"` dependency from `compiler/omni-codegen`. Its default compression feature was introducing `flate2` and vulnerable `ruzstd 0.7.3` even though the crate used `cranelift_object`, not the direct `object` API. Updated `Cargo.lock`; `ruzstd` and `flate2` are no longer in the resolved graph. Cargo Audit run `42363992008` on commit `f8cccbac` reported zero vulnerabilities and zero warnings.
+- Full Omni CI qualification passed on `d270e938` and `64f734b9`, including pinned Rust 1.95.0, formatting, focused ownership tests, Clippy, workspace check/tests, locked metadata, specification binding, semantic linkage, topology, and the Foundation 0.0.0.13 technical gate.
+- Strengthened `omni-conform` to require an explicit `qualified` gate status and an empty `blocked_reasons` list; added negative tests for pre-sign-off status, blockers, and missing mandatory fields. This is a declaration-consistency guard, not proof of formal sign-off.
+- Added proposed ADR-0002 to separate successful technical gate checks from formal foundation qualification and commit-bound approval.
+- Reconciled `docs/foundation-gates.md` with the canonical current digest, current linkage/topology results, the accepted ADR-0001 lifecycle spelling, and the unresolved foundation sign-off/evidence boundary.
+
+
 ### Full Windows MSVC Native Execution & Driver Robustness
 - Configured native MSVC x64 C runtime and linker integration (`cl.exe` / `link.exe` via `/ENTRY:main /SUBSYSTEM:CONSOLE`), resolving missing `cc` linker toolchain issues on Windows environments.
 - All native end-to-end Cranelift execution tests in `omni-driver` (including `source_pipeline_executes_integer_call_semantics`, generic calls, float arithmetic, and differential execution tests) now compile, link, execute, and pass 100%.

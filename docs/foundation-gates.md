@@ -10,8 +10,12 @@ This is a tooling-compatibility constraint, not a language-semantic change. Foun
 as the canonical `riscv64gc-unknown-none-elf` target.
 
 The repository carries the normative Edition 1 specification tree bound by `spec_tree_sha256`
-(see below). `0.0.0.13` must not claim verification until the full foundation sequence qualifies
-and the computed digest matches at release time.
+(see below). `0.0.0.13` technical checks have passed on commits `d270e938` and `64f734b9`.
+This is evidence for those exact commits, not a declaration that the complete compiler or
+language is qualified. The committed gate status is not sufficient evidence of formal
+sign-off; see the proposed `docs/adr/0002-foundation-gate-qualification-evidence.md`.
+The canonical specification digest must still match the manifest and gate record at the
+exact commit being evaluated.
 
 ## Specification digest domain
 
@@ -27,12 +31,11 @@ closure with `registry/rule-texts.json` and `grammar/candidate2-erratum.md`):
 `data/` (currently only `.gitkeep` scaffolding, which is excluded and contributes nothing).
 Procedure: walk included directories in lexicographic order of slash-joined relative paths,
 normalize file bytes CRLF/CR to LF, hash each file with SHA-256, then hash the concatenation
-of `path + LF + hex + LF` lines. `omni-canon --spec-tree` computes it; `omni-conform` rejects any
-manifest/gate digest mismatch fail-closed. Current digest:
-`07762061…` value by gate-closure content — recovered STAGE0 rules/texts, erratum, widened
-patterns — not by contradiction). Current digest:
-`7e63431f3c624f9818454f076c38f5cde3d517ace9e919926d6188bc177be769` (supersedes previous values
-by REL-0007 machine-block formatting in `candidate2-erratum.md`).
+of `path + LF + hex + LF` lines. `omni-canon --spec-tree` computes it; `omni-conform` rejects any manifest/gate digest mismatch fail-closed. Current canonical
+digest, independently printed by `omni-canon` and matched by the manifest and gate in CI:
+`3986c2a71d9e5e4092331d025079055f34b98aa4179de1684b64e28bde74e6ed`.
+The earlier `07762061…` and `7e63431f…` values are historical intermediate snapshots,
+not the current tree identity.
 
 Known specification inconsistency (open, not resolved by invention): the normative EBNF predates the
 Candidate-2 amendment and contains no pipeline-operator, newline-termination, projection-shorthand,
@@ -52,9 +55,9 @@ all other strings pass through byte-identical, including backslash literals and 
 whose producers must pre-normalize. One digest representation: lowercase hex SHA-256.
 Rule-text hashes re-derive the 0.0.0.4 registry vectors mechanically. Provenance artifact hashes
 (raw byte SHA-256 in `omni-driver`) are an intentionally separate domain, not canonicalization.
-NFC is a producer obligation (no normalization dependency in the workspace). The 0.0.0.5 tree
-procedure and publication set are unchanged; tree digest still
-`ecda85bb1f460266abf2b05f0a9f8058c9c6162f8c448ef1f46989ad3577698b`.
+NFC is a producer obligation (no normalization dependency in the workspace). The 0.0.0.5 tree procedure and publication set are unchanged. The digest
+`ecda85bb1f460266abf2b05f0a9f8058c9c6162f8c448ef1f46989ad3577698b` is the
+historical 0.0.0.6 checkpoint and is superseded by the current digest recorded above.
 
 ## Linkage reaper (0.0.0.7, `omni-audit`)
 
@@ -66,10 +69,11 @@ duplicate registry IDs, unknown dependencies, dependency cycles, and unknown sta
 entries must each resolve to a contained workspace file or a collected `#[test]` name; every
 `Ratified` rule must be both claimed and witnessed. Coverage is per-rule, not per-file: untagged
 infrastructure/derived/oracle code is permitted. Duplicate claims across files are allowed and
-attributed (collaborative implementation). Live state: 8 tags in 57 files (74 test fns), clean.
-Tracked gaps (not invented): RULE-0003 `erratum-corrected` has no enum spelling (needs spec ADR);
-rule-text to hash binding is procedural (deterministic extraction, tree-pinned registry bytes);
-`models/`/`data` emptiness belongs to later milestones.
+attributed (collaborative implementation). Live state from the current CI evidence: 6 implementation tags in 82 files (713 test
+functions), clean. RULE-0003's `ErratumCorrected` spelling is now fixed by accepted ADR-0001
+and is present in the canonical lifecycle set; zero registry records currently use that
+state. Remaining gaps: rule-text to hash binding is procedural (deterministic extraction,
+tree-pinned registry bytes); `models/`/`data` emptiness belongs to later milestones.
 
 ## Provenance generation (0.0.0.12, `omni-evidence` + driver emission)
 
@@ -109,8 +113,8 @@ omni-effects)`. The machine legitimately needs the effect vocabulary (`EffectRow
 both are now re-exported through `omni-mir` — the machine's single declared feed — and the direct
 `omni-machine → omni-effects` and `omni-machine → omni-types` edges are removed. This keeps the
 `machine: {mir}` feed exact rather than widening it, and matches how `omni-codegen` already depends
-on `omni-effects` only from its test targets. Live state: 25 members, 30 normal + 4 dev + 0 build +
-9 infra internal edges, clean.
+on `omni-effects` only from its test targets. Live state from the current topology gate: 25 members, 34 normal + 4 dev + 0 build +
+10 infra internal edges, clean.
 
 ## Evidence schemas (0.0.0.8, `omni-evidence` + `spec/schemas/`)
 
@@ -165,10 +169,11 @@ loader helper and re-checked on every `omni-conform` run. A dev-dependency integ
 the chain canon → loader → predicates against the live manifest (14 allowed + 8 forbidden).
 The native driver integration now reaches the frontend, semantic checking, monomorphization, typed
 MIR, MIR verification, and Cranelift object emission through explicit compiler-tier dependencies.
-This remains implementation progress only: the 0.0.0.13 gate is still fail-closed until the
-complete qualification sequence succeeds.
+This remains implementation progress only. The technical foundation sequence passed on
+`d270e938` and `64f734b9`; formal qualification scope and sign-off remain unresolved under
+proposed ADR-0002. The foundation milestone does not qualify the complete compiler or language.
 
-## 0.0.0.13 gate closure (pre-sign-off; no gate declared)
+## 0.0.0.13 gate closure (technical checks passed; formal sign-off unresolved)
 
 Lifecycle: ADR-0001 fixes the seventh state spelling as `ErratumCorrected` (normative prose keeps
 the hyphenated form); the canonical set lives once in `omni-registry` and is consumed by the
@@ -187,8 +192,17 @@ tested, including nested-directory and outside-tree cases.
 Target/host: provenance records label `target_source` (`host` vs `explicit`); the driver always
 emits `host`, and a purity test proves the descriptor equals the two build consts exactly.
 Models/data: the manifest declares module names, never model/data files, so the loader's explicit
-empty states are contract-consistent (tested). Digest `07762061…` rebound once for all closure
-content through the established process.
+empty states are contract-consistent (tested).
+
+The current canonical digest is `3986c2a71d9e5e4092331d025079055f34b98aa4179de1684b64e28bde74e6ed`.
+The foundation-gate JSON still declares `qualified`, but master mandate §68 explicitly says
+not to infer qualification from that field alone. `omni-conform` now requires the declared
+status to be `qualified` and `blocked_reasons` to be empty; this is a consistency check, not
+independent sign-off. The CI technical checks passed on `d270e938` and `64f734b9` (including
+the canonical digest and gate step). The evidence corpus remains empty, all 567 rules remain
+Candidate, and there are zero E-code diagnostics and zero rule-witness records. Formal
+qualification remains unresolved pending the scope/evidence/sign-off decision in ADR-0002.
+No product release or complete-language qualification is implied.
 
 ## Unicode data binding (SRC-0004) and the SRC-0006 annotation syntax
 
