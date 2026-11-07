@@ -27,26 +27,23 @@ All notable project changes are documented here. Entries describe repository sta
 - Re-verified full test suite across all workspace crates (713+ tests passing, 0 failures, 0 evidence mismatches, clean formatting, passing `omni-audit` and `omni-conform`).
 
 
-### 0.2.2 patch (2026-10-13)
-- Patch release: bump all workspace crates to `0.2.2` (patch) following semver major.minor.patch
-
-### 0.2.3 patch (2026-10-13)
-- Patch release: bump all workspace crates to `0.2.3` (patch) following semver major.minor.patch
-
-### 0.2.4 patch (2026-10-13)
-- Patch release: bump all workspace crates to `0.2.4` (patch) following semver major.minor.patch
+### 0.2.7 development (in progress)
+- Continue ERR3‑0010 compliance: scanner BOM handling reviewed, parser contracts added for lossless CST reconstruction, crate versions bumped to 0.2.7
 
 ### 0.2.6 development (in progress)
 - Begin ERR3‑0010 compliance: lossless CST, BOM/CR‑CRLF handling, exact source reconstruction (see CHANGELOG for details)
-
-### 0.2.7 development (in progress)
-- Continue ERR3‑0010 compliance: scanner BOM handling reviewed, parser contracts added for lossless CST reconstruction, crate versions bumped to 0.2.7
 
 ### 0.2.5 patch (2026-10-13)
 - Patch release: bump all workspace crates to `0.2.5` (patch) following semver major.minor.patch
 
-### 0.2.6 development (in progress)
-- Begin ERR3‑0010 compliance: lossless CST, BOM/CR‑CRLF handling, exact source reconstruction (see CHANGELOG for details)
+### 0.2.4 patch (2026-10-13)
+- Patch release: bump all workspace crates to `0.2.4` (patch) following semver major.minor.patch
+
+### 0.2.3 patch (2026-10-13)
+- Patch release: bump all workspace crates to `0.2.3` (patch) following semver major.minor.patch
+
+### 0.2.2 patch (2026-10-13)
+- Patch release: bump all workspace crates to `0.2.2` (patch) following semver major.minor.patch
 
 ### 0.2.1 patch (2026-10-13)
 
@@ -391,7 +388,7 @@ individual constant, so the "every input is hashed" claim is mechanically
 enforced rather than asserted in prose.
 
 
-## Foundation 0.0.0.x — qualified, unreleased
+## Foundation 0.0.0.x — technical gate checks passed; formal sign-off pending (unreleased)
 
 The foundation sequence `OMNI-IMP-0.0.0.1` through `OMNI-IMP-0.0.0.13` established the deterministic repository and specification containment boundary.
 
@@ -416,7 +413,7 @@ The foundation sequence `OMNI-IMP-0.0.0.1` through `OMNI-IMP-0.0.0.13` establish
 - Hardened specification discovery, CWD independence, layout checks, and outside-tree rejection.
 - Hardened target/host provenance labeling and manifest/model/data containment rules.
 - Removed an obsolete layer-skipping machine dependency and unused driver path dependencies.
-- Completed Foundation `0.0.0.13` release-gate qualification in the repository evidence.
+- Automated Foundation `0.0.0.13` technical checks passed on the recorded commits; formal sign-off remains unresolved pending ADR-0002.
 
 ## MIR, verifier, native backend, and driver hardening
 

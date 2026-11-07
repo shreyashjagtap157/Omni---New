@@ -36,18 +36,20 @@ The current repository state contains several distinct kinds of evidence:
    rule-witness records. `omni-audit` can pass while witness obligations are
    vacuous because they attach to Ratified rules.
 6. The historical Security Audit on commit `a843896` failed on
-   RUSTSEC-2026-0344 (`ruzstd 0.7.3`). A subsequent dependency-graph
-   remediation removed the unused direct `object` dependency that enabled
-   the vulnerable compression path. The full CI pipeline on
-   `d270e938c64543310f5672070075dd92cfd6691f` passed; the Security Audit
-   for that commit was still running when this proposal was prepared.
-7. The current `omni-conform` implementation is being strengthened to
-   require the declared gate status to be `qualified` and
-   `blocked_reasons` to be empty. That check validates the declaration's
-   internal consistency; it does not independently prove that qualification
-   requirements or sign-off have been satisfied. Its latest commit is
-   `64f734b97a22ab562a97bacf36979391b763504d`; its full CI validation is
-   pending.
+   RUSTSEC-2026-0344 (`ruzstd 0.7.3`). The unused direct `object`
+   dependency was removed in `d270e938c64543310f5672070075dd92cfd6691f`,
+   eliminating the compression feature path that brought the vulnerable
+   decoder into the lockfile. Cargo Audit run `42363992008` on descendant
+   commit `f8cccbac7cffb9a7a992ca414139e7336aa1363f` completed successfully:
+   zero vulnerabilities and zero warnings.
+7. `omni-conform` now requires the declared gate status to be `qualified`
+   and `blocked_reasons` to be empty. This validates declaration consistency,
+   not independent approval or formal qualification. Full Omni CI on
+   `64f734b97a22ab562a97bacf36979391b763504d` passed, including the new
+   negative gate-status/blocker tests and the Foundation technical gate.
+   The subsequent documentation-only commit `c81c413` also passed full CI.
+   The latest documentation reconciliation commit `cd7f522` was still
+   undergoing CI and Security Audit when this proposal was updated.
 
 These facts must not be collapsed into a single green checkmark.
 
