@@ -78,12 +78,16 @@ only the Edition 1 baseline:
 - `grammar_contract.rs::candidate3_pipeline_and_optional_navigation_parse`
   accepts `a |> b;` and `a?.b;` through the default `Parser::from_source`
   entry point.
-- `parser.rs` contains a `QuestionDotExpr` parsing branch, pipeline-stage
-  projection handling, and a `parse_command_call` path. The driver has lowering
-  paths for projection shorthand and command calls.
-- The parser's `desugar_node` currently returns its input node unchanged; the
-  parse tests therefore prove acceptance, not complete pipeline semantics or
-  end-to-end conformance.
+- `parser.rs` contains `PipelineExpr` and `QuestionDotExpr` parsing branches,
+  pipeline-stage projection handling, and a `parse_command_call` path.
+- The driver's `expr_from_node` lowers `PipelineExpr` to calls/method calls,
+  projection shorthand to a lambda, and `CommandCallExpr` to `Expr::Call`.
+  These are real partial implementation paths, but their syntax remains
+  unratified and they are not an Edition 1 conformance basis.
+- `QuestionDotExpr` has no corresponding driver lowering arm and falls through
+  to the unsupported-expression error path. The grammar-contract test proves
+  parse acceptance only; it does not establish end-to-end optional-chaining
+  semantics or conformance.
 - The trailing EBNF VIBE-GRAM definitions are not connected to the core
   `expression`/`statement` productions. `projection_shorthand` also refers to
   `struct_field`, while the core grammar defines `struct_expr_field`.

@@ -7,7 +7,7 @@ All notable project changes are documented here. Entries describe repository sta
 ### Security, qualification integrity, and implementation evidence
 ### Specification-authority audit
 
-- Recorded the mismatch between the standalone VIBE-GRAM extension block in the normative EBNF, the unsigned/pre-release Candidate-2 overlay, the unratified Candidate-3 plan, and parser tests/source that accept some overlapping syntax. Updated the reconciliation records and added proposed ADR-0003. No grammar, parser behavior, registry lifecycle, or candidate status was changed.
+- Recorded the mismatch between the standalone VIBE-GRAM extension block in the normative EBNF, the unsigned/pre-release Candidate-2 overlay, the unratified Candidate-3 plan, and parser/driver paths that accept and partially lower some overlapping syntax. Optional chaining currently parses but has no driver lowering case. Updated the reconciliation records and added proposed ADR-0003. No grammar, parser behavior, registry lifecycle, or candidate status was changed.
 
 
 - Removed the unused direct `object = "0.36"` dependency from `compiler/omni-codegen`. Its default compression feature was introducing `flate2` and vulnerable `ruzstd 0.7.3` even though the crate used `cranelift_object`, not the direct `object` API. Updated `Cargo.lock`; `ruzstd` and `flate2` are no longer in the resolved graph. Cargo Audit run `42363992008` on commit `f8cccbac` reported zero vulnerabilities and zero warnings.

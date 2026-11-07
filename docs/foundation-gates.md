@@ -41,8 +41,10 @@ Known specification/implementation inconsistency (open, not resolved by inventio
 Edition 1 `expression`/`statement` productions do not reference the VIBE-GRAM constructs, but
 the EBNF file contains a trailing block of standalone VIBE-GRAM extension definitions. The
 default parser also accepts some overlapping unratified forms (`|>`, `?.`, projection shorthand,
-and command-call paths). Candidate 2 remains pre-release and Candidate 3 is unratified. ADR-0003
-records the authority-boundary decision; no grammar or parser behavior is changed here.
+and command-call paths). The driver lowers pipeline, projection-shorthand and command-call nodes,
+while optional chaining currently fails at native AST lowering. Candidate 2 remains pre-release and
+Candidate 3 is unratified. ADR-0003 records the authority-boundary decision; no grammar or parser
+behavior is changed here.
 
 ## Canonicalization domain (0.0.0.6 engine, `omni-canon` lib)
 
