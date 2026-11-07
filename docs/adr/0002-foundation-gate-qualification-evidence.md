@@ -40,21 +40,18 @@ The current repository state contains several distinct kinds of evidence:
    dependency was removed in `d270e938c64543310f5672070075dd92cfd6691f`,
    eliminating the compression feature path that brought the vulnerable
    decoder into the lockfile. Cargo Audit run `42364182354` on descendant
-   commit `c81c413961d7ec403d58899ebd7d0bdff443145b` completed successfully:
-   zero vulnerabilities, zero warnings. Later commits through current HEAD
-   `78e23db8` change documentation/ADR/changelog only; `Cargo.toml` and
-   `Cargo.lock` remain unchanged. A fresh audit for commit `4b929084` is
-   still running at the time of this update.
+   commit `c81c413961d7ec403d58899ebd7d0bdff443145b` and run
+   `42364652099` on `4b929084b128ebb4042b4b7a005bc5484ea64aa4` both completed
+   successfully: zero vulnerabilities, zero warnings. Later commits through
+   current HEAD `ce7edc2d` change documentation/ADR/changelog only;
+   `Cargo.toml` and `Cargo.lock` remain unchanged.
 7. `omni-conform` now requires the declared gate status to be `qualified`
    and `blocked_reasons` to be empty. This validates declaration consistency,
    not independent approval or formal qualification. Full Omni CI on
-   `64f734b97a22ab562a97bacf36979391b763504d` and
-   `c81c413961d7ec403d58899ebd7d0bdff443145b` passed, including the new
-   negative gate-status/blocker tests and the Foundation technical gate.
-   The latest full CI run on `4b929084` has passed formatting, focused
-   ownership tests, Clippy, workspace check, workspace tests, locked metadata,
-   and manifest binding; topology is in progress and the Foundation gate is
-   pending at the time of this update.
+   `64f734b97a22ab562a97bacf36979391b763504d`, `c81c413`, and
+   `4b929084` passed, including the new negative gate-status/blocker tests
+   and the Foundation technical gate. On run `42364652102`, CodeQL Actions
+   analysis passed; CodeQL Rust analysis was still running at this update.
 
 These facts must not be collapsed into a single green checkmark.
 
