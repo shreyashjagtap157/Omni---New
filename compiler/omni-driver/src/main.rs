@@ -896,6 +896,18 @@ fn direct_name(node: &omni_syntax::SyntaxNode) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+fn non_trivia_token(node: &omni_syntax::SyntaxNode) -> Option<omni_syntax::SyntaxToken> {
+    node.descendants_with_tokens().filter_map(|e| e.into_token()).find(|t| {
+        !matches!(
+            t.kind(),
+            omni_syntax::SyntaxKind::Whitespace
+                | omni_syntax::SyntaxKind::LineComment
+                | omni_syntax::SyntaxKind::BlockComment
+                | omni_syntax::SyntaxKind::DocComment
+        )
+    })
+}
+
 /// The identifier a binding pattern introduces.
 ///
 /// The parser lowers `let x` and a match binding `x` to
@@ -1097,7 +1109,9 @@ fn expr_from_block(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
 
 fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Expr, String> {
     let mut values = Vec::new();
-    for (index, statement) in statements.iter().enumerate() {
+    let mut index = 0;
+    while index < statements.len() {
+        let statement = &statements[index];
         match statement.kind() {
             omni_syntax::SyntaxKind::LetStmt => {
                 let pattern_node = statement
@@ -1135,28 +1149,37 @@ fn block_statements_to_expr(statements: &[omni_syntax::SyntaxNode]) -> Result<Ex
                     .ok_or_else(|| "Semantic frontend error: let has no initializer".to_string())?;
                 let init = expr_from_node(&initializer)?;
                 let remaining = block_statements_to_expr(&statements[index + 1..])?;
-                return Ok(Expr::Let {
+                let let_expr = Expr::Let {
                     pattern,
                     ty: binding_type,
                     init: Box::new(init),
                     body: Box::new(remaining),
-                });
+                };
+                if values.is_empty() {
+                    return Ok(let_expr);
+                } else {
+                    values.push(let_expr);
+                    return Ok(Expr::Block(values));
+                }
             }
             omni_syntax::SyntaxKind::FinalExpr => {
                 let expr = expr_from_node(statement)?;
                 values.push(expr);
+                index += 1;
             }
             omni_syntax::SyntaxKind::ExprStmt
             | omni_syntax::SyntaxKind::ReturnExpr
             | omni_syntax::SyntaxKind::BreakExpr
             | omni_syntax::SyntaxKind::ContinueExpr
-            // `loop`, `while` and `for` are Edition 1 statements and the parser
-            // emits them as bare loop nodes, not wrapped in `ExprStmt`, because
-            // they take no trailing `;`. They still have to be lowered.
+            // `loop`, `while`, `for`, `if` and `match` can appear as bare
+            // statement nodes without a trailing `;`.
             | omni_syntax::SyntaxKind::LoopExpr
             | omni_syntax::SyntaxKind::WhileExpr
-            | omni_syntax::SyntaxKind::ForExpr => {
+            | omni_syntax::SyntaxKind::ForExpr
+            | omni_syntax::SyntaxKind::IfExpr
+            | omni_syntax::SyntaxKind::MatchExpr => {
                 values.push(expr_from_node(statement)?);
+                index += 1;
             }
             omni_syntax::SyntaxKind::ItemDeclStmt => {
                 return Err("Semantic frontend error: local item declarations are not yet lowered to the native AST".into());
@@ -1188,8 +1211,7 @@ fn expr_from_node(node: &omni_syntax::SyntaxNode) -> Result<Expr, String> {
             Ok(Expr::Return(value.map(Box::new)))
         }
         omni_syntax::SyntaxKind::LiteralExpr => {
-            let token = node
-                .first_token()
+            let token = non_trivia_token(node)
                 .ok_or_else(|| "Semantic frontend error: literal node has no token".to_string())?;
             Ok(Expr::Literal(lit_from_text(token.text())?))
         }
@@ -1848,7 +1870,7 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
                 .children()
                 .next()
                 .ok_or_else(|| "Semantic frontend error: literal pattern is empty".to_string())?;
-            let token = lit_node.first_token().ok_or_else(|| {
+            let token = non_trivia_token(&lit_node).ok_or_else(|| {
                 "Semantic frontend error: literal pattern has no token".to_string()
             })?;
             Ok(omni_types::ast::Pattern::Lit(lit_from_text(token.text())?))
@@ -1876,7 +1898,7 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
             let start_boundary = parts
                 .first()
                 .map(|start| -> Result<omni_types::ast::PatternRangeBoundary, String> {
-                    let token = start.first_token().ok_or_else(|| {
+                    let token = non_trivia_token(start).ok_or_else(|| {
                         "Semantic frontend error: range pattern start has no token".to_string()
                     })?;
                     Ok(omni_types::ast::PatternRangeBoundary::Inclusive(lit_from_text(
@@ -1888,7 +1910,7 @@ fn pattern_from_cst(node: &omni_syntax::SyntaxNode) -> Result<omni_types::ast::P
 
             let end_boundary = match parts.get(1) {
                 Some(end) => {
-                    let token = end.first_token().ok_or_else(|| {
+                    let token = non_trivia_token(end).ok_or_else(|| {
                         "Semantic frontend error: range pattern end has no token".to_string()
                     })?;
                     let lit = lit_from_text(token.text())?;
@@ -2101,6 +2123,14 @@ fn emit_artifact_provenance(
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    let runner = std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || run_compiler(args))
+        .expect("failed to spawn compiler driver thread with extended stack");
+    runner.join().expect("compiler driver thread panicked");
+}
+
+fn run_compiler(args: Vec<String>) {
     match parse_args(&args) {
         Ok(parsed) => {
             if let Some(input) = parsed.input_file.clone() {

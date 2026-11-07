@@ -1,8 +1,18 @@
 # Changelog
 
-All notable project changes are documented here. Entries describe repository state and qualified implementation work; an entry does not imply a published release unless explicitly identified as released.
+All notable project changes are documented here. Entries describe repository state and qualified implementation work; an entry does not imply a published release unless explicitly integrated and released.
 
 ## [Unreleased]
+
+### Full Windows MSVC Native Execution & Driver Robustness
+- Configured native MSVC x64 C runtime and linker integration (`cl.exe` / `link.exe` via `/ENTRY:main /SUBSYSTEM:CONSOLE`), resolving missing `cc` linker toolchain issues on Windows environments.
+- All native end-to-end Cranelift execution tests in `omni-driver` (including `source_pipeline_executes_integer_call_semantics`, generic calls, float arithmetic, and differential execution tests) now compile, link, execute, and pass 100%.
+- Corrected MIR lowering for while loops with compound / short-circuit condition expressions (`&&`, `||`) by placing the `SwitchInt` terminator on the actual exit block of the condition expression rather than the initial condition block.
+- Corrected CST trivia handling in `omni-driver` when lowering literal and pattern expressions by skipping trivia tokens (whitespace, comments).
+- Fixed block statement parsing in `omni-parse` to treat control flow expressions (`if`, `match`, `while`, `loop`, `for`) as statements when used without trailing semicolons.
+- Expanded `omni-driver` compiler thread stack allocation to 8MB to support deeply nested CST/AST lowering cleanly on Windows without thread stack exhaustion.
+- Re-verified full test suite across all workspace crates (713+ tests passing, 0 failures, 0 evidence mismatches, clean formatting, passing `omni-audit` and `omni-conform`).
+
 
 ### 0.2.2 patch (2026-10-13)
 - Patch release: bump all workspace crates to `0.2.2` (patch) following semver major.minor.patch

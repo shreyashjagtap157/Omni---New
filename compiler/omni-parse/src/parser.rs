@@ -1273,13 +1273,17 @@ impl<'a> Parser<'a> {
                     n.children.push(Child::Node(expr));
                 } else if matches!(
                     expr.kind,
-                    SyntaxKind::LoopExpr | SyntaxKind::WhileExpr | SyntaxKind::ForExpr
+                    SyntaxKind::LoopExpr
+                        | SyntaxKind::WhileExpr
+                        | SyntaxKind::ForExpr
+                        | SyntaxKind::IfExpr
+                        | SyntaxKind::MatchExpr
                 ) && !(self.at_punct(Punct::RBrace) || self.eof())
                 {
-                    // `loop`, `while` and `for` are statements in Edition 1 and
-                    // take no trailing `;`. When one is not the block's final
-                    // expression, keep the body block from being read as a
-                    // struct literal or block expression on the loop keyword.
+                    // Control-flow expressions (`loop`, `while`, `for`, `if`,
+                    // `match`) take no trailing `;` when used as statements in
+                    // a block. When one is followed by an optional `;`, wrap it
+                    // in an ExprStmt; otherwise treat it as a statement node directly.
                     if self.at_punct(Punct::Semicolon) {
                         let mut s = Node::new(SyntaxKind::ExprStmt);
                         s.children.push(Child::Node(expr));

@@ -591,7 +591,10 @@ impl<'a> FnMirBuilder<'a> {
                 condition_ty
             ));
         }
-        self.blocks[condition_block].terminator = Some(crate::ir::Terminator::SwitchInt {
+        let condition_exit = self.current_block.ok_or_else(|| {
+            "MIR lowering error: while condition terminated control flow".to_string()
+        })?;
+        self.blocks[condition_exit].terminator = Some(crate::ir::Terminator::SwitchInt {
             discr: condition_op,
             targets: vec![(1, body_block)],
             otherwise: break_block,
