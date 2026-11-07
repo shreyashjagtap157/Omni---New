@@ -93,7 +93,28 @@ impl Runtime {
         align: u32,
         mutable: bool,
     ) -> Result<AllocationId, RuntimeError> {
+        self.allocate_with_max_id(size, align, mutable, AllocationId::MAX - 1)
+    }
+
+    /// Allocate only an identifier representable by the selected ABI.
+    ///
+    /// The public handle API uses u64 identifiers; the initial native ABI
+    /// returns signed i64 and reserves zero for failure. Keeping the maximum
+    /// representable identifier in this allocation path prevents creating a
+    /// live allocation whose handle would be truncated or lost at the ABI
+    /// boundary.
+    fn allocate_with_max_id(
+        &mut self,
+        size: usize,
+        align: u32,
+        mutable: bool,
+        max_id: AllocationId,
+    ) -> Result<AllocationId, RuntimeError> {
         validate_alignment(align)?;
+        let id = self.next_id;
+        if id == INVALID_ALLOCATION_ID || id > max_id {
+            return Err(RuntimeError::AllocationIdOverflow);
+        }
 
         // Reserve both buffers fallibly before publishing an allocation or
         // consuming an identifier. A caller-controlled size must not turn an
@@ -106,7 +127,6 @@ impl Runtime {
         initialized.try_reserve_exact(size).map_err(|_| RuntimeError::AllocationFailed(size))?;
         initialized.resize(size, false);
 
-        let id = self.next_id;
         let next_id = id.checked_add(1).ok_or(RuntimeError::AllocationIdOverflow)?;
         self.allocations.insert(id, Allocation { bytes, initialized, align, mutable });
         self.next_id = next_id;
@@ -205,9 +225,8 @@ pub fn omni_rt_alloc(size: i64, align: i64) -> i64 {
         return INVALID_ALLOCATION_ID as i64;
     };
     runtime
-        .allocate(size, align, true)
-        .ok()
-        .and_then(|id| i64::try_from(id).ok())
+        .allocate_with_max_id(size, align, true, i64::MAX as AllocationId)
+        .map(|id| id as i64)
         .unwrap_or(INVALID_ALLOCATION_ID as i64)
 }
 
@@ -289,6 +308,32 @@ mod tests {
             Ok(1),
             "failed reservation must not publish or consume an allocation id"
         );
+    }
+
+    #[test]
+    fn allocation_identifier_limit_is_checked_before_publication() {
+        let mut runtime = Runtime::new();
+        runtime.next_id = i64::MAX as AllocationId + 1;
+
+        assert_eq!(
+            runtime.allocate_with_max_id(1, 1, true, i64::MAX as AllocationId),
+            Err(RuntimeError::AllocationIdOverflow)
+        );
+        assert!(runtime.allocations.is_empty());
+        assert_eq!(runtime.next_id, i64::MAX as AllocationId + 1);
+    }
+
+    #[test]
+    fn ffi_allocation_can_publish_the_largest_signed_handle() {
+        let mut runtime = Runtime::new();
+        runtime.next_id = i64::MAX as AllocationId;
+
+        let id = runtime
+            .allocate_with_max_id(0, 1, true, i64::MAX as AllocationId)
+            .expect("largest signed ABI handle");
+        assert_eq!(id, i64::MAX as AllocationId);
+        assert_eq!(i64::try_from(id), Ok(i64::MAX));
+        assert!(runtime.is_live(id));
     }
 
     #[test]
