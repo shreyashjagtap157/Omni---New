@@ -38,11 +38,12 @@ digest, independently printed by `omni-canon` and matched by the manifest and ga
 The earlier `07762061…` and `7e63431f…` values are historical intermediate snapshots,
 not the current tree identity.
 
-Known specification/implementation inconsistency (open, not resolved by invention): the core
-Edition 1 `expression`/`statement` productions do not reference the VIBE-GRAM constructs, but
-the EBNF file contains a trailing block of standalone VIBE-GRAM extension definitions. The
-The default parser profile now rejects unratified Vibe-first forms (`|>`, `?.`, prefix-dot
-projection shorthand, and placeholder expressions). They remain available only through the explicit
+Known specification inconsistency (open, not resolved by invention): the core Edition 1
+`expression`/`statement` productions do not reference the VIBE-GRAM constructs, while the EBNF
+file contains a trailing block of standalone VIBE-GRAM extension definitions. This grammar defect
+remains open even though the related parser-authority mismatch has been corrected:
+the default parser profile rejects unratified Vibe-first forms (`|>`, `?.`, prefix-dot projection
+shorthand, and placeholder expressions). They remain available only through the explicit
 non-normative `ExperimentalVibeSyntax` parser profile. The production driver always selects Edition 1;
 only test helpers exercise the experimental pipeline. Command-call syntax remains disabled.
 Candidate 2 remains pre-release and Candidate 3 is unratified. ADR-0003 records the accepted

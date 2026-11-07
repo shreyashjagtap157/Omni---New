@@ -73,7 +73,7 @@ yet in force.
 | 8 | pipeline `\\|>` promoted from reserved punctuation by the amendment | `binary_op` has no `\\|>` alternative | standalone `pipeline_operator` block; not referenced by `expression`/`binary_op` | not in force |
 | 9 | projection shorthand `.field` as an implicit closure | no in-force production | standalone `projection_shorthand` block; references undefined `struct_field` | not in force |
 | 10 | command-style call disambiguation | `call_expr` is parenthesized only | standalone `command_call` block; not referenced by `statement`/`expression` | not in force |
-| 11 | optional chaining `?.` and null coalescing `??` | `??` is in `binary_op`; `?.` has no production | no `?.` production | partial |
+| 11 | optional chaining `?.` and null coalescing `??` | `??` is in `binary_op`; `?.` has no production | no `?.` production | experimental-parser-only; not Edition 1 syntax |
 
 ### Historical parser-authority audit (2026-11-07, before the accepted profile boundary)
 
