@@ -1683,8 +1683,9 @@ impl<'a> Parser<'a> {
                     path
                 }
             }
-            Some(TokenKind::Ident) if self.at_standalone_underscore_ident()
-                && self.profile.allows_experimental_vibe_syntax() =>
+            Some(TokenKind::Ident)
+                if self.at_standalone_underscore_ident()
+                    && self.profile.allows_experimental_vibe_syntax() =>
             {
                 let underscore = self.bump_child();
                 let mut n = Node::new(SyntaxKind::PlaceholderExpr);
