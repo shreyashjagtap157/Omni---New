@@ -166,6 +166,34 @@ tag it previously lacked. `compiler/omni-parse/src/grammar_contract.rs` now
 pins the invariant across sixteen malformed inputs, and separately asserts that
 round-tripping is not achieved by accepting everything.
 
+## Edition 1 default parser boundary (2026-11-07)
+
+The parser now exposes two deliberately distinct entry modes:
+
+- `Parser::from_source` selects `ParserProfile::Edition1` and rejects the
+  currently implemented but unratified Vibe-first pipeline, optional-navigation,
+  leading-dot projection, and placeholder-expression probes.
+- `Parser::from_source_with_profile(..., ParserProfile::ExperimentalVibeSyntax)`
+  opts into those limited parser experiments explicitly. This is an engineering
+  research switch, not a ratified language edition and not evidence of Candidate
+  2 or Candidate 3 acceptance as normative language.
+- The production driver and all public compile/execute entry points use the
+  Edition 1 profile. Test-only driver helpers exercise the experimental pipeline
+  path without changing production behavior.
+- Command-style calls remain disabled; an existing lowering arm does not make
+  their parser syntax available.
+- Candidate 2 newline termination and optional semicolons remain unimplemented
+  and disabled. Optional navigation remains parser-only because driver lowering
+  is not implemented.
+
+The Edition 1 precedence table no longer assigns an infix binding power to
+`|>`. Its experimental Candidate 3 precedence is held in a separate function
+that is called only by the explicit experimental parser profile.
+
+This is an implementation boundary correction. It does not edit the normative
+EBNF, manifest digest, registry lifecycle, Candidate-2 erratum, or Candidate-3
+ratification state.
+
 ## Superseded 0.0.2.3 parser-gap snapshot
 
 The gap list that previously occupied this section was written before the later

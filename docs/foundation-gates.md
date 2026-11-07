@@ -40,12 +40,12 @@ not the current tree identity.
 Known specification/implementation inconsistency (open, not resolved by invention): the core
 Edition 1 `expression`/`statement` productions do not reference the VIBE-GRAM constructs, but
 the EBNF file contains a trailing block of standalone VIBE-GRAM extension definitions. The
-default parser also accepts some overlapping unratified forms (`|>`, `?.`, and prefix-dot
-projection shorthand). The driver lowers pipeline and projection-shorthand nodes; optional chaining
-parses but currently fails at native AST lowering. Command-call lowering exists but command-call
-syntax is disabled by default and explicitly rejected by parser tests. Candidate 2 remains pre-release
-and Candidate 3 is unratified. ADR-0003 records the authority-boundary decision; no grammar or parser
-behavior is changed here.
+The default parser profile now rejects unratified Vibe-first forms (`|>`, `?.`, prefix-dot
+projection shorthand, and placeholder expressions). They remain available only through the explicit
+non-normative `ExperimentalVibeSyntax` parser profile. The production driver always selects Edition 1;
+only test helpers exercise the experimental pipeline. Command-call syntax remains disabled.
+Candidate 2 remains pre-release and Candidate 3 is unratified. ADR-0003 records the accepted
+implementation boundary; no normative grammar, manifest, or registry status was changed.
 
 ## Canonicalization domain (0.0.0.6 engine, `omni-canon` lib)
 

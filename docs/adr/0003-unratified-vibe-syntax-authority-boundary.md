@@ -1,9 +1,41 @@
 # ADR-0003: Unratified Vibe-first syntax and the Edition 1 authority boundary
 
-Status: proposed (not accepted).
+Status: accepted (implementation decision; no normative syntax ratification).
 
 Date: 2026-11-07.
 
+## Decision
+
+The default parser profile is strict Edition 1. Unratified Vibe-first syntax is
+available only through an explicit `ExperimentalVibeSyntax` parser profile
+for isolated research and regression testing. The profile is not a ratified
+language edition and does not make Candidate 2 or Candidate 3 normative.
+
+The production driver and public compile/execute entry points always select
+Edition 1. Experimental driver execution remains test-only until an authorized
+candidate profile and end-to-end conformance contract exist.
+
+The Edition 1 precedence function excludes the candidate pipeline operator.
+A separately named experimental precedence function is used only by the
+experimental parser profile.
+
+Command-style calls remain disabled. Optional navigation is recognized only by
+the experimental parser and remains unsupported by driver lowering. Candidate-2
+newline termination and semicolon changes remain disabled and unimplemented.
+
+This decision changes compiler profile selection and tests only. It does not
+modify the normative grammar, manifest, registry lifecycle states, release
+digest, or Candidate 2/3 ratification status.
+
+## Consequences
+
+- Default language and production driver behavior cannot accidentally treat
+  unratified Vibe-first syntax as Edition 1.
+- Parser and abstract-machine experiments remain available under explicit
+  opt-in/test-only paths.
+- Experimental parser acceptance is not a compiler conformance result.
+- Future candidate promotion still requires the full governance, semantics,
+  grammar, diagnostics, lowering, compatibility and qualification process.
 ## Context
 
 The master development mandate requires the in-force Edition 1 grammar to remain

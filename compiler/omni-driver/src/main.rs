@@ -138,7 +138,19 @@ fn lower_to_concrete_program(
     source_code: &str,
     manifest: &omni_registry::Manifest,
 ) -> Result<FrontendOutput, String> {
-    let mut parser = omni_parse::Parser::from_source(source_code);
+    lower_to_concrete_program_with_profile(
+        source_code,
+        manifest,
+        omni_parse::ParserProfile::Edition1,
+    )
+}
+
+fn lower_to_concrete_program_with_profile(
+    source_code: &str,
+    manifest: &omni_registry::Manifest,
+    parser_profile: omni_parse::ParserProfile,
+) -> Result<FrontendOutput, String> {
+    let mut parser = omni_parse::Parser::from_source_with_profile(source_code, parser_profile);
     let parsed = parser.parse_source();
     if !parsed.is_ok() {
         return Err(format!(
@@ -232,7 +244,16 @@ fn lower_to_hir(
     source_code: &str,
     manifest: &omni_registry::Manifest,
 ) -> Result<(omni_types::monomorph::MonomorphizedProgram, omni_hir::HirProgram), String> {
-    let (program, struct_defs, enum_defs) = lower_to_concrete_program(source_code, manifest)?;
+    lower_to_hir_with_profile(source_code, manifest, omni_parse::ParserProfile::Edition1)
+}
+
+fn lower_to_hir_with_profile(
+    source_code: &str,
+    manifest: &omni_registry::Manifest,
+    parser_profile: omni_parse::ParserProfile,
+) -> Result<(omni_types::monomorph::MonomorphizedProgram, omni_hir::HirProgram), String> {
+    let (program, struct_defs, enum_defs) =
+        lower_to_concrete_program_with_profile(source_code, manifest, parser_profile)?;
     let hir = omni_hir::HirProgram::from_monomorphized(&program, struct_defs, enum_defs)
         .map_err(|e| format!("HIR construction error: {}", e))?;
     Ok((program, hir))
@@ -242,7 +263,15 @@ fn lower_to_verified_mir(
     source_code: &str,
     manifest: &omni_registry::Manifest,
 ) -> Result<omni_mir::ir::MirProgram, String> {
-    let (_, hir) = lower_to_hir(source_code, manifest)?;
+    lower_to_verified_mir_with_profile(source_code, manifest, omni_parse::ParserProfile::Edition1)
+}
+
+fn lower_to_verified_mir_with_profile(
+    source_code: &str,
+    manifest: &omni_registry::Manifest,
+    parser_profile: omni_parse::ParserProfile,
+) -> Result<omni_mir::ir::MirProgram, String> {
+    let (_, hir) = lower_to_hir_with_profile(source_code, manifest, parser_profile)?;
 
     let mut lowering = omni_mir::lower::LoweringContext::new();
     let mir = lowering.lower_hir_program(hir).map_err(|e| format!("MIR lowering error: {}", e))?;
@@ -269,6 +298,28 @@ pub fn compile_source_to_interpreter_value(
         .execute_function("main", vec![])
         .map_err(|e| format!("Machine execution error: {:?}", e))?;
 
+    match value {
+        omni_machine::Value::Int(n) => Ok(n),
+        other => Err(format!("Machine execution produced a non-integer main result: {:?}", other)),
+    }
+}
+
+/// Test-only execution entry for isolated parser research.
+///
+/// Production compile/execute entry points always use Edition 1. This helper
+/// keeps the existing pipeline evaluator tests meaningful without allowing
+/// unratified syntax into the default compiler path.
+#[cfg(test)]
+fn compile_source_to_interpreter_value_with_profile(
+    source_code: &str,
+    manifest: &omni_registry::Manifest,
+    parser_profile: omni_parse::ParserProfile,
+) -> Result<i64, String> {
+    let mir = lower_to_verified_mir_with_profile(source_code, manifest, parser_profile)?;
+    let mut interpreter = omni_machine::Interpreter::new_with_program(mir);
+    let value = interpreter
+        .execute_function("main", vec![])
+        .map_err(|e| format!("Machine execution error: {:?}", e))?;
     match value {
         omni_machine::Value::Int(n) => Ok(n),
         other => Err(format!("Machine execution produced a non-integer main result: {:?}", other)),
@@ -3116,6 +3167,22 @@ mod tests {
     }
 
     #[test]
+    fn production_driver_rejects_unratified_vibe_syntax_by_default() {
+        for source in [
+            "fn f(x: i64) -> i64 { return x |> identity; }",
+            "fn f() { let x = value?.field; }",
+            "fn f() { let x = .field; }",
+        ] {
+            let error = compile_source_to_interpreter_value(source, manifest())
+                .expect_err("production driver must retain the Edition 1 parser profile");
+            assert!(
+                error.contains("Parse error"),
+                "expected Edition 1 parse rejection for {source:?}, got: {error}"
+            );
+        }
+    }
+
+    #[test]
     fn pipeline_operator_executes_on_abstract_machine() {
         let source = "fn double(x: i64) -> i64 { return x * 2; } \
                       fn add(x: i64, y: i64) -> i64 { return x + y; } \
@@ -3123,8 +3190,12 @@ mod tests {
                           let result = 5 |> double |> add(10); \
                           return result; \
                       }";
-        let value = compile_source_to_interpreter_value(source, manifest())
-            .expect("pipeline operator execution on machine");
+        let value = compile_source_to_interpreter_value_with_profile(
+            source,
+            manifest(),
+            omni_parse::ParserProfile::ExperimentalVibeSyntax,
+        )
+        .expect("explicit experimental pipeline profile must execute on the machine");
         assert_eq!(value, 20); // (5 * 2) + 10 = 20
     }
 
@@ -3146,8 +3217,12 @@ mod tests {
                           let result = 10 |> sub(30, _); \
                           return result; \
                       }";
-        let value = compile_source_to_interpreter_value(source, manifest())
-            .expect("pipeline operator with placeholder execution");
+        let value = compile_source_to_interpreter_value_with_profile(
+            source,
+            manifest(),
+            omni_parse::ParserProfile::ExperimentalVibeSyntax,
+        )
+        .expect("explicit experimental pipeline placeholder profile must execute");
         assert_eq!(value, 20); // 30 - 10 = 20
     }
 
