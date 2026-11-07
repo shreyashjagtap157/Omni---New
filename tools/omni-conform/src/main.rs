@@ -51,10 +51,7 @@ fn validate_gate_record(gate: &Gate, tree_digest: &str) -> Result<(), String> {
         return Err("release gate has no name".to_string());
     }
     if gate.status != "qualified" {
-        return Err(format!(
-            "release gate is not qualified: status={}",
-            gate.status
-        ));
+        return Err(format!("release gate is not qualified: status={}", gate.status));
     }
     if !gate.blocked_reasons.is_empty() {
         return Err(format!(
