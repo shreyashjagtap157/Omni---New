@@ -8,7 +8,7 @@ All notable project changes are documented here. Entries describe repository sta
 ### Fallible allocation paths
 
 - Made the reference machine's separate `Memory::allocate` reserve its allocation-table entry, byte store, and initialization bitmap fallibly, and advance its signed-machine-compatible allocation handle only after all reservations succeed. Added a regression proving payload-capacity failure returns a memory error, publishes no allocation, and does not consume the next handle.
-- Hardened `omni-runtime::Runtime::allocate` similarly. Its initial signed-`i64` handle entry point now enforces that width before publishing an allocation; tests cover the largest representable handle and rejection beyond it.
+- Hardened `omni-runtime::Runtime::allocate` similarly. Its allocation table now uses fallible capacity reservation before payload allocation, so the final insertion does not trigger an unhandled growth allocation. The initial signed-`i64` handle entry point enforces that width before publishing an allocation; tests cover the largest representable handle and rejection beyond it.
 
 ### Ownership loan-region integrity
 - Changed repeated observations of a stable loan region to union possible immediate parent provenance rather than overwrite it, preserving ancestry across branch and loop dataflow.
