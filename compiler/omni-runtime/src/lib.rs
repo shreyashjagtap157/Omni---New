@@ -23,6 +23,7 @@ pub type AllocationId = u64;
 pub enum RuntimeError {
     InvalidSize(usize),
     InvalidAlignment(u32),
+    AllocationFailed(usize),
     AllocationIdOverflow,
     UnknownAllocation(AllocationId),
     ImmutableAllocation(AllocationId),
@@ -35,6 +36,7 @@ impl fmt::Display for RuntimeError {
         match self {
             Self::InvalidSize(size) => write!(f, "invalid allocation size {size}"),
             Self::InvalidAlignment(align) => write!(f, "invalid allocation alignment {align}"),
+            Self::AllocationFailed(size) => write!(f, "failed to reserve runtime allocation of {size} bytes"),
             Self::AllocationIdOverflow => write!(f, "allocation identifier space exhausted"),
             Self::UnknownAllocation(id) => write!(f, "unknown allocation {id}"),
             Self::ImmutableAllocation(id) => write!(f, "allocation {id} is immutable"),
@@ -90,12 +92,22 @@ impl Runtime {
         mutable: bool,
     ) -> Result<AllocationId, RuntimeError> {
         validate_alignment(align)?;
+
+        // Reserve both buffers fallibly before publishing an allocation or
+        // consuming an identifier. A caller-controlled size must not turn an
+        // allocation failure into a panic/abort inside the runtime service.
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(size).map_err(|_| RuntimeError::AllocationFailed(size))?;
+        bytes.resize(size, 0);
+
+        let mut initialized = Vec::new();
+        initialized.try_reserve_exact(size).map_err(|_| RuntimeError::AllocationFailed(size))?;
+        initialized.resize(size, false);
+
         let id = self.next_id;
-        self.next_id = id.checked_add(1).ok_or(RuntimeError::AllocationIdOverflow)?;
-        self.allocations.insert(
-            id,
-            Allocation { bytes: vec![0; size], initialized: vec![false; size], align, mutable },
-        );
+        let next_id = id.checked_add(1).ok_or(RuntimeError::AllocationIdOverflow)?;
+        self.allocations.insert(id, Allocation { bytes, initialized, align, mutable });
+        self.next_id = next_id;
         Ok(id)
     }
 
@@ -261,6 +273,20 @@ mod tests {
 
         runtime.deallocate(id).expect("deallocate");
         assert!(!runtime.is_live(id));
+    }
+
+    #[test]
+    fn allocation_capacity_failure_is_reported_without_consuming_an_id() {
+        let mut runtime = Runtime::new();
+        assert_eq!(
+            runtime.allocate(usize::MAX, 1, true),
+            Err(RuntimeError::AllocationFailed(usize::MAX))
+        );
+        assert_eq!(
+            runtime.allocate(1, 1, true),
+            Ok(1),
+            "failed reservation must not publish or consume an allocation id"
+        );
     }
 
     #[test]
