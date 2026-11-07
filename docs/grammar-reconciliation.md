@@ -8,8 +8,11 @@ defect:
 > Known specification inconsistency (open, not resolved by invention): the
 > core Edition 1 `expression`/`statement` productions do not reference the
 > VIBE-GRAM constructs, but the EBNF file contains a trailing block of standalone
-> VIBE-GRAM extension definitions. Some corresponding syntax is also accepted
-> by the parser despite Candidate 2 being pre-release and Candidate 3 unratified.
+> VIBE-GRAM extension definitions. At the time of the original audit, some
+> corresponding syntax was also accepted by the default parser despite Candidate 2
+> being pre-release and Candidate 3 unratified. ADR-0003's accepted implementation
+> boundary has since corrected the default-parser mismatch without changing the
+> normative EBNF or ratifying either candidate.
 
 That defect is real and it is **not** fixed by editing the EBNF. This document
 records why, exactly what conflicts, what is in force today, and what has to
@@ -23,9 +26,11 @@ as part of the parser milestone:
 1. **The amendment is not in force.** `spec/grammar/candidate2-erratum.md`
    declares `status: pre-release` and `signature_state: pending`, and states
    `implementation_impact: "none"`. The overlay itself is not loaded or marked
-   applied, and `REL-0007` requires it to be signed before application. However,
-   current parser source/tests independently accept some overlapping Vibe-first
-   forms. That behavior is an implementation-authority mismatch, not evidence
+   applied, and `REL-0007` requires it to be signed before application. At the
+   time of the initial parser-authority audit, parser source/tests independently
+   accepted some overlapping Vibe-first forms. That implementation mismatch has
+   since been corrected in the default profile; the forms are available only
+   through the explicit non-normative experimental profile, not as evidence
    that the overlay has been applied or ratified.
 
 2. **`GRAM-0003` gates the exception explicitly.** Its own text reads: "Newlines
@@ -70,17 +75,20 @@ yet in force.
 | 10 | command-style call disambiguation | `call_expr` is parenthesized only | standalone `command_call` block; not referenced by `statement`/`expression` | not in force |
 | 11 | optional chaining `?.` and null coalescing `??` | `??` is in `binary_op`; `?.` has no production | no `?.` production | partial |
 
-### Current parser-authority audit (2026-11-07)
+### Historical parser-authority audit (2026-11-07, before the accepted profile boundary)
 
-The current source does not match the earlier statement that the parser accepts
-only the Edition 1 baseline:
+The following observations describe the source state at the time of the initial
+audit. They are retained as historical evidence for ADR-0003, not as a description
+of the current default parser:
 
-- `grammar_contract.rs::candidate3_pipeline_and_optional_navigation_parse`
-  accepts `a |> b;` and `a?.b;` through the default `Parser::from_source`
-  entry point.
-- `parser.rs` contains `PipelineExpr`, `QuestionDotExpr`, and prefix-dot
-  `FieldExpr` parsing paths. The default parser accepts `a |> b;` and
-  `a?.b;`; prefix-dot field nodes are used for projection shorthand.
+- The then-current `grammar_contract.rs::candidate3_pipeline_and_optional_navigation_parse`
+  accepted `a |> b;` and `a?.b;` through the default `Parser::from_source`
+  entry point. That test was replaced by default-profile rejection and explicit
+  experimental-profile acceptance regressions.
+- `parser.rs` retains `PipelineExpr`, `QuestionDotExpr`, and prefix-dot
+  `FieldExpr` parsing paths for the explicit experimental profile. The default
+  `Parser::from_source` profile now rejects these constructs; prefix-dot field
+  nodes remain experimental projection shorthand.
 - The driver's `expr_from_node` lowers `PipelineExpr` to calls/method calls
   and prefix-dot field expressions to lambdas. Driver tests execute pipeline
   lowering on the abstract machine. These are real implementation paths, but
@@ -96,9 +104,11 @@ only the Edition 1 baseline:
   `expression`/`statement` productions. `projection_shorthand` also refers to
   `struct_field`, while the core grammar defines `struct_expr_field`.
 
-These are observed, unqualified parser behaviors. They do not ratify Candidate 2
-or Candidate 3. ADR-0003 records the authority-boundary decision; no grammar or
-parser behavior is changed by this audit.
+These were observed, unqualified parser behaviors and did not ratify Candidate 2
+or Candidate 3. They motivated ADR-0003. Its accepted implementation decision
+subsequently changed the default parser and production driver behavior as
+documented below; it did not change the normative grammar or ratify either
+candidate.
 
 `GRAM-0001` names `grammar/omni-edition1.ebnf` as the normative grammar, and
 `GRAM-0008` requires feature-gated grammar to live in "a named edition or
@@ -106,13 +116,13 @@ profile namespace" and to be included in the source and artifact fingerprint.
 Rows 1-5 and 8-10 therefore need **two** coordinated changes when the gate opens:
 an amended grammar in a named namespace, and a fingerprint that covers it.
 
-## What is in force today, and is implemented
+## Edition 1 baseline constraints pinned by the parser
 
-The parser pins several Edition 1 baseline constraints in
-`compiler/omni-parse/src/grammar_contract.rs`, but it is not yet a clean
-Edition-1-only implementation: the parser-authority audit above identifies
-unqualified acceptance of some Vibe-first constructs. Those constructs must not
-be treated as ratified or as evidence of Edition 1 conformance:
+The default `Parser::from_source` profile is strict Edition 1. The constructs
+identified by the historical audit above are rejected in this profile and are
+available only through the explicit, non-normative `ExperimentalVibeSyntax`
+profile. They must not be treated as ratified or as evidence of Edition 1
+conformance. The following baseline constraints remain in force:
 
 - newlines never terminate a statement, so a program written on one line and the
   same program split across lines parse identically;
@@ -125,10 +135,11 @@ be treated as ratified or as evidence of Edition 1 conformance:
 - error recovery is tagged and does not produce a translatable tree
   (`GRAM-0007`).
 
-## What must happen before any of it changes
+## What must happen before candidate promotion or normative grammar changes
 
-These are policy actions, not implementation tasks, and this milestone does not
-take them unilaterally:
+The following remain policy requirements before Candidate 2/3 syntax can be
+promoted or the normative grammar can be amended. They are not prerequisites for
+maintaining the already-accepted strict Edition 1 default parser boundary:
 
 1. Sign the Candidate 2 erratum, or record a decision to ratify it, so that
    `signature_state` leaves `pending` and `status` leaves `pre-release`.
@@ -143,8 +154,9 @@ take them unilaterally:
    depending on a code-level decision.
 5. Re-run the Foundation `0.0.0.13` gate and rebind its evidence.
 
-Until then, `0.0.2.2` (lossless CST) and `0.0.2.3` (parser) proceed against the
-Edition 1 baseline, which is exactly what the current qualified lexer emits.
+`0.0.2.2` (lossless CST) and `0.0.2.3` (parser) proceed against the Edition 1
+baseline. The production/default parser remains strict Edition 1; the explicit
+experimental profile is limited to isolated parser research and regression tests.
 ## Defect found and fixed during this reconciliation
 
 Writing the in-force contract above immediately produced a failure, and the
@@ -206,9 +218,11 @@ control-flow, pattern, postfix, range, assignment, closure, and macro-token-tree
 families, subject to the specification holes recorded elsewhere in this
 document.
 
-No Candidate 2 amendment is ratified. However, separate parser paths accept
-some overlapping Candidate-2/3 forms without an explicit candidate profile;
-see ADR-0003. The normative EBNF and registry lifecycle states remain unchanged.
+No Candidate 2 amendment is ratified, and Candidate 3 remains unratified.
+Candidate-only parser paths require the explicit `ExperimentalVibeSyntax`
+profile; the production/default parser rejects them. See the accepted ADR-0003
+decision and the current-profile section above. The normative EBNF and registry
+lifecycle states remain unchanged.
 
 ## 0.0.2.3-A parser infrastructure boundary
 
