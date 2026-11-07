@@ -10,10 +10,11 @@ This is a tooling-compatibility constraint, not a language-semantic change. Foun
 as the canonical `riscv64gc-unknown-none-elf` target.
 
 The repository carries the normative Edition 1 specification tree bound by `spec_tree_sha256`
-(see below). `0.0.0.13` technical checks have passed on commits `d270e938` and `64f734b9`.
-This is evidence for those exact commits, not a declaration that the complete compiler or
-language is qualified. The committed gate status is not sufficient evidence of formal
-sign-off; see the proposed `docs/adr/0002-foundation-gate-qualification-evidence.md`.
+(see below). `0.0.0.13` technical checks passed historically on commits `d270e938` and `64f734b9`, and the
+latest full technical gate passed on code head `2dd136543e1fc5f9d8ba24bf6b37427cc8860706`
+(GitHub Actions run `42371995594`, 2026-11-07). This is evidence for those exact commits, not
+a declaration that the complete compiler or language is qualified. The committed gate status
+is not sufficient evidence of formal sign-off; see `docs/adr/0002-foundation-gate-qualification-evidence.md`.
 The canonical specification digest must still match the manifest and gate record at the
 exact commit being evaluated.
 
@@ -175,8 +176,9 @@ the chain canon → loader → predicates against the live manifest (14 allowed 
 The native driver integration now reaches the frontend, semantic checking, monomorphization, typed
 MIR, MIR verification, and Cranelift object emission through explicit compiler-tier dependencies.
 This remains implementation progress only. The technical foundation sequence passed on
-`d270e938` and `64f734b9`; formal qualification scope and sign-off remain unresolved under
-proposed ADR-0002. The foundation milestone does not qualify the complete compiler or language.
+`d270e938`, `64f734b9`, and most recently `2dd136543e1fc5f9d8ba24bf6b37427cc8860706`
+(GitHub Actions run `42371995594`). Formal qualification scope and sign-off remain unresolved
+under ADR-0002. The foundation milestone does not qualify the complete compiler or language.
 
 ## 0.0.0.13 gate closure (technical checks passed; formal sign-off unresolved)
 

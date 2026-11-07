@@ -43,7 +43,7 @@ authoritative, forbids activating Candidate 2, and prohibits implementation
 from inventing or adopting semantics from pending proposals. The repository
 currently contains conflicting records and observable parser behavior.
 
-### Repository evidence
+### Repository evidence at decision time
 
 1. `spec/grammar/candidate2-erratum.md` labels the Candidate-2 overlay
    `pre-release`, `signature_state: pending`, and
@@ -89,11 +89,12 @@ This means the parser's observable acceptance, the normative grammar artifact,
 the erratum's declared implementation impact, the registry lifecycle, and the
 implementation plans do not currently establish one unambiguous authority.
 
-## Decision to be made
+## Decision record (resolved)
 
-Determine which surface syntax is authorized in the default Edition 1 parser
-and whether any Candidate-2/3 experiments may remain available behind an
-explicit non-normative profile.
+The accepted decision is Alternative A: the default parser is strict Edition 1,
+and selected parser experiments remain available only through an explicit,
+non-normative research profile. This decision has been implemented in the
+parser and production driver. It does not ratify a candidate amendment.
 
 The decision must distinguish:
 
@@ -143,35 +144,43 @@ Consequences:
 - Requires exact historical preservation and a controlled specification
   digest/version migration.
 
-## Recommendation
+## Adopted option
 
-Prefer Alternative A as the target architecture: strict Edition 1 behavior is
-the default, and candidate experiments cannot affect conformance claims. The
-precise migration from the current tree must be approved through the
-specification-governance process before changing the normative EBNF or deleting
-existing implementation paths.
+Alternative A is the adopted implementation boundary: strict Edition 1 is the
+production default; selected candidate syntax is available only through the
+explicit `ExperimentalVibeSyntax` parser profile. The parser and driver change
+is implemented and validated. Any future change to the normative EBNF,
+candidate ratification, compatibility policy, or release manifest still
+requires the controlled specification-governance process.
 
-No syntax is removed, added, promoted, or newly ratified by this proposal.
+The implementation decision does not remove or ratify syntax. It changes only
+the default parser profile and production driver behavior.
 
-## Interim handling
+## Current implementation state
 
-- Treat the observed pipeline, optional-navigation, projection and command-call
-  paths as unqualified experimental behavior until their authority is resolved.
-- Do not claim that their acceptance establishes Edition 1 conformance.
-- Do not enable Candidate 2 or Candidate 3 by default.
-- Preserve current grammar bytes and historical records until the approved
-  decision determines whether to restore Candidate-1 grammar or ratify a
-  replacement.
-- Continue independent implementation work on unambiguous Edition 1
-  productions and compiler subsystems.
-- Update the implementation plan only after its status claims are reconciled
-  against the normative registry and actual source/tests.
+- `Parser::from_source` selects `ParserProfile::Edition1`. It rejects pipeline
+  `|>`, optional navigation `?.`, prefix-dot projection shorthand, and
+  standalone expression-placeholder `_` in expression position.
+- `Parser::from_source_with_profile(..., ParserProfile::ExperimentalVibeSyntax)`
+  opts into the limited parser experiments. Acceptance under this profile is
+  not Edition 1 conformance and is not Candidate-2/3 ratification.
+- The production driver and public compile/execute entry points use Edition 1.
+  Experimental pipeline execution remains test-only.
+- Optional navigation remains unsupported by driver lowering; command-call
+  syntax remains disabled.
+- Candidate-2 newline termination and optional semicolons remain disabled and
+  unimplemented.
+- The trailing VIBE-GRAM block in the normative EBNF remains an open document
+  defect. This ADR does not edit the grammar, rebind its digest, or change
+  registry lifecycle states.
 
-## Approval required
+## Further approval boundaries
 
-The project owner/maintainer must select the intended candidate baseline,
-approve the default parser profile, and authorize any normative grammar,
-semantic, compatibility, or release-manifest changes.
+No additional approval is required for the accepted parser-profile
+implementation recorded here. Separate explicit approval remains required to
+ratify Candidate 2/3, alter normative grammar or semantics, change
+compatibility obligations, or rebind the release manifest/version.
 
-This proposal does not modify the normative Edition 1 grammar, manifest,
-registry lifecycle states, parser behavior, or product version.
+This ADR leaves the normative Edition 1 grammar, manifest digest, and registry
+lifecycle states unchanged. Its accepted implementation decision **does**
+change parser behavior and production driver defaults as described above.
