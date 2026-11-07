@@ -78,16 +78,20 @@ only the Edition 1 baseline:
 - `grammar_contract.rs::candidate3_pipeline_and_optional_navigation_parse`
   accepts `a |> b;` and `a?.b;` through the default `Parser::from_source`
   entry point.
-- `parser.rs` contains `PipelineExpr` and `QuestionDotExpr` parsing branches,
-  pipeline-stage projection handling, and a `parse_command_call` path.
-- The driver's `expr_from_node` lowers `PipelineExpr` to calls/method calls,
-  projection shorthand to a lambda, and `CommandCallExpr` to `Expr::Call`.
-  These are real partial implementation paths, but their syntax remains
-  unratified and they are not an Edition 1 conformance basis.
+- `parser.rs` contains `PipelineExpr`, `QuestionDotExpr`, and prefix-dot
+  `FieldExpr` parsing paths. The default parser accepts `a |> b;` and
+  `a?.b;`; prefix-dot field nodes are used for projection shorthand.
+- The driver's `expr_from_node` lowers `PipelineExpr` to calls/method calls
+  and prefix-dot field expressions to lambdas. Driver tests execute pipeline
+  lowering on the abstract machine. These are real implementation paths, but
+  their syntax remains unratified and is not an Edition 1 conformance basis.
+- A `CommandCallExpr` lowering arm exists, but the parser initializes
+  `allow_command_call = false`, no source assignment enables it, and a parser
+  test explicitly rejects out-of-force command-call syntax. It is not a
+  default-language feature.
 - `QuestionDotExpr` has no corresponding driver lowering arm and falls through
-  to the unsupported-expression error path. The grammar-contract test proves
-  parse acceptance only; it does not establish end-to-end optional-chaining
-  semantics or conformance.
+  to the unsupported-expression error path. Its parser test proves acceptance
+  only, not end-to-end optional-chaining semantics or conformance.
 - The trailing EBNF VIBE-GRAM definitions are not connected to the core
   `expression`/`statement` productions. `projection_shorthand` also refers to
   `struct_field`, while the core grammar defines `struct_expr_field`.

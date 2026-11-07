@@ -32,15 +32,17 @@ currently contains conflicting records and observable parser behavior.
    `candidate3_pipeline_and_optional_navigation_parse`, which accepts
    `a |> b;` and `a?.b;` while the same module asserts strict Edition 1
    semicolon/newline behavior.
-6. `compiler/omni-parse/src/parser.rs` has explicit parsing paths for
-   `PipelineExpr`, `QuestionDotExpr`, projection shorthand in pipeline stage
-   arguments, and `CommandCallExpr`. In `compiler/omni-driver/src/main.rs`,
-   `expr_from_node` lowers `PipelineExpr` to calls/method calls, projection
-   shorthand to a lambda, and `CommandCallExpr` to a call. There is no
-   `QuestionDotExpr` lowering arm; it falls through to the unsupported-node
-   error path. The grammar-contract test proves parse acceptance only, not
-   complete end-to-end behavior. These parser/driver paths are not selected
-   through an explicit Candidate-2/3 profile gate in the evidence reviewed.
+6. `compiler/omni-parse/src/parser.rs` parses `PipelineExpr`,
+   `QuestionDotExpr`, and prefix-dot `FieldExpr` nodes used for projection
+   shorthand. In `compiler/omni-driver/src/main.rs`, `expr_from_node` lowers
+   pipeline expressions to calls/method calls and prefix-dot field expressions
+   to lambdas. The driver has a `CommandCallExpr` lowering arm, but the parser
+   initializes `allow_command_call = false`, no source assignment enables it,
+   and a parser test explicitly rejects out-of-force command-call syntax.
+   `QuestionDotExpr` has no driver lowering arm and falls through to the
+   unsupported-node error path. Driver tests execute pipeline lowering on the
+   abstract machine; the grammar-contract test also accepts `a |> b;` and
+   `a?.b;` through the default parser entry point.
 7. The legacy `IMPLEMENTATION_PLAN.md` contains `ERR3-0030` through
    `ERR3-0037` implementation statuses, including pipeline, projection,
    command calls and optional chaining. `IMPLEMENTATION_PLAN_GENERATED.md`
