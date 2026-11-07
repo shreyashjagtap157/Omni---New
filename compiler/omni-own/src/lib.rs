@@ -400,9 +400,9 @@ impl OwnershipState {
     }
 
     /// Joins ownership states at a control-flow merge conservatively.
-    pub fn join_all(states: &[&Self]) -> Self {
+    pub fn join_all(states: &[&Self]) -> Result<Self, OwnershipError> {
         if states.is_empty() {
-            return Self::new();
+            return Ok(Self::new());
         }
 
         let mut places = BTreeSet::new();
@@ -434,11 +434,19 @@ impl OwnershipState {
         // access cannot become valid merely by taking another path.
         for state in states {
             for (region, loan) in &state.loans {
-                joined.loans.insert(region.clone(), loan.clone());
+                match joined.loans.get(region) {
+                    None => {
+                        joined.loans.insert(region.clone(), loan.clone());
+                    }
+                    Some(existing) if existing == loan => {}
+                    Some(_) => {
+                        return Err(OwnershipError::DuplicateLoanRegion(region.clone()));
+                    }
+                }
             }
         }
 
-        joined
+        Ok(joined)
     }
 
     fn require_initialized(&self, place: &Place) -> Result<(), OwnershipError> {
@@ -644,12 +652,29 @@ mod tests {
         let mut borrowed = checker.state.clone();
         borrowed.borrow_mut(x.clone(), "branch").expect("mutable borrow in one branch");
         let unborrowed = OwnershipState::new();
-        let joined = OwnershipState::join_all(&[&borrowed, &unborrowed]);
+        let joined = OwnershipState::join_all(&[&borrowed, &unborrowed]).expect("join");
 
         let error = joined
             .ensure_access_allowed(&x, AccessKind::Write)
             .expect_err("join must conservatively retain a branch-local loan");
         assert!(matches!(error, OwnershipError::MutableBorrowConflict { .. }));
+    }
+
+    #[test]
+    fn cfg_join_rejects_region_rebound_to_different_places() {
+        let mut left = OwnershipState::new();
+        let mut right = OwnershipState::new();
+        let x = Place::root("x");
+        let y = Place::root("y");
+        left.initialize(x.clone());
+        right.initialize(y.clone());
+        left.borrow_shared(x, "same-region").expect("left predecessor loan");
+        right.borrow_shared(y, "same-region").expect("right predecessor loan");
+
+        assert_eq!(
+            OwnershipState::join_all(&[&left, &right]),
+            Err(OwnershipError::DuplicateLoanRegion("same-region".into()))
+        );
     }
 
     #[test]

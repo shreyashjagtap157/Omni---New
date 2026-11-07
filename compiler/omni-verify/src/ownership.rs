@@ -37,7 +37,7 @@ impl FlowState {
         }
     }
 
-    fn join(states: &[Self]) -> Self {
+    fn join(states: &[Self]) -> Result<Self, OwnershipError> {
         let inputs = states.iter().map(|state| &state.ownership).collect::<Vec<_>>();
         let mut reference_loans = BTreeMap::new();
         for state in states {
@@ -57,7 +57,11 @@ impl FlowState {
                     .extend(parents.iter().cloned());
             }
         }
-        Self { ownership: OwnershipState::join_all(&inputs), reference_loans, loan_parents }
+        Ok(Self {
+            ownership: OwnershipState::join_all(&inputs)?,
+            reference_loans,
+            loan_parents,
+        })
     }
 }
 
@@ -145,7 +149,8 @@ fn verify_function(
                 continue;
             }
 
-            let entry = FlowState::join(&incoming);
+            let entry = FlowState::join(&incoming)
+                .map_err(|error| violation(function, block, "control-flow merge", error))?;
             if entry_states[block_index].as_ref() != Some(&entry) {
                 entry_states[block_index] = Some(entry.clone());
                 changed = true;

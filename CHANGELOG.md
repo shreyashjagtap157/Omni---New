@@ -5,6 +5,11 @@ All notable project changes are documented here. Entries describe repository sta
 ## [Unreleased]
 
 ### Security, qualification integrity, and implementation evidence
+### Ownership loan-region integrity
+
+- Prevented a live loan region from being silently rebound to a different place or mutability. Re-observing the exact same region/place/mutability is idempotent for CFG fixed-point processing; conflicting reuse returns a typed ownership error and preserves the original loan.
+- Changed ownership-state CFG joins to fail with a typed error when predecessors bind the same region to different loan records, and propagated this as a control-flow-merge ownership diagnostic. Added regression tests for single-state duplicate insertion, idempotent re-observation, and conflicting predecessor loans.
+
 ### Edition 1 parser enforcement
 
 - Made `Parser::from_source` select strict `ParserProfile::Edition1` by default. Pipeline `|>`, optional navigation `?.`, prefix-dot projection shorthand, and placeholder expressions are rejected by that profile. They remain available only through explicit `ParserProfile::ExperimentalVibeSyntax`; this is a research switch, not a ratified Candidate-2/3 language profile.
