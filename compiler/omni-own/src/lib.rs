@@ -695,10 +695,7 @@ mod tests {
         );
         assert_eq!(state.loans().count(), 1);
         assert_eq!(state.loans().next().expect("original loan").place, x);
-        assert!(matches!(
-            state.assign(y),
-            Err(OwnershipError::DuplicateLoanRegion(_)) | Err(OwnershipError::BorrowConflict { .. })
-        ));
+        state.assign(y).expect("rejected duplicate must not create a loan on y");
         assert!(matches!(
             state.assign(x),
             Err(OwnershipError::BorrowConflict { .. })
