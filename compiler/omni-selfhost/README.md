@@ -32,24 +32,32 @@ Per §20 of the Master Charter:
    +--------------------+
 ```
 
-## 3. Current Implemented Self-Hosting Modules
+## 3. Experimental Omni-written micro-prototypes (not operational compiler stages)
 
-1. **`lexer.omni`**:
-   - Tokenizes Omni keywords (`fn`, `let`, `mut`, `struct`, `return`, `if`, `else`, `while`).
-   - Identifiers, integer literals, ASCII operators, and delimiters.
-   - Verified on both the abstract reference machine (`omni-driver`) and native Cranelift / MSVC compilation.
-2. **`parser.omni`**:
-   - Encodes AST nodes, parameter declarations, function signatures, binary expression trees, and multi-statement function bodies (let-bindings, while-loops, if-conditionals, and returns).
-   - Verified on both the abstract machine (returning structural hash `11660006`) and native Cranelift / MSVC compilation.
-3. **`names.omni`**:
-   - Implements scoped symbol table records, lexical scope levels, reverse outward scope traversal, and variable shadowing resolution in Omni.
-   - Verified on both the abstract machine (returning verification code `1335104`) and native Cranelift / MSVC compilation.
-4. **`types.omni`**:
-   - Implements type descriptors, type equality predicates, binary operator typing rules (arithmetic, relational comparisons, logical boolean operators), and branching conditional type checking in Omni.
-   - Verified on both the abstract machine (returning verification code `122100`) and native Cranelift / MSVC compilation.
-5. **`mir.omni`**:
-   - Implements mid-level intermediate representation (MIR) basic blocks, control flow graphs, assignment statements (binary operations, copies), and terminators (Return, SwitchInt conditional branches) in Omni.
-   - Verified on both the abstract machine (returning CFG verification code `12505645`) and native Cranelift / MSVC compilation.
+The files below are early experiments written in Omni. Their current source is deliberately small and uses fixed, hand-authored examples. They are useful for exercising the existing compiler on Omni syntax and for exploring representations, but they are **not yet input-driven compiler components** and must not be described as a working self-hosted frontend or compiler.
+
+1. **`lexer.omni` — fixed-input scanner experiment**
+   - `main` embeds one fixed ASCII source byte array and scans a narrow subset of identifiers, decimal integers, selected keywords, operators and delimiters.
+   - It does not expose a token stream to another module; it returns a token-count/hash value. The declared `Token` structure is not used to produce tokens.
+   - It does not yet implement the normative lexical contract: arbitrary source input, full Unicode identifiers, complete literal/comment/trivia handling, source-span diagnostics, malformed-input behavior or recovery.
+
+2. **`parser.omni` — AST-encoding experiment**
+   - It manually calls helper functions with preselected integer values to encode a sample signature, expressions and statements.
+   - It does not consume lexer output, inspect source text, recognize productions, construct a general AST, or report parse diagnostics. Despite the historical filename/comment, this is not yet a recursive-descent parser.
+
+3. **`names.omni` — bounded scope-lookup experiment**
+   - It initializes fixed arrays of integer name IDs, scope levels and symbol-kind values, then demonstrates reverse lookup and a simple shadowing case.
+   - It is not connected to parsed identifiers or declarations and does not yet implement general module, namespace, declaration, visibility or error-resolution behavior.
+
+4. **`types.omni` — operator-rule experiment**
+   - It evaluates a small set of hard-coded integer type tags and binary/conditional typing cases.
+   - It is not connected to parsed expressions or resolved symbols and does not implement a general type representation, unification, inference, generics, traits, effects or diagnostics.
+
+5. **`mir.omni` — hand-constructed CFG encoding experiment**
+   - It constructs three sample blocks and terminators directly, then returns a composite integer.
+   - It does not lower parsed or typed source, define the production MIR data model, run MIR verification, or establish semantic preservation.
+
+The historical execution reports for these fixtures describe reference-machine and native execution. Such execution demonstrates that the particular fixture computations can run through those execution paths; it does **not** establish that the files implement the corresponding compiler subsystems, conform to the complete Edition 1 rules, or are semantically equivalent to the Rust implementation.
 
 ## 4. Verification & Conformance
 
