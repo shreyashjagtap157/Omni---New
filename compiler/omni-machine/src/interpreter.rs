@@ -1815,9 +1815,9 @@ impl Memory {
         // allocation or consuming its handle. Host allocation failure must
         // become an abstract-machine memory error rather than a panic/abort.
         let mut bytes = Vec::new();
-        bytes.try_reserve_exact(size).map_err(|_| {
-            format!("allocation failed: unable to reserve {size} bytes of storage")
-        })?;
+        bytes
+            .try_reserve_exact(size)
+            .map_err(|_| format!("allocation failed: unable to reserve {size} bytes of storage"))?;
         bytes.resize(size, 0);
 
         let mut initialized = Vec::new();
@@ -1826,9 +1826,8 @@ impl Memory {
         })?;
         initialized.resize(size, false);
 
-        let next_id = id
-            .checked_add(1)
-            .ok_or_else(|| "allocation identifier space exhausted".to_string())?;
+        let next_id =
+            id.checked_add(1).ok_or_else(|| "allocation identifier space exhausted".to_string())?;
         let alloc = Allocation { bytes, initialized, align, mutable };
         self.allocations.insert(id, alloc);
         self.next_id = next_id;
