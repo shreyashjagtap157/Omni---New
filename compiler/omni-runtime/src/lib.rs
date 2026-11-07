@@ -6,7 +6,7 @@
 //! minimal stdout, exit, and abort primitives. A later target ABI may replace
 //! the handle representation without changing the higher-level Runtime API.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, Write};
 use std::sync::{Mutex, OnceLock};
@@ -24,6 +24,7 @@ pub enum RuntimeError {
     InvalidSize(usize),
     InvalidAlignment(u32),
     AllocationFailed(usize),
+    AllocationTableReservationFailed,
     AllocationIdOverflow,
     UnknownAllocation(AllocationId),
     ImmutableAllocation(AllocationId),
@@ -38,6 +39,9 @@ impl fmt::Display for RuntimeError {
             Self::InvalidAlignment(align) => write!(f, "invalid allocation alignment {align}"),
             Self::AllocationFailed(size) => {
                 write!(f, "failed to reserve runtime allocation of {size} bytes")
+            }
+            Self::AllocationTableReservationFailed => {
+                write!(f, "failed to reserve runtime allocation-table capacity")
             }
             Self::AllocationIdOverflow => write!(f, "allocation identifier space exhausted"),
             Self::UnknownAllocation(id) => write!(f, "unknown allocation {id}"),
@@ -73,7 +77,7 @@ struct Allocation {
 #[derive(Debug)]
 pub struct Runtime {
     next_id: AllocationId,
-    allocations: BTreeMap<AllocationId, Allocation>,
+    allocations: HashMap<AllocationId, Allocation>,
 }
 
 impl Default for Runtime {
@@ -84,7 +88,7 @@ impl Default for Runtime {
 
 impl Runtime {
     pub fn new() -> Self {
-        Self { next_id: 1, allocations: BTreeMap::new() }
+        Self { next_id: 1, allocations: HashMap::new() }
     }
 
     pub fn allocate(
@@ -115,6 +119,12 @@ impl Runtime {
         if id == INVALID_ALLOCATION_ID || id > max_id {
             return Err(RuntimeError::AllocationIdOverflow);
         }
+
+        // HashMap insertion is now guaranteed to fit without another growth
+        // allocation. Reserve metadata capacity before allocating the payload.
+        self.allocations
+            .try_reserve(1)
+            .map_err(|_| RuntimeError::AllocationTableReservationFailed)?;
 
         // Reserve both buffers fallibly before publishing an allocation or
         // consuming an identifier. A caller-controlled size must not turn an

@@ -1811,6 +1811,13 @@ impl Memory {
             return Err("allocation identifier space exhausted".to_string());
         }
 
+        // Reserve the allocation-table entry as well as both backing buffers.
+        // Once this succeeds, inserting the prepared allocation does not need
+        // to grow the table after its payload has been allocated.
+        self.allocations
+            .try_reserve(1)
+            .map_err(|_| "allocation failed: unable to reserve allocation-table entry".to_string())?;
+
         // Reserve both backing buffers fallibly before publishing the
         // allocation or consuming its handle. Host allocation failure must
         // become an abstract-machine memory error rather than a panic/abort.

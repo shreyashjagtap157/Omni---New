@@ -7,7 +7,7 @@ All notable project changes are documented here. Entries describe repository sta
 ### Security, qualification integrity, and implementation evidence
 ### Fallible allocation paths
 
-- Made the reference machine's separate `Memory::allocate` use fallible reservations for its byte store and initialization bitmap, and advance its signed-machine-compatible allocation handle only after both reservations succeed. Added a regression proving capacity failure returns a memory error, publishes no allocation, and does not consume the next handle.
+- Made the reference machine's separate `Memory::allocate` reserve its allocation-table entry, byte store, and initialization bitmap fallibly, and advance its signed-machine-compatible allocation handle only after all reservations succeed. Added a regression proving payload-capacity failure returns a memory error, publishes no allocation, and does not consume the next handle.
 - Hardened `omni-runtime::Runtime::allocate` similarly. Its initial signed-`i64` handle entry point now enforces that width before publishing an allocation; tests cover the largest representable handle and rejection beyond it.
 
 ### Ownership loan-region integrity
