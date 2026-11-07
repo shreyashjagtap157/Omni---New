@@ -852,6 +852,19 @@ fn end_tracked_loan(state: &mut FlowState, region: &str) -> Result<(), Ownership
     Ok(())
 }
 
+/// Records the possible immediate parents for a stable loan region.
+///
+/// A region may be re-observed while analyzing another predecessor or loop
+/// iteration. Parent provenance is therefore a may-set and must be unioned;
+/// replacing it with the latest observation can drop a still-valid ancestry.
+fn record_loan_parents(
+    state: &mut FlowState,
+    region: impl Into<String>,
+    parents: impl IntoIterator<Item = String>,
+) {
+    state.loan_parents.entry(region.into()).or_default().extend(parents);
+}
+
 fn loan_has_active_children(state: &FlowState, region: &str) -> bool {
     // A loan must stay alive while any descendant reborrow is reachable from
     // a live reference local. Looking only one edge deep releases ancestors
@@ -1216,7 +1229,7 @@ fn create_reference_loans(
             state.ownership.borrow_shared(target, base_region.clone())
         };
         result.map_err(|error| violation(function, block, context, error))?;
-        state.loan_parents.insert(base_region.clone(), BTreeSet::new());
+        record_loan_parents(state, base_region.clone(), BTreeSet::new());
         return Ok(BTreeSet::from([base_region]));
     };
 
@@ -1321,7 +1334,7 @@ fn create_reference_loans(
             state.ownership.borrow_shared_with_parents(origin, region.clone(), &pending.authority)
         };
         result.map_err(|error| violation(function, block, context, error))?;
-        state.loan_parents.insert(region.clone(), pending.parents);
+        record_loan_parents(state, region.clone(), pending.parents);
         new_regions.insert(region);
     }
     Ok(new_regions)
@@ -1653,6 +1666,26 @@ mod tests {
     use index_vec::IndexVec;
     use omni_mir::ast::TypeSpec;
     use omni_mir::ir::LocalDecl;
+
+    #[test]
+    fn repeated_loan_region_observations_union_possible_parent_provenance() {
+        let mut state = FlowState::new();
+        record_loan_parents(
+            &mut state,
+            "child",
+            BTreeSet::from(["parent-a".to_string()]),
+        );
+        record_loan_parents(
+            &mut state,
+            "child",
+            BTreeSet::from(["parent-b".to_string()]),
+        );
+
+        assert_eq!(
+            state.loan_parents.get("child"),
+            Some(&BTreeSet::from(["parent-a".to_string(), "parent-b".to_string()]))
+        );
+    }
 
     #[test]
     fn ancestor_loan_stays_live_for_a_referenced_grandchild_reborrow() {
