@@ -1670,16 +1670,8 @@ mod tests {
     #[test]
     fn repeated_loan_region_observations_union_possible_parent_provenance() {
         let mut state = FlowState::new();
-        record_loan_parents(
-            &mut state,
-            "child",
-            BTreeSet::from(["parent-a".to_string()]),
-        );
-        record_loan_parents(
-            &mut state,
-            "child",
-            BTreeSet::from(["parent-b".to_string()]),
-        );
+        record_loan_parents(&mut state, "child", BTreeSet::from(["parent-a".to_string()]));
+        record_loan_parents(&mut state, "child", BTreeSet::from(["parent-b".to_string()]));
 
         assert_eq!(
             state.loan_parents.get("child"),
