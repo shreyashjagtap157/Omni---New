@@ -44,6 +44,9 @@ Per §20 of the Master Charter:
 3. **`names.omni`**:
    - Implements scoped symbol table records, lexical scope levels, reverse outward scope traversal, and variable shadowing resolution in Omni.
    - Verified on both the abstract machine (returning verification code `1335104`) and native Cranelift / MSVC compilation.
+4. **`types.omni`**:
+   - Implements type descriptors, type equality predicates, binary operator typing rules (arithmetic, relational comparisons, logical boolean operators), and branching conditional type checking in Omni.
+   - Verified on both the abstract machine (returning verification code `122100`) and native Cranelift / MSVC compilation.
 
 ## 4. Verification & Conformance
 

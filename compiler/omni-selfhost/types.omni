@@ -1,0 +1,113 @@
+// Omni Self-Hosting Type Analyzer and Checker (Stage-1 Milestone 4)
+// Implements type descriptors, type equality, binary operator type rules, and expression checking in Omni.
+
+struct TypeDesc {
+    kind: i64,      // 1: Int (i64), 2: Bool, 3: Unit, 4: Struct, 5: Array
+    size: i64,      // Size in bytes
+    align: i64,     // Alignment in bytes
+    sub_type: i64   // Element type or struct definition id
+}
+
+// Type kind constants:
+// 1: TyInt (i64)
+// 2: TyBool (bool)
+// 3: TyUnit (unit ())
+// 4: TyStruct (struct by ID)
+// 5: TyArray ([T; N])
+
+fn is_numeric_type(ty_kind: i64) -> bool {
+    return ty_kind == 1; // i64
+}
+
+fn is_boolean_type(ty_kind: i64) -> bool {
+    return ty_kind == 2; // bool
+}
+
+fn check_types_equal(expected: i64, actual: i64) -> bool {
+    return expected == actual;
+}
+
+fn check_binary_op_type(op: i64, lhs_ty: i64, rhs_ty: i64) -> i64 {
+    // Op codes:
+    // 1: Add (+), 2: Sub (-), 3: Mul (*), 4: Div (/)
+    // 5: Eq (==), 6: Ne (!=), 7: Lt (<), 8: Le (<=), 9: Gt (>), 10: Ge (>=)
+    // 11: And (&&), 12: Or (||)
+
+    if op >= 1 && op <= 4 {
+        // Arithmetic requires integer operands, produces integer
+        if lhs_ty == 1 && rhs_ty == 1 {
+            return 1; // TyInt
+        } else {
+            return 0; // TypeError
+        };
+    } else {
+        if op >= 5 && op <= 10 {
+            // Relational / equality comparison requires matching operands, produces bool
+            if lhs_ty == rhs_ty && lhs_ty > 0 {
+                return 2; // TyBool
+            } else {
+                return 0; // TypeError
+            };
+        } else {
+            if op == 11 || op == 12 {
+                // Logical boolean operators require bool operands, produce bool
+                if lhs_ty == 2 && rhs_ty == 2 {
+                    return 2; // TyBool
+                } else {
+                    return 0; // TypeError
+                };
+            } else {
+                return 0; // Unknown op
+            };
+        };
+    };
+}
+
+fn check_if_expr_type(cond_ty: i64, then_ty: i64, else_ty: i64) -> i64 {
+    // Condition must be boolean
+    if cond_ty != 2 {
+        return 0;
+    } else {
+        // Branches must have identical types
+        if then_ty == else_ty {
+            return then_ty;
+        } else {
+            return 0;
+        };
+    };
+}
+
+fn main() -> i64 {
+    // Simulate type-checking a suite of expressions:
+    // 1. Arithmetic: (10 + 20) -> i64 (ty 1)
+    let arith_ty = check_binary_op_type(1, 1, 1); // op 1 (Add), lhs 1, rhs 1 -> 1
+    
+    // 2. Comparison: (x <= 50) -> bool (ty 2)
+    let comp_ty = check_binary_op_type(8, 1, 1); // op 8 (Le), lhs 1, rhs 1 -> 2
+    
+    // 3. Logical: (true && false) -> bool (ty 2)
+    let logic_ty = check_binary_op_type(11, 2, 2); // op 11 (And), lhs 2, rhs 2 -> 2
+    
+    // 4. Branching expression: if cond { 42 } else { 0 } -> i64 (ty 1)
+    let if_ty = check_if_expr_type(comp_ty, 1, 1); // cond 2, then 1, else 1 -> 1
+    
+    // 5. Ill-typed expression: 10 + true -> TypeError (ty 0)
+    let bad_arith_ty = check_binary_op_type(1, 1, 2); // lhs 1, rhs 2 -> 0
+    
+    // 6. Ill-typed branch: if cond { 42 } else { true } -> TypeError (ty 0)
+    let bad_if_ty = check_if_expr_type(comp_ty, 1, 2); // then 1, else 2 -> 0
+
+    // Verify all typing invariants:
+    // arith_ty == 1
+    // comp_ty == 2
+    // logic_ty == 2
+    // if_ty == 1
+    // bad_arith_ty == 0
+    // bad_if_ty == 0
+    
+    // Composite verification code:
+    // 1 * 100000 + 2 * 10000 + 2 * 1000 + 1 * 100 + 0 * 10 + 0
+    // = 100000 + 20000 + 2000 + 100 = 122100
+    let code = arith_ty * 100000 + comp_ty * 10000 + logic_ty * 1000 + if_ty * 100 + bad_arith_ty * 10 + bad_if_ty;
+    return code;
+}
