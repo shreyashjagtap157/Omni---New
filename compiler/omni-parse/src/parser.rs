@@ -40,7 +40,7 @@
 //! gaps are isolated rather than guessed: trait function signatures are
 //! undefined in the normative EBNF, `let_expr` and `deref_expr` are referenced
 //! without productions, and effect/capability bounds have no definitions.
-//! Candidate 2 syntax is not implemented and not enabled.
+//! Unratified Vibe-first syntax is disabled by the default Edition 1 profile; selected parser experiments require an explicit experimental profile.
 
 use omni_lex::token::{Kw, Punct, Trivia};
 use omni_lex::{Scanner, Span, Token, TokenKind};
@@ -49,6 +49,24 @@ use rowan::GreenNodeBuilder;
 
 use crate::precedence::matching_close;
 use std::collections::BTreeMap;
+
+/// Selects the grammar surface recognized by the parser.
+///
+/// Edition1 is the default normative baseline. ExperimentalVibeSyntax is a
+/// non-normative research switch for a limited set of existing parser probes;
+/// it does not ratify Candidate 2 or Candidate 3 or establish conformance.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ParserProfile {
+    #[default]
+    Edition1,
+    ExperimentalVibeSyntax,
+}
+
+impl ParserProfile {
+    const fn allows_experimental_vibe_syntax(self) -> bool {
+        matches!(self, Self::ExperimentalVibeSyntax)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -137,6 +155,7 @@ pub struct Parser<'a> {
     diagnostics: Vec<Diagnostic>,
     pos: usize,
     split_token: Option<(usize, u8)>,
+    profile: ParserProfile,
     /// Suppresses reading a `{` after a path as a struct literal. A `for`
     /// iterable is followed by the loop body block, so `for x in xs { .. }`
     /// must not parse `xs { .. }` as a struct expression.
@@ -150,7 +169,16 @@ pub struct Parser<'a> {
     feature_uses: BTreeMap<&'static str, Span>,
 }
 impl<'a> Parser<'a> {
+    /// Construct the normative Edition 1 parser.
     pub fn from_source(source: &'a str) -> Self {
+        Self::from_source_with_profile(source, ParserProfile::Edition1)
+    }
+
+    /// Construct a parser with an explicit grammar profile.
+    ///
+    /// ExperimentalVibeSyntax is only for isolated research and tests. It is
+    /// not a ratified language edition or a Candidate 2/3 conformance mode.
+    pub fn from_source_with_profile(source: &'a str, profile: ParserProfile) -> Self {
         let mut scanner = Scanner::from_str(source, 0);
         let mut tokens: Vec<Token> = std::iter::from_fn(|| scanner.next_token()).collect();
         // The scanner parks bytes past the final token on `next_token()`'s
@@ -170,6 +198,7 @@ impl<'a> Parser<'a> {
             diagnostics: Vec::new(),
             pos: 0,
             split_token: None,
+            profile,
             no_struct_literal: false,
             allow_command_call: false,
             feature_uses: BTreeMap::new(),
@@ -1383,7 +1412,12 @@ impl<'a> Parser<'a> {
         let TokenKind::Punct(punct) = kind else {
             return None;
         };
-        let (left, right) = crate::precedence::binding_power(kind);
+        let (left, right) = match self.profile {
+            ParserProfile::Edition1 => crate::precedence::binding_power(kind),
+            ParserProfile::ExperimentalVibeSyntax => {
+                crate::precedence::experimental_binding_power(kind)
+            }
+        };
         if (left, right) == crate::precedence::NO_BINDING {
             None
         } else {
@@ -1459,6 +1493,12 @@ impl<'a> Parser<'a> {
                 continue;
             }
             if self.at_punct(Punct::QuestionDot)
+                && !self.profile.allows_experimental_vibe_syntax()
+            {
+                self.diagnostic("optional navigation is experimental and is not part of Edition 1");
+                break;
+            }
+            if self.at_punct(Punct::QuestionDot)
                 && crate::precedence::POSTFIX_BINDING_POWER >= min_bp
             {
                 let qdot = self.bump_child();
@@ -1499,6 +1539,12 @@ impl<'a> Parser<'a> {
                 n.children.push(Child::Node(self.parse_type()));
                 lhs = n;
                 continue;
+            }
+            if self.at_punct(Punct::PipeArrow)
+                && !self.profile.allows_experimental_vibe_syntax()
+            {
+                self.diagnostic("pipeline operator is experimental and is not part of Edition 1");
+                break;
             }
             let Some((op, left_bp, right_bp)) = self.infix() else { break };
             if left_bp < min_bp {
@@ -1591,8 +1637,10 @@ impl<'a> Parser<'a> {
             Some(TokenKind::Punct(Punct::LBrace)) => self.parse_block_expr(),
             Some(TokenKind::Punct(Punct::LParen)) => self.parse_paren_expr(),
             Some(TokenKind::Punct(Punct::LBracket)) => self.parse_array_expr(),
-            Some(TokenKind::Punct(Punct::Dot)) => {
-                // Projection shorthand .field in pipeline stage args (ERR3-0033)
+            Some(TokenKind::Punct(Punct::Dot))
+                if self.profile.allows_experimental_vibe_syntax() =>
+            {
+                // Experimental projection shorthand .field.
                 let dot = self.bump_child();
                 let mut n = Node::new(SyntaxKind::FieldExpr);
                 n.children.push(dot);
@@ -1605,12 +1653,20 @@ impl<'a> Parser<'a> {
                 }
                 n
             }
-            Some(TokenKind::Punct(Punct::Underscore)) => {
-                // Pipeline argument placeholder `_` (ERR3-0030)
+            Some(TokenKind::Punct(Punct::Dot)) => {
+                self.error_node("leading-dot projection shorthand is not part of Edition 1")
+            }
+            Some(TokenKind::Punct(Punct::Underscore))
+                if self.profile.allows_experimental_vibe_syntax() =>
+            {
+                // Experimental pipeline argument placeholder.
                 let underscore = self.bump_child();
                 let mut n = Node::new(SyntaxKind::PlaceholderExpr);
                 n.children.push(underscore);
                 n
+            }
+            Some(TokenKind::Punct(Punct::Underscore)) => {
+                self.error_node("standalone expression placeholder is not part of Edition 1")
             }
             Some(TokenKind::Punct(Punct::Pipe)) => self.parse_closure_expr(),
             // `self` arrives as a keyword token, not an identifier, so it needs

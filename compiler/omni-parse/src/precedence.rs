@@ -61,8 +61,6 @@ pub const fn binding_power(kind: TokenKind) -> BindingPower {
         TokenKind::Punct(Punct::AmpAmp) => (8, 9),
         // 5. null coalescing.
         TokenKind::Punct(Punct::QuestionQuestion) => (10, 11),
-        // 5b. pipeline operator (Candidate 3 Section 0.7: below ??, above comparison).
-        TokenKind::Punct(Punct::PipeArrow) => (11, 12),
         // 6. comparison.
         TokenKind::Punct(
             Punct::EqEq | Punct::NotEq | Punct::Lt | Punct::Le | Punct::Gt | Punct::Ge,
@@ -82,6 +80,17 @@ pub const fn binding_power(kind: TokenKind) -> BindingPower {
         // 13. casts. `as` is a keyword token.
         TokenKind::Keyword(Kw::As) => (27, 28),
         _ => NO_BINDING,
+    }
+}
+
+/// Experimental precedence for unratified Vibe-first parser probes.
+///
+/// A token in this table does not thereby become an Edition 1 operator.
+pub const fn experimental_binding_power(kind: TokenKind) -> BindingPower {
+    match kind {
+        // Candidate 3 research precedence: below ?? and above comparison.
+        TokenKind::Punct(Punct::PipeArrow) => (11, 12),
+        _ => binding_power(kind),
     }
 }
 
@@ -215,21 +224,20 @@ mod tests {
     #[test]
     fn precedence_matches_the_normative_grammar() {
         // (token, label) in the exact order of the Candidate 3 precedence section.
-        let ladder: [(TokenKind, &str); 14] = [
+        let ladder: [(TokenKind, &str); 13] = [
             (TokenKind::Punct(Punct::Eq), "1. assignment"),
             (TokenKind::Punct(Punct::DotDot), "2. range"),
             (TokenKind::Punct(Punct::PipePipe), "3. logical or"),
             (TokenKind::Punct(Punct::AmpAmp), "4. logical and"),
             (TokenKind::Punct(Punct::QuestionQuestion), "5. null coalescing"),
-            (TokenKind::Punct(Punct::PipeArrow), "6. pipeline"),
-            (TokenKind::Punct(Punct::EqEq), "7. comparison"),
-            (TokenKind::Punct(Punct::Pipe), "8. bitwise or"),
-            (TokenKind::Punct(Punct::Caret), "9. bitwise xor"),
-            (TokenKind::Punct(Punct::Amp), "10. bitwise and"),
-            (TokenKind::Punct(Punct::Shl), "11. shift"),
-            (TokenKind::Punct(Punct::Plus), "12. additive"),
-            (TokenKind::Punct(Punct::Star), "13. multiplicative"),
-            (TokenKind::Keyword(Kw::As), "14. cast"),
+            (TokenKind::Punct(Punct::EqEq), "6. comparison"),
+            (TokenKind::Punct(Punct::Pipe), "7. bitwise or"),
+            (TokenKind::Punct(Punct::Caret), "8. bitwise xor"),
+            (TokenKind::Punct(Punct::Amp), "9. bitwise and"),
+            (TokenKind::Punct(Punct::Shl), "10. shift"),
+            (TokenKind::Punct(Punct::Plus), "11. additive"),
+            (TokenKind::Punct(Punct::Star), "12. multiplicative"),
+            (TokenKind::Keyword(Kw::As), "13. cast"),
         ];
         let mut prev = 0u8;
         for (kind, label) in ladder {
@@ -275,7 +283,6 @@ mod tests {
             Punct::AmpAmp,
             Punct::PipePipe,
             Punct::QuestionQuestion,
-            Punct::PipeArrow,
             Punct::DotDot,
             Punct::DotDotEq,
         ] {
@@ -298,7 +305,7 @@ mod tests {
             "assignment must be right-associative"
         );
         for p in
-            [Punct::Plus, Punct::Star, Punct::AmpAmp, Punct::Pipe, Punct::EqEq, Punct::PipeArrow]
+            [Punct::Plus, Punct::Star, Punct::AmpAmp, Punct::Pipe, Punct::EqEq]
         {
             let (l, r) = binding_power(TokenKind::Punct(p));
             assert_eq!(l + 1, r, "{p:?} must be left-associative");
@@ -315,6 +322,21 @@ mod tests {
         }
         for p in [Punct::Plus, Punct::Star, Punct::Amp] {
             assert!(!is_comparison_operator(TokenKind::Punct(p)), "{p:?} is not a comparison");
+        }
+    }
+
+    #[test]
+    fn pipeline_is_experimental_not_an_edition1_operator() {
+        let pipeline = TokenKind::Punct(Punct::PipeArrow);
+        assert_eq!(binding_power(pipeline), NO_BINDING);
+        assert_eq!(experimental_binding_power(pipeline), (11, 12));
+        for kind in [
+            TokenKind::Punct(Punct::Plus),
+            TokenKind::Punct(Punct::QuestionQuestion),
+            TokenKind::Punct(Punct::EqEq),
+            TokenKind::Keyword(Kw::As),
+        ] {
+            assert_eq!(experimental_binding_power(kind), binding_power(kind));
         }
     }
 
