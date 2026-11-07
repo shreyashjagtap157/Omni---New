@@ -853,11 +853,29 @@ fn end_tracked_loan(state: &mut FlowState, region: &str) -> Result<(), Ownership
 }
 
 fn loan_has_active_children(state: &FlowState, region: &str) -> bool {
-    state.loan_parents.iter().any(|(child, parents)| {
-        child != region
-            && parents.contains(region)
-            && state.reference_loans.values().any(|loans| loans.contains(child))
-    })
+    // A loan must stay alive while any descendant reborrow is reachable from
+    // a live reference local. Looking only one edge deep releases ancestors
+    // too early for chains such as parent -> child -> grandchild when the
+    // intermediate reference local has already gone dead.
+    let mut pending = vec![region.to_string()];
+    let mut visited = BTreeSet::new();
+
+    while let Some(parent) = pending.pop() {
+        if !visited.insert(parent.clone()) {
+            continue;
+        }
+
+        for (child, parents) in &state.loan_parents {
+            if child == &parent || !parents.contains(&parent) {
+                continue;
+            }
+            if state.reference_loans.values().any(|loans| loans.contains(child)) {
+                return true;
+            }
+            pending.push(child.clone());
+        }
+    }
+    false
 }
 
 /// End a loan only after no live reference local or active child reborrow
@@ -1635,6 +1653,46 @@ mod tests {
     use index_vec::IndexVec;
     use omni_mir::ast::TypeSpec;
     use omni_mir::ir::LocalDecl;
+
+    #[test]
+    fn ancestor_loan_stays_live_for_a_referenced_grandchild_reborrow() {
+        let mut state = FlowState::new();
+        let origin = OwnershipPlace::root("origin");
+        state.ownership.initialize(origin.clone());
+
+        state.ownership.borrow_shared(origin.clone(), "parent").expect("parent loan");
+        state.loan_parents.insert("parent".into(), BTreeSet::new());
+
+        let parent_authority = BTreeSet::from(["parent".to_string()]);
+        state
+            .ownership
+            .borrow_shared_with_parents(origin.clone(), "child", &parent_authority)
+            .expect("child reborrow");
+        state.loan_parents.insert("child".into(), parent_authority);
+
+        let grandchild_authority =
+            BTreeSet::from(["parent".to_string(), "child".to_string()]);
+        state
+            .ownership
+            .borrow_shared_with_parents(origin, "grandchild", &grandchild_authority)
+            .expect("grandchild reborrow");
+        state.loan_parents.insert("grandchild".into(), BTreeSet::from(["child".into()]));
+        state.reference_loans.insert(
+            Local::from_usize(3),
+            BTreeSet::from(["grandchild".to_string()]),
+        );
+
+        assert!(
+            loan_has_active_children(&state, "parent"),
+            "a live grandchild reference must retain the whole reborrow ancestry"
+        );
+        end_tracked_loan_if_unreferenced(&mut state, "parent")
+            .expect("ancestor must remain valid while descendant is live");
+        assert!(
+            state.ownership.loans().any(|loan| loan.region == "parent"),
+            "parent loan must not be ended while a grandchild remains live"
+        );
+    }
 
     #[test]
     fn missing_live_loan_during_release_is_reported_without_erasing_metadata() {
