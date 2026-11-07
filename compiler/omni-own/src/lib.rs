@@ -674,7 +674,7 @@ mod tests {
         left.borrow_shared(x.clone(), "same-region").expect("left predecessor loan");
         right.borrow_shared(x.clone(), "same-region").expect("right predecessor loan");
 
-        let joined =
+        let mut joined =
             OwnershipState::join_all(&[&left, &right]).expect("identical loan identities merge");
         assert_eq!(joined.loans().count(), 1);
         assert!(matches!(joined.assign(x), Err(OwnershipError::BorrowConflict { .. })));

@@ -36,7 +36,9 @@ impl fmt::Display for RuntimeError {
         match self {
             Self::InvalidSize(size) => write!(f, "invalid allocation size {size}"),
             Self::InvalidAlignment(align) => write!(f, "invalid allocation alignment {align}"),
-            Self::AllocationFailed(size) => write!(f, "failed to reserve runtime allocation of {size} bytes"),
+            Self::AllocationFailed(size) => {
+                write!(f, "failed to reserve runtime allocation of {size} bytes")
+            }
             Self::AllocationIdOverflow => write!(f, "allocation identifier space exhausted"),
             Self::UnknownAllocation(id) => write!(f, "unknown allocation {id}"),
             Self::ImmutableAllocation(id) => write!(f, "allocation {id} is immutable"),
