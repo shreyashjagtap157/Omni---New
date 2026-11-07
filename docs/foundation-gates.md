@@ -37,10 +37,12 @@ digest, independently printed by `omni-canon` and matched by the manifest and ga
 The earlier `07762061…` and `7e63431f…` values are historical intermediate snapshots,
 not the current tree identity.
 
-Known specification inconsistency (open, not resolved by invention): the normative EBNF predates the
-Candidate-2 amendment and contains no pipeline-operator, newline-termination, projection-shorthand,
-or command-call productions, while `VIBE-GRAM-*` rules normatively require them. Grammar
-modernization belongs to the grammar milestone; the tree binds the artifact as-is.
+Known specification/implementation inconsistency (open, not resolved by invention): the core
+Edition 1 `expression`/`statement` productions do not reference the VIBE-GRAM constructs, but
+the EBNF file contains a trailing block of standalone VIBE-GRAM extension definitions. The
+default parser also accepts some overlapping unratified forms (`|>`, `?.`, projection shorthand,
+and command-call paths). Candidate 2 remains pre-release and Candidate 3 is unratified. ADR-0003
+records the authority-boundary decision; no grammar or parser behavior is changed here.
 
 ## Canonicalization domain (0.0.0.6 engine, `omni-canon` lib)
 

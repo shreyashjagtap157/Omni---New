@@ -6,9 +6,10 @@ exists because the repository's own `docs/foundation-gates.md` records an open
 defect:
 
 > Known specification inconsistency (open, not resolved by invention): the
-> normative EBNF predates the Candidate-2 amendment and contains no
-> pipeline-operator, newline-termination, projection-shorthand, or command-call
-> productions, while `VIBE-GRAM-*` rules normatively require them.
+> core Edition 1 `expression`/`statement` productions do not reference the
+> VIBE-GRAM constructs, but the EBNF file contains a trailing block of standalone
+> VIBE-GRAM extension definitions. Some corresponding syntax is also accepted
+> by the parser despite Candidate 2 being pre-release and Candidate 3 unratified.
 
 That defect is real and it is **not** fixed by editing the EBNF. This document
 records why, exactly what conflicts, what is in force today, and what has to
@@ -21,12 +22,11 @@ as part of the parser milestone:
 
 1. **The amendment is not in force.** `spec/grammar/candidate2-erratum.md`
    declares `status: pre-release` and `signature_state: pending`, and states
-   `implementation_impact: "none: no implementation consumes this overlay; the
-   Candidate-1 baseline and grammar/omni-edition1.ebnf continue to govern every
-   observable behavior"`. `REL-0007` requires an overlay to be *signed* before it
-   is applied, and the loader rejects any attempt to mark it `applied`. Applying
-   an unsigned overlay to the normative grammar would make the tree claim an
-   authority it does not have.
+   `implementation_impact: "none"`. The overlay itself is not loaded or marked
+   applied, and `REL-0007` requires it to be signed before application. However,
+   current parser source/tests independently accept some overlapping Vibe-first
+   forms. That behavior is an implementation-authority mismatch, not evidence
+   that the overlay has been applied or ratified.
 
 2. **`GRAM-0003` gates the exception explicitly.** Its own text reads: "Newlines
    MAY serve as statement boundaries at unambiguous statement boundaries per
@@ -65,10 +65,32 @@ yet in force.
 | 5 | `VIBE-GRAM-0005` canonical formatter output; indentation must not alter semantics | no Edition 1 formatter rule | formatter | not in force |
 | 6 | `VIBE-GRAM-0006` braced blocks valid everywhere blocks are admitted | already consistent in the EBNF | `block_expr` | already satisfied |
 | 7 | `VIBE-GRAM-0007` release translation MUST reject ambiguous newline interpretation | no Edition 1 counterpart | whole grammar | not in force |
-| 8 | pipeline `\|>` promoted from reserved punctuation by the amendment | `binary_op` has no `\|>` alternative | `binary_op`, `binary_expr` | not in force |
-| 9 | projection shorthand `.field` as an implicit closure | no production | none | not in force |
-| 10 | command-style call disambiguation | `call_expr` is parenthesized only | `call_expr` | not in force |
-| 11 | optional chaining `?.` and null coalescing `??` | `??` is in `binary_op`; `?.` has no production | `binary_expr`, `field_expr` | partial |
+| 8 | pipeline `\\|>` promoted from reserved punctuation by the amendment | `binary_op` has no `\\|>` alternative | standalone `pipeline_operator` block; not referenced by `expression`/`binary_op` | not in force |
+| 9 | projection shorthand `.field` as an implicit closure | no in-force production | standalone `projection_shorthand` block; references undefined `struct_field` | not in force |
+| 10 | command-style call disambiguation | `call_expr` is parenthesized only | standalone `command_call` block; not referenced by `statement`/`expression` | not in force |
+| 11 | optional chaining `?.` and null coalescing `??` | `??` is in `binary_op`; `?.` has no production | no `?.` production | partial |
+
+### Current parser-authority audit (2026-11-07)
+
+The current source does not match the earlier statement that the parser accepts
+only the Edition 1 baseline:
+
+- `grammar_contract.rs::candidate3_pipeline_and_optional_navigation_parse`
+  accepts `a |> b;` and `a?.b;` through the default `Parser::from_source`
+  entry point.
+- `parser.rs` contains a `QuestionDotExpr` parsing branch, pipeline-stage
+  projection handling, and a `parse_command_call` path. The driver has lowering
+  paths for projection shorthand and command calls.
+- The parser's `desugar_node` currently returns its input node unchanged; the
+  parse tests therefore prove acceptance, not complete pipeline semantics or
+  end-to-end conformance.
+- The trailing EBNF VIBE-GRAM definitions are not connected to the core
+  `expression`/`statement` productions. `projection_shorthand` also refers to
+  `struct_field`, while the core grammar defines `struct_expr_field`.
+
+These are observed, unqualified parser behaviors. They do not ratify Candidate 2
+or Candidate 3. ADR-0003 records the authority-boundary decision; no grammar or
+parser behavior is changed by this audit.
 
 `GRAM-0001` names `grammar/omni-edition1.ebnf` as the normative grammar, and
 `GRAM-0008` requires feature-gated grammar to live in "a named edition or
@@ -78,9 +100,11 @@ an amended grammar in a named namespace, and a fingerprint that covers it.
 
 ## What is in force today, and is implemented
 
-The current parser implements the Edition 1 baseline. That is correct, and it is
-pinned by `compiler/omni-parse/src/grammar_contract.rs` so that it cannot drift
-silently while reconciliation is pending:
+The parser pins several Edition 1 baseline constraints in
+`compiler/omni-parse/src/grammar_contract.rs`, but it is not yet a clean
+Edition-1-only implementation: the parser-authority audit above identifies
+unqualified acceptance of some Vibe-first constructs. Those constructs must not
+be treated as ratified or as evidence of Edition 1 conformance:
 
 - newlines never terminate a statement, so a program written on one line and the
   same program split across lines parse identically;
@@ -144,8 +168,9 @@ control-flow, pattern, postfix, range, assignment, closure, and macro-token-tree
 families, subject to the specification holes recorded elsewhere in this
 document.
 
-No Candidate 2 syntax is implied by that implementation progress, and the
-normative Edition 1 EBNF remains unchanged.
+No Candidate 2 amendment is ratified. However, separate parser paths accept
+some overlapping Candidate-2/3 forms without an explicit candidate profile;
+see ADR-0003. The normative EBNF and registry lifecycle states remain unchanged.
 
 ## 0.0.2.3-A parser infrastructure boundary
 
