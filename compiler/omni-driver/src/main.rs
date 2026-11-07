@@ -134,17 +134,6 @@ type FrontendOutput = (
 ///
 /// Both the native object path and the abstract-machine path start here, so a
 /// program can never be executed on one pipeline and compiled on another.
-fn lower_to_concrete_program(
-    source_code: &str,
-    manifest: &omni_registry::Manifest,
-) -> Result<FrontendOutput, String> {
-    lower_to_concrete_program_with_profile(
-        source_code,
-        manifest,
-        omni_parse::ParserProfile::Edition1,
-    )
-}
-
 fn lower_to_concrete_program_with_profile(
     source_code: &str,
     manifest: &omni_registry::Manifest,

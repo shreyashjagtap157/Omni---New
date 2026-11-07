@@ -180,6 +180,8 @@ The parser now exposes two deliberately distinct entry modes:
 - The production driver and all public compile/execute entry points use the
   Edition 1 profile. Test-only driver helpers exercise the experimental pipeline
   path without changing production behavior.
+  The profile-aware frontend helper is private; its only production caller is the
+  Edition 1 HIR wrapper, while the explicit experimental route is used by tests.
 - Command-style calls remain disabled; an existing lowering arm does not make
   their parser syntax available.
 - Candidate 2 newline termination and optional semicolons remain unimplemented

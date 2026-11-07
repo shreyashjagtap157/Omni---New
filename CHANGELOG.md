@@ -9,7 +9,7 @@ All notable project changes are documented here. Entries describe repository sta
 
 - Made `Parser::from_source` select strict `ParserProfile::Edition1` by default. Pipeline `|>`, optional navigation `?.`, prefix-dot projection shorthand, and placeholder expressions are rejected by that profile. They remain available only through explicit `ParserProfile::ExperimentalVibeSyntax`; this is a research switch, not a ratified Candidate-2/3 language profile.
 - Removed the pipeline operator from the Edition 1 precedence table and isolated its experimental precedence in `experimental_binding_power`.
-- Changed production driver parsing/compilation/execution to use Edition 1 only. Retained abstract-machine pipeline regression experiments behind a test-only explicit experimental profile.
+- Changed production driver parsing/compilation/execution to use Edition 1 only. Retained abstract-machine pipeline regression experiments behind a test-only explicit experimental profile. Removed the now-unused intermediate frontend wrapper instead of suppressing the strict dead-code lint.
 - Added parser tests for default-profile rejection, lossless source reconstruction, and explicit experimental opt-in; added a driver regression asserting production compilation rejects unratified syntax. Shared the lexer's context-sensitive standalone-underscore classification so wildcard patterns stay legal while expression placeholders remain experimental-only.
 ### Specification-authority audit
 
