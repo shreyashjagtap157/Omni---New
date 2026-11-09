@@ -404,11 +404,7 @@ impl MixedDomainHeap {
             _ => {}
         }
 
-        self.objects
-            .get_mut(&source)
-            .expect("source checked above")
-            .edges
-            .insert(target);
+        self.objects.get_mut(&source).expect("source checked above").edges.insert(target);
         Ok(())
     }
 
@@ -435,7 +431,8 @@ impl MixedDomainHeap {
     fn collect_tracing(&mut self) -> Vec<ObjectId> {
         let mut pending = VecDeque::from_iter(self.tracing_roots.iter().copied());
         for node in self.objects.values() {
-            if matches!(node.domain, Some(StorageDomain::Region(region)) if self.live_regions.contains(&region)) {
+            if matches!(node.domain, Some(StorageDomain::Region(region)) if self.live_regions.contains(&region))
+            {
                 pending.extend(node.edges.iter().copied());
             }
         }
