@@ -78,20 +78,38 @@ enum ModelError {
     RegionAlreadyEnded(RegionId),
     RegionHasLiveChildren(RegionId),
     RegionHasLiveCaptures(RegionId),
-    TracingToRegionEscape { source: ObjectId, target: ObjectId },
-    CrossRegionReference { source: ObjectId, target: ObjectId },
-    RegionCaptureEscapes { object: ObjectId, region: RegionId },
+    TracingToRegionEscape {
+        source: ObjectId,
+        target: ObjectId,
+    },
+    CrossRegionReference {
+        source: ObjectId,
+        target: ObjectId,
+    },
+    RegionCaptureEscapes {
+        object: ObjectId,
+        region: RegionId,
+    },
     RegionDoesNotOutliveCapture {
         object: ObjectId,
         storage_region: RegionId,
         capture_region: RegionId,
     },
     InvalidCaptureLifetime(CaptureKind),
-    PromotionBudgetExceeded { required: usize, budget: usize },
+    PromotionBudgetExceeded {
+        required: usize,
+        budget: usize,
+    },
     IdentifierExhausted,
     BorrowConflict(ObjectId),
-    UnknownSharedBorrow { object: ObjectId, task: TaskId },
-    UnknownExclusiveBorrow { object: ObjectId, task: TaskId },
+    UnknownSharedBorrow {
+        object: ObjectId,
+        task: TaskId,
+    },
+    UnknownExclusiveBorrow {
+        object: ObjectId,
+        task: TaskId,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -213,7 +231,29 @@ impl MemoryModel {
         }
 
         let mut tracing_roots = BTreeSet::new();
+        let mut permissions: BTreeMap<ObjectId, (usize, bool, bool)> = BTreeMap::new();
         for request in requests {
+            let permission = permissions.entry(request.object).or_default();
+            match request.mode {
+                CaptureMode::SharedBorrow => {
+                    if permission.1 || permission.2 {
+                        return Err(ModelError::BorrowConflict(request.object));
+                    }
+                    permission.0 += 1;
+                }
+                CaptureMode::ExclusiveBorrow => {
+                    if permission.0 > 0 || permission.1 || permission.2 {
+                        return Err(ModelError::BorrowConflict(request.object));
+                    }
+                    permission.1 = true;
+                }
+                CaptureMode::Move => {
+                    if permission.0 > 0 || permission.1 || permission.2 {
+                        return Err(ModelError::BorrowConflict(request.object));
+                    }
+                    permission.2 = true;
+                }
+            }
             let node = self
                 .objects
                 .get(&request.object)
@@ -253,6 +293,13 @@ impl MemoryModel {
         Ok(id)
     }
 
+    fn capture_kind(&self, capture: CaptureId) -> Result<CaptureKind, ModelError> {
+        self.captures
+            .get(&capture)
+            .map(|environment| environment.kind)
+            .ok_or(ModelError::UnknownCapture(capture))
+    }
+
     fn release_capture_environment(&mut self, capture: CaptureId) -> Result<(), ModelError> {
         self.captures.remove(&capture).ok_or(ModelError::UnknownCapture(capture))?;
         Ok(())
@@ -268,8 +315,7 @@ impl MemoryModel {
         root: ObjectId,
         allocation_budget: usize,
     ) -> Result<PromotionResult, ModelError> {
-        let root_domain =
-            self.objects.get(&root).ok_or(ModelError::UnknownObject(root))?.domain;
+        let root_domain = self.objects.get(&root).ok_or(ModelError::UnknownObject(root))?.domain;
         if root_domain == StorageDomain::Tracing {
             return Ok(PromotionResult { promoted_root: root, copies: BTreeMap::new() });
         }
@@ -286,8 +332,7 @@ impl MemoryModel {
                     return Err(ModelError::UnknownRegion(region));
                 }
                 for edge in &node.edges {
-                    let target =
-                        self.objects.get(edge).ok_or(ModelError::UnknownObject(*edge))?;
+                    let target = self.objects.get(edge).ok_or(ModelError::UnknownObject(*edge))?;
                     if matches!(target.domain, StorageDomain::Region(_)) {
                         pending.push_back(*edge);
                     }
@@ -304,11 +349,10 @@ impl MemoryModel {
             });
         }
 
-        let required = u64::try_from(region_nodes.len()).map_err(|_| ModelError::IdentifierExhausted)?;
-        let final_id = self
-            .next_object
-            .checked_add(required)
-            .ok_or(ModelError::IdentifierExhausted)?;
+        let required =
+            u64::try_from(region_nodes.len()).map_err(|_| ModelError::IdentifierExhausted)?;
+        let final_id =
+            self.next_object.checked_add(required).ok_or(ModelError::IdentifierExhausted)?;
 
         let mut copies = BTreeMap::new();
         let mut next = self.next_object;
@@ -325,10 +369,7 @@ impl MemoryModel {
                 .iter()
                 .map(|target| copies.get(target).copied().unwrap_or(*target))
                 .collect::<BTreeSet<_>>();
-            staged.push((
-                copies[original],
-                Object { domain: StorageDomain::Tracing, edges },
-            ));
+            staged.push((copies[original], Object { domain: StorageDomain::Tracing, edges }));
         }
 
         for (id, object) in staged {
@@ -349,7 +390,8 @@ impl MemoryModel {
         if self.regions.values().any(|parent| *parent == Some(region)) {
             return Err(ModelError::RegionHasLiveChildren(region));
         }
-        if self.captures.values().any(|capture| capture.lifetime == CaptureLifetime::Scoped(region)) {
+        if self.captures.values().any(|capture| capture.lifetime == CaptureLifetime::Scoped(region))
+        {
             return Err(ModelError::RegionHasLiveCaptures(region));
         }
 
@@ -378,12 +420,15 @@ impl MemoryModel {
             if matches!(node.domain, StorageDomain::Region(region) if self.regions.contains_key(&region))
             {
                 pending.extend(
-                    node.edges.iter().filter(|target| {
-                        matches!(
-                            self.objects.get(target).map(|node| node.domain),
-                            Some(StorageDomain::Tracing)
-                        )
-                    }).copied(),
+                    node.edges
+                        .iter()
+                        .filter(|target| {
+                            matches!(
+                                self.objects.get(*target).map(|node| node.domain),
+                                Some(StorageDomain::Tracing)
+                            )
+                        })
+                        .copied(),
                 );
             }
         }
@@ -404,8 +449,7 @@ impl MemoryModel {
             .objects
             .iter()
             .filter_map(|(object, node)| {
-                (node.domain == StorageDomain::Tracing && !live.contains(object))
-                    .then_some(*object)
+                (node.domain == StorageDomain::Tracing && !live.contains(object)).then_some(*object)
             })
             .collect::<Vec<_>>();
         for object in &reclaimed {
@@ -420,10 +464,7 @@ impl MemoryModel {
     }
 
     fn object_edges(&self, object: ObjectId) -> Result<&BTreeSet<ObjectId>, ModelError> {
-        self.objects
-            .get(&object)
-            .map(|node| &node.edges)
-            .ok_or(ModelError::UnknownObject(object))
+        self.objects.get(&object).map(|node| &node.edges).ok_or(ModelError::UnknownObject(object))
     }
 }
 
@@ -452,7 +493,8 @@ impl TaskAccessLedger {
     }
 
     fn end_shared(&mut self, object: ObjectId, task: TaskId) -> Result<(), ModelError> {
-        let state = self.states.get_mut(&object).ok_or(ModelError::UnknownSharedBorrow { object, task })?;
+        let state =
+            self.states.get_mut(&object).ok_or(ModelError::UnknownSharedBorrow { object, task })?;
         if !state.shared.remove(&task) {
             return Err(ModelError::UnknownSharedBorrow { object, task });
         }
@@ -472,7 +514,10 @@ impl TaskAccessLedger {
     }
 
     fn end_exclusive(&mut self, object: ObjectId, task: TaskId) -> Result<(), ModelError> {
-        let state = self.states.get_mut(&object).ok_or(ModelError::UnknownExclusiveBorrow { object, task })?;
+        let state = self
+            .states
+            .get_mut(&object)
+            .ok_or(ModelError::UnknownExclusiveBorrow { object, task })?;
         if state.exclusive != Some(task) {
             return Err(ModelError::UnknownExclusiveBorrow { object, task });
         }
@@ -504,9 +549,14 @@ mod tests {
             .create_capture_environment(
                 CaptureKind::Closure,
                 CaptureLifetime::Scoped(inner),
-                &[request(outer_value, CaptureMode::SharedBorrow), request(inner_value, CaptureMode::Move)],
+                &[
+                    request(outer_value, CaptureMode::SharedBorrow),
+                    request(inner_value, CaptureMode::Move),
+                ],
             )
             .expect("inner closure may capture same/longer-lived region values");
+
+        assert_eq!(model.capture_kind(closure), Ok(CaptureKind::Closure));
 
         let task = model
             .create_capture_environment(
@@ -559,6 +609,34 @@ mod tests {
             Err(ModelError::RegionCaptureEscapes { object: value, region })
         );
         assert!(model.contains(value));
+    }
+
+    #[test]
+    fn one_capture_environment_cannot_alias_a_move_or_exclusive_capture() {
+        let mut model = MemoryModel::default();
+        let region = model.new_region().expect("region");
+        let value = model.allocate_in_region(region).expect("value");
+
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Scoped(region),
+                &[
+                    request(value, CaptureMode::SharedBorrow),
+                    request(value, CaptureMode::ExclusiveBorrow),
+                ],
+            ),
+            Err(ModelError::BorrowConflict(value))
+        );
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Scoped(region),
+                &[request(value, CaptureMode::Move), request(value, CaptureMode::SharedBorrow)],
+            ),
+            Err(ModelError::BorrowConflict(value))
+        );
+        assert!(model.captures.is_empty(), "rejected capture must not publish an environment");
     }
 
     #[test]
@@ -689,7 +767,10 @@ mod tests {
 
         ledger.begin_shared(object, first).expect("task one shared");
         ledger.begin_shared(object, second).expect("task two shared");
-        assert_eq!(ledger.begin_exclusive(object, TaskId(3)), Err(ModelError::BorrowConflict(object)));
+        assert_eq!(
+            ledger.begin_exclusive(object, TaskId(3)),
+            Err(ModelError::BorrowConflict(object))
+        );
 
         ledger.end_shared(object, first).expect("release task one");
         ledger.end_shared(object, second).expect("release task two");
