@@ -6,8 +6,8 @@ All notable project changes are documented here. Entries describe repository sta
 
 ### Research — managed memory and affine ownership
 
-- Added a source-backed study of the historical managed-memory-default requirement versus the current Edition 1 affine ownership reference. Compared affine-first, managed-first, and composable memory-domain candidates; recorded the access/reclamation/resource-lifetime distinction as a hypothesis, not an accepted architecture.
-- Added an isolated executable model for region bulk reclamation, strong reference counting, tracing reachability, shared/exclusive access permissions, deterministic resource-token destruction, and a conservative mixed region/tracing outlives boundary. The model is outside the production Cargo workspace and is not normative or production memory management.
+- Added a source-backed study of the historical managed-memory-default requirement versus the current Edition 1 affine ownership reference. Updated the prior-art analysis with direct-source nuance for the 2026 Polonius abstract-interpretation preprint and extended the nested-region experiment. Compared affine-first, managed-first, and composable memory-domain candidates; recorded the access/reclamation/resource-lifetime distinction as a hypothesis, not an accepted architecture.
+- Added an isolated executable model for region bulk reclamation, strong reference counting, tracing reachability, shared/exclusive access permissions, deterministic resource-token destruction, and mixed region/tracing outlives boundaries. The model now supports nested parent/child regions: child-to-ancestor references are permitted, outer-to-child and sibling references are rejected, and regions must end inside-out. This remains a research-only candidate policy, not Edition 1 semantics or production memory management.
 - Added rustfmt and executable-prototype checks to the pinned Rust 1.95.0 Omni CI pipeline. No Edition 1 grammar, semantics, registry lifecycle, manifest digest, or release version changed.
 
 ### Security, qualification integrity, and implementation evidence

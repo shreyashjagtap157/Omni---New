@@ -9,10 +9,10 @@ The prototype contains:
 - a region store with bulk region termination;
 - a strong-reference-counted graph with no cycle collector;
 - a tracing graph collector that can reclaim unreachable cycles;
-- a mixed-domain graph that rejects tracing-to-region lifetime escape and treats live-region edges as roots into the tracing heap;
+- a mixed-domain graph that rejects tracing-to-region lifetime escape, treats live-region edges as roots into the tracing heap, and allows only references to the same or an outer region;
 - a deterministic resource token whose lifetime is independent of a separately modeled tracing object.
 
-It intentionally does not implement a language type checker, sound lifetime inference, concurrent collector, weak references, nested-region subtyping, automatic promotion, arbitrary domain crossings, a native allocator, or ABI. The mixed-domain tests encode one conservative lifetime policy; they do not prove it is the best or complete Omni policy. The tests therefore validate only the model's encoded transitions. They do not select a language architecture or establish production memory safety.
+It intentionally does not implement a language type checker, sound lifetime inference, concurrent collector, weak references, general region subtyping, automatic promotion, closure/task escape analysis, arbitrary domain crossings, a native allocator, or ABI. The mixed-domain tests encode one conservative lifetime policy; they do not prove it is the best or complete Omni policy. The tests therefore validate only the model's encoded transitions. They do not select a language architecture or establish production memory safety.
 
 ## Reproduce
 

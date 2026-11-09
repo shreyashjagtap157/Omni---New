@@ -2,7 +2,7 @@
 
 This repository contains the Rust implementation of the Omni Edition 1 programming language and toolchain. The implementation is governed by the normative specifications under `spec/`; implementation behavior must not be invented locally when a specification is silent or contradictory.
 
-> **Repository status — 9 November 2026:** this remains an active, early-stage compiler implementation, not a complete production compiler or self-hosted language. The latest fully validated code head before this research update is `6de67f1d760c251371e8c8206e0af3f5376c8e1c`; its full Omni CI, Rust tests, strict Clippy, Cargo Audit, and CodeQL workflows passed. Foundation 0.0.0.13 technical checks passed on that head, but formal qualification scope/sign-off, complete-language conformance, and production readiness remain unresolved. See [Actions](https://github.com/shreyashjagtap157/Omni---New/actions) for current run state.
+> **Repository status — 9 November 2026:** this remains an active, early-stage compiler implementation, not a complete production compiler or self-hosted language. Commit `3529484d992e46ded452d96afbc42254f47ea882` passed the complete Omni CI pipeline (including 11 isolated memory-model research tests), Rust build/tests, strict Clippy, Cargo Audit, and both Rust and Actions CodeQL analyses. Foundation 0.0.0.13 technical checks passed on that commit, but formal qualification scope/sign-off, complete-language conformance, and production readiness remain unresolved. Subsequent research changes require fresh validation. See [Actions](https://github.com/shreyashjagtap157/Omni---New/actions) for current run state.
 
 ## Generational roadmap
 
@@ -41,7 +41,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
 ```
 
-These commands express the intended qualification checks; the current baseline should be considered unqualified until they pass on the candidate commit.
+These commands express the core Rust qualification checks. Commit `3529484d` also passed the complete main CI pipeline, including the additional isolated research-model check and Foundation 0.0.0.13 technical gate. A passing technical gate does not by itself establish formal sign-off, complete-language qualification, or product release readiness.
 
 Do not update `Cargo.lock` implicitly in CI. If dependency manifests have intentionally changed, update and review the lockfile in a deliberate commit, then rerun locked verification.
 
@@ -49,7 +49,7 @@ Fuzz jobs that require `-Z` options or sanitizers must use an explicitly support
 
 ## Security and dependency hygiene
 
-The repository has an open issue concerning a ruzstd decompression-bomb advisory: [issue #46](https://github.com/shreyashjagtap157/Omni---New/issues/46). Review the dependency graph and attack surface, make a documented remediation decision, and verify the selected dependency version.
+The prior `ruzstd` decompression-bomb issue [#46](https://github.com/shreyashjagtap157/Omni---New/issues/46) is closed. The unused direct `object` dependency and its compression feature path were removed; the current `Cargo.lock` contains neither `ruzstd` nor `flate2`. Cargo Audit run `42570448695` on commit `3529484d` passed. Re-run the audit after every dependency change; a green audit is commit-scoped and does not replace broader supply-chain review.
 
 Open dependency updates must be evaluated against the language/compiler compatibility contract; a newer backend crate should not be adopted without compatibility testing.
 
@@ -63,7 +63,7 @@ Open dependency updates must be evaluated against the language/compiler compatib
 6. Keep formal foundation sign-off, full-language qualification, self-hosting, and production readiness distinct from successful technical CI.
 ## Releases
 
-No GitHub release was found in the repository audit dated 22 October 2026. Treat any version or changelog entry as development metadata unless accompanied by a qualified tag and release evidence.
+Do not infer a public release from development version strings or changelog entries. A release claim requires a qualified tag and matching release evidence under the project's versioning and governance policy.
 
 ## License
 

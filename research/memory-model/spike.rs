@@ -18,6 +18,7 @@ enum ModelError {
     UnknownObject(ObjectId),
     UnknownRegion(RegionId),
     RegionAlreadyEnded(RegionId),
+    RegionHasLiveChildren(RegionId),
     RootNotHeld(ObjectId),
     BorrowConflict(ObjectId),
     NoActiveSharedBorrow(ObjectId),
@@ -327,25 +328,48 @@ struct MixedDomainNode {
     edges: BTreeSet<ObjectId>,
 }
 
-/// A conservative mixed-region/tracing model. Active region objects are roots
-/// for tracing objects they reference. Longer-lived tracing objects may not
-/// retain shorter-lived region objects. Nested-region outlives relations are
-/// intentionally not modeled: references between distinct regions are rejected.
+/// A conservative mixed-region/tracing model. Region parent links encode
+/// lexical outlives: an inner region may point to itself or an ancestor, but
+/// an outer or sibling region may not retain a shorter-lived object. Active
+/// region objects are roots for tracing objects they reference.
 #[derive(Debug, Default)]
 struct MixedDomainHeap {
     next_object: u64,
     next_region: u64,
-    live_regions: BTreeSet<RegionId>,
+    regions: BTreeMap<RegionId, Option<RegionId>>,
     objects: BTreeMap<ObjectId, MixedDomainNode>,
     tracing_roots: BTreeSet<ObjectId>,
 }
 
 impl MixedDomainHeap {
     fn new_region(&mut self) -> RegionId {
+        self.insert_region(None)
+    }
+
+    fn new_child_region(&mut self, parent: RegionId) -> Result<RegionId, ModelError> {
+        if !self.regions.contains_key(&parent) {
+            return Err(ModelError::UnknownRegion(parent));
+        }
+        Ok(self.insert_region(Some(parent)))
+    }
+
+    fn insert_region(&mut self, parent: Option<RegionId>) -> RegionId {
         let region = RegionId(self.next_region + 1);
         self.next_region += 1;
-        self.live_regions.insert(region);
+        self.regions.insert(region, parent);
         region
+    }
+
+    /// Returns true when outer is the same region as, or an ancestor of, inner.
+    fn region_outlives(&self, outer: RegionId, inner: RegionId) -> bool {
+        let mut current = Some(inner);
+        while let Some(region) = current {
+            if region == outer {
+                return true;
+            }
+            current = self.regions.get(&region).copied().flatten();
+        }
+        false
     }
 
     fn allocate_tracing(&mut self) -> ObjectId {
@@ -359,7 +383,7 @@ impl MixedDomainHeap {
     }
 
     fn allocate_in_region(&mut self, region: RegionId) -> Result<ObjectId, ModelError> {
-        if !self.live_regions.contains(&region) {
+        if !self.regions.contains_key(&region) {
             return Err(ModelError::UnknownRegion(region));
         }
         let object = ObjectId(self.next_object + 1);
@@ -398,7 +422,9 @@ impl MixedDomainHeap {
             (StorageDomain::Tracing, StorageDomain::Region(_)) => {
                 return Err(ModelError::TracingToRegionEscape { source, target });
             }
-            (StorageDomain::Region(a), StorageDomain::Region(b)) if a != b => {
+            (StorageDomain::Region(source_region), StorageDomain::Region(target_region))
+                if !self.region_outlives(target_region, source_region) =>
+            {
                 return Err(ModelError::CrossRegionReference { source, target });
             }
             _ => {}
@@ -409,9 +435,13 @@ impl MixedDomainHeap {
     }
 
     fn end_region(&mut self, region: RegionId) -> Result<Vec<ObjectId>, ModelError> {
-        if !self.live_regions.remove(&region) {
+        if !self.regions.contains_key(&region) {
             return Err(ModelError::RegionAlreadyEnded(region));
         }
+        if self.regions.values().any(|parent| *parent == Some(region)) {
+            return Err(ModelError::RegionHasLiveChildren(region));
+        }
+        self.regions.remove(&region);
         let members = self
             .objects
             .iter()
@@ -431,7 +461,7 @@ impl MixedDomainHeap {
     fn collect_tracing(&mut self) -> Vec<ObjectId> {
         let mut pending = VecDeque::from_iter(self.tracing_roots.iter().copied());
         for node in self.objects.values() {
-            if matches!(node.domain, Some(StorageDomain::Region(region)) if self.live_regions.contains(&region))
+            if matches!(node.domain, Some(StorageDomain::Region(region)) if self.regions.contains_key(&region))
             {
                 pending.extend(node.edges.iter().copied());
             }
@@ -645,6 +675,48 @@ mod tests {
             heap.add_tracing_root(region_object),
             Err(ModelError::TracingRootCannotReferenceRegion(region_object))
         );
+    }
+
+    #[test]
+    fn nested_region_references_follow_outlives_direction_and_end_inside_out() {
+        let mut heap = MixedDomainHeap::default();
+        let outer = heap.new_region();
+        let inner = heap.new_child_region(outer).expect("inner region");
+        let sibling = heap.new_child_region(outer).expect("sibling region");
+        let outer_object = heap.allocate_in_region(outer).expect("outer object");
+        let inner_object = heap.allocate_in_region(inner).expect("inner object");
+        let sibling_object = heap.allocate_in_region(sibling).expect("sibling object");
+
+        // The inner allocation dies first, so it may safely retain its outer allocation.
+        heap.add_edge(inner_object, outer_object).expect("inner -> outer is outlives-safe");
+
+        // A longer-lived outer allocation cannot retain an inner allocation.
+        assert_eq!(
+            heap.add_edge(outer_object, inner_object),
+            Err(ModelError::CrossRegionReference {
+                source: outer_object,
+                target: inner_object,
+            })
+        );
+
+        // Sibling regions have no outlives relationship.
+        assert_eq!(
+            heap.add_edge(inner_object, sibling_object),
+            Err(ModelError::CrossRegionReference {
+                source: inner_object,
+                target: sibling_object,
+            })
+        );
+
+        // An outer region cannot be ended while a child scope remains live.
+        assert_eq!(heap.end_region(outer), Err(ModelError::RegionHasLiveChildren(outer)));
+
+        assert_eq!(heap.end_region(inner), Ok(vec![inner_object]));
+        assert!(heap.contains(outer_object));
+        assert!(heap.contains(sibling_object));
+        assert_eq!(heap.end_region(sibling), Ok(vec![sibling_object]));
+        assert_eq!(heap.end_region(outer), Ok(vec![outer_object]));
+        assert_eq!(heap.end_region(outer), Err(ModelError::RegionAlreadyEnded(outer)));
     }
 
     #[test]
