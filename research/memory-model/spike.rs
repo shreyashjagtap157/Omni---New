@@ -68,7 +68,8 @@ impl AccessLedger {
     }
 
     fn end_mutable(&mut self, object: ObjectId) -> Result<(), ModelError> {
-        let state = self.states.get_mut(&object).ok_or(ModelError::NoActiveMutableBorrow(object))?;
+        let state =
+            self.states.get_mut(&object).ok_or(ModelError::NoActiveMutableBorrow(object))?;
         if !state.mutable {
             return Err(ModelError::NoActiveMutableBorrow(object));
         }
@@ -281,20 +282,15 @@ impl RcHeap {
         let mut pending = VecDeque::from([object]);
         let mut reclaimed = Vec::new();
         while let Some(candidate) = pending.pop_front() {
-            let dead = self
-                .objects
-                .get(&candidate)
-                .is_some_and(|node| node.strong_count == 0);
+            let dead = self.objects.get(&candidate).is_some_and(|node| node.strong_count == 0);
             if !dead {
                 continue;
             }
             let removed = self.objects.remove(&candidate).expect("dead object exists");
             reclaimed.push(candidate);
             for child in removed.edges {
-                let child_node = self
-                    .objects
-                    .get_mut(&child)
-                    .ok_or(ModelError::UnknownObject(child))?;
+                let child_node =
+                    self.objects.get_mut(&child).ok_or(ModelError::UnknownObject(child))?;
                 if child_node.strong_count == 0 {
                     return Err(ModelError::ReferenceCountUnderflow(child));
                 }
@@ -441,10 +437,17 @@ mod tests {
         drop(resource);
 
         assert_eq!(close_count.get(), 1);
-        assert!(heap.contains(object), "resource cleanup must not imply object storage reclamation");
+        assert!(
+            heap.contains(object),
+            "resource cleanup must not imply object storage reclamation"
+        );
 
         heap.remove_root(object);
         assert_eq!(heap.collect(), vec![object]);
-        assert_eq!(close_count.get(), 1, "later storage reclamation must not close the resource twice");
+        assert_eq!(
+            close_count.get(),
+            1,
+            "later storage reclamation must not close the resource twice"
+        );
     }
 }
