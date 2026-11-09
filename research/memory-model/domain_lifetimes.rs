@@ -955,7 +955,10 @@ mod tests {
         assert_eq!(resources.owner(resource), Ok(ResourceOwner::Released));
         assert_eq!(resources.release_count(resource), Ok(1));
         assert_eq!(resources.finish_reason(capture), Ok(CaptureFinishReason::Completed));
-        assert_eq!(resources.finish_capture(&mut model, capture, CaptureFinishReason::Completed), Err(ModelError::UnknownCapture(capture)));
+        assert_eq!(
+            resources.finish_capture(&mut model, capture, CaptureFinishReason::Completed),
+            Err(ModelError::UnknownCapture(capture))
+        );
         assert_eq!(resources.release_count(resource), Ok(1));
     }
 
@@ -977,7 +980,8 @@ mod tests {
                 .transfer_to_capture(&model, capture, &[first, second])
                 .expect("transfer resources");
 
-            let released = resources.finish_capture(&mut model, capture, reason).expect("finish task");
+            let released =
+                resources.finish_capture(&mut model, capture, reason).expect("finish task");
             assert_eq!(released, vec![first, second]);
             assert_eq!(resources.release_count(first), Ok(1));
             assert_eq!(resources.release_count(second), Ok(1));
@@ -1039,7 +1043,11 @@ mod tests {
 
         model.roots.remove(&object);
         assert_eq!(model.collect_tracing(), vec![object]);
-        assert_eq!(resources.release_count(resource), Ok(1), "storage collection must not release the resource twice");
+        assert_eq!(
+            resources.release_count(resource),
+            Ok(1),
+            "storage collection must not release the resource twice"
+        );
     }
 
     #[test]
