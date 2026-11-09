@@ -38,3 +38,10 @@ This model is also not production memory management, a task scheduler, or a comp
 
 
 The second model also rejects exclusive/move capture reservations that overlap any existing live capture of the same object, permits multiple shared capture leases, and removes leases when an environment is released. Its move mode remains a reservation model: caller-side source-place invalidation is not yet represented.
+
+
+## Pinned/external-resource lifetime experiment
+
+The domain model now has an explicit object-pinning bit and object-owned external-resource set. Attaching an external resource transfers its logical ownership to the object and pins it. Closing the resource is exact-once, but storage remains pinned until an explicit unpin. Region teardown and region-to-tracing promotion reject pinned or resource-bearing nodes. Pinned tracing nodes are roots in the prototype collector.
+
+On code commit \`3902f6d\`, the complete domain prototype passed 22 tests. The model does not emulate physical address pinning, an OS/device resource, DMA coherence, or a native FFI boundary. Its pin/resource state is a semantic experiment only.

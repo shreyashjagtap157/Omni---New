@@ -277,21 +277,21 @@ A direct safety argument for the scoped-capture constraint is conditional on the
 
 ### Exact prototype validation
 
-On commit `fa1dcce1207843300edf70ed2b1ac3b30b694b89`:
+On commit `3902f6d242abdb788f8e50e2f502ccfb395f3f47`:
 
 - Initial memory-domain prototype: 12 passed; 0 failed.
-- Closure/task capture, region promotion, resource transfer/cleanup, and cross-environment access-reservation prototype: 18 passed; 0 failed.
+- Closure/task capture, region promotion, resource transfer/cleanup, cross-environment access reservation, pinning, and object-owned external-resource prototype: 22 passed; 0 failed.
 - Focused `omni-verify` suite: 16 passed; 0 failed.
-- Full Omni CI Pipeline run `42587984784`: passed all configured steps.
-- Rust build/tests run `42587984909`: passed.
-- Strict Clippy run `42587984861`: passed.
-- Cargo Audit run `42587984888`: passed.
-- CodeQL Advanced run `42587984934`: Rust and Actions analyses passed.
+- Full Omni CI Pipeline run `42589337786`: passed all configured steps.
+- Rust build/tests run `42589337889`: passed.
+- Strict Clippy run `42589337862`: passed.
+- Cargo Audit run `42589337774`: passed.
+- CodeQL Advanced run `42589337772`: Rust and Actions analyses passed.
 - Pinned toolchain: Rust 1.95.0.
 
-The CI includes both research model format/build/test checks, workspace formatting, focused ownership tests, strict Clippy, workspace check/tests, locked metadata, specification binding, semantic linkage, crate topology, and Foundation 0.0.0.13 technical gate.
+The full CI included formatting and execution of both isolated research models, focused ownership tests, strict Clippy, workspace check/tests, locked metadata, specification binding, semantic linkage, crate topology, and the Foundation 0.0.0.13 technical gate.
 
-These results validate only the model transitions and repository gates. They do not prove a composable Omni memory calculus, source-language move correctness, static task safety, a real scheduler, a production collector/allocator, native ABI safety, or whole-language qualification.
+These results validate only the model transitions and repository gates. They do not prove a composable Omni memory calculus, source-language move correctness, static task safety, a real scheduler, a production collector/allocator, native FFI/DMA support, ABI safety, or whole-language qualification.
 
 ## 10. Measurement plan
 
@@ -327,14 +327,13 @@ Benchmark at least high-level managed, affine/explicit, and collector-free/regio
 
 ## 12. Immediate next steps
 
-1. Model caller-side source-place invalidation for `Move` capture; distinguish it from a temporary exclusive access reservation and define what happens when the capture environment completes.
-2. Add explicit pinned/FFI/external-resource metadata to objects; prove that region promotion cannot copy pinned or externally-owned objects and that region teardown cannot release them before explicit unpin/close.
-3. Falsify mixed-region/tracing/RC strong and weak edges, including cycles crossing collector boundaries and failure-atomic domain transfer.
-4. Add partial-initialization and explicit allocation-failure tests for promotion staging; the current allocation budget is only a logical preflight, not a host OOM guarantee.
-5. Recover the original requirements interview and map the managed-memory requirement to exact statements.
-6. Compare memory defaults across embedded, bare-metal, real-time, security-critical, and ordinary application profiles using reproducible workload measurements.
-7. Continue CFG/NLL, aggregate provenance, and internal verifier-authority work under the existing Edition 1 rules.
-8. Do not change Edition 1 normative semantics until research evidence and controlled governance authorize it.
+1. Model caller-side source-place invalidation for `Move` capture; distinguish it from temporary exclusive access reservation and define ownership after capture completion, failure, and cancellation.
+2. Add mixed-domain strong/weak references and cycles crossing region/tracing/RC boundaries; define which edges are roots and how cycle collection interacts with region lifetime.
+3. Add partial-initialization and explicit allocation-failure cases for promotion staging. Current budget checks are logical preflight, not a host OOM guarantee.
+4. Recover the original requirements interview and map managed-memory-default intent to exact recoverable statements.
+5. Compare default policies across embedded, bare-metal, real-time, security-critical, and ordinary application profiles using reproducible workload measurements.
+6. Continue CFG/NLL, aggregate provenance, and internal verifier-authority work under existing Edition 1 rules.
+7. Do not change Edition 1 normative semantics until research evidence and controlled governance authorize it.
 
 ## 13. Sources
 
