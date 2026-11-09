@@ -223,6 +223,7 @@ impl OwnershipState {
         authority: &BTreeSet<String>,
     ) -> Result<(), OwnershipError> {
         self.require_initialized(place)?;
+        self.validate_access_authority(place, authority, true)?;
         self.ensure_access_allowed_except(place, AccessKind::Drop, authority)?;
         self.places.insert(place.clone(), PlaceState::Moved);
         Ok(())
@@ -241,6 +242,7 @@ impl OwnershipState {
         authority: &BTreeSet<String>,
     ) -> Result<(), OwnershipError> {
         self.require_initialized(place)?;
+        self.validate_access_authority(place, authority, false)?;
         self.ensure_access_allowed_except(place, AccessKind::Read, authority)
     }
 
@@ -256,6 +258,7 @@ impl OwnershipState {
         authority: &BTreeSet<String>,
     ) -> Result<(), OwnershipError> {
         self.require_initialized(&place)?;
+        self.validate_access_authority(&place, authority, true)?;
         self.ensure_access_allowed_except(&place, AccessKind::Move, authority)?;
         let state = if place.projections.is_empty() {
             PlaceState::Moved
@@ -394,6 +397,7 @@ impl OwnershipState {
         place: Place,
         authority: &BTreeSet<String>,
     ) -> Result<(), OwnershipError> {
+        self.validate_access_authority(&place, authority, true)?;
         self.ensure_access_allowed_except(&place, AccessKind::Write, authority)?;
         self.places.insert(place, PlaceState::Initialized);
         Ok(())
@@ -513,13 +517,22 @@ impl OwnershipState {
         Ok(())
     }
 
-    fn validate_parent_loans(
+    /// Validates loan provenance supplied by the trusted MIR verifier.
+    ///
+    /// This is not a capability-token API: callers must derive the set from
+    /// tracked reference provenance, not from untrusted identifiers. The crate
+    /// is workspace-internal and marked publish = false; the verifier is the
+    /// production caller and remains responsible for proving that a reference
+    /// carries the supplied chain. This function independently checks that
+    /// every named loan is live, overlaps the accessed place, and is mutable
+    /// when mutation is requested.
+    fn validate_access_authority(
         &self,
         place: &Place,
-        parents: &BTreeSet<String>,
-        mutable: bool,
+        authority: &BTreeSet<String>,
+        requires_mutable: bool,
     ) -> Result<(), OwnershipError> {
-        for region in parents {
+        for region in authority {
             let loan = self
                 .loans
                 .get(region)
@@ -530,11 +543,20 @@ impl OwnershipState {
                     existing: "unrelated parent".into(),
                 });
             }
-            if mutable && !loan.mutable {
+            if requires_mutable && !loan.mutable {
                 return Err(OwnershipError::WriteThroughSharedBorrow(place.clone()));
             }
         }
         Ok(())
+    }
+
+    fn validate_parent_loans(
+        &self,
+        place: &Place,
+        parents: &BTreeSet<String>,
+        mutable: bool,
+    ) -> Result<(), OwnershipError> {
+        self.validate_access_authority(place, parents, mutable)
     }
 }
 
@@ -773,6 +795,70 @@ mod tests {
         state.borrow_shared(x.clone(), "region").expect("same loan on another dataflow iteration");
         assert_eq!(state.loans().count(), 1);
         assert!(matches!(state.assign(x), Err(OwnershipError::BorrowConflict { .. })));
+    }
+
+    #[test]
+    fn shared_loan_authority_cannot_write_move_or_drop_the_borrowed_place() {
+        let place = Place::root("value");
+        let mut state = OwnershipState::new();
+        state.initialize(place.clone());
+        state.borrow_shared(place.clone(), "shared-parent").expect("shared parent loan");
+        let authority = BTreeSet::from(["shared-parent".to_string()]);
+
+        assert_eq!(
+            state.assign_with_authority(place.clone(), &authority),
+            Err(OwnershipError::WriteThroughSharedBorrow(place.clone()))
+        );
+        assert_eq!(
+            state.move_with_authority(place.clone(), &authority),
+            Err(OwnershipError::WriteThroughSharedBorrow(place.clone()))
+        );
+        assert_eq!(
+            state.drop_with_authority(&place, &authority),
+            Err(OwnershipError::WriteThroughSharedBorrow(place.clone()))
+        );
+
+        assert_eq!(state.state(&place), PlaceState::Initialized);
+        assert_eq!(state.loans().count(), 1, "failed accesses must preserve the live loan");
+    }
+
+    #[test]
+    fn mutable_loan_authority_allows_write_through_the_reference() {
+        let place = Place::root("value");
+        let mut state = OwnershipState::new();
+        state.initialize(place.clone());
+        state.borrow_mut(place.clone(), "mutable-parent").expect("mutable parent loan");
+        let authority = BTreeSet::from(["mutable-parent".to_string()]);
+
+        state
+            .assign_with_authority(place.clone(), &authority)
+            .expect("mutable reference authority may write through its loan");
+        assert_eq!(state.state(&place), PlaceState::Initialized);
+        assert_eq!(state.loans().count(), 1);
+    }
+
+    #[test]
+    fn access_authority_must_name_live_loans_that_overlap_the_place() {
+        let place = Place::root("value");
+        let unrelated = Place::root("other");
+        let mut state = OwnershipState::new();
+        state.initialize(place.clone());
+        state.initialize(unrelated.clone());
+        state.borrow_shared(place.clone(), "parent").expect("parent loan");
+
+        assert_eq!(
+            state.read_with_authority(&place, &BTreeSet::from(["missing".to_string()])),
+            Err(OwnershipError::UnknownLoan("missing".into()))
+        );
+        assert_eq!(
+            state.read_with_authority(&unrelated, &BTreeSet::from(["parent".to_string()])),
+            Err(OwnershipError::BorrowConflict {
+                place: unrelated.clone(),
+                existing: "unrelated parent".into(),
+            })
+        );
+        assert_eq!(state.state(&unrelated), PlaceState::Initialized);
+        assert_eq!(state.loans().count(), 1);
     }
 
     #[test]
