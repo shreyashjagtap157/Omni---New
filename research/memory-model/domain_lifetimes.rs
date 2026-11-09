@@ -84,15 +84,24 @@ enum ModelError {
     DuplicateResourceInTransfer(ResourceId),
     ResourceOwnedByCapture(ResourceId),
     ResourceOwnedByObject(ResourceId),
-    ResourceNotAttachedToObject { object: ObjectId, resource: ResourceId },
+    ResourceNotAttachedToObject {
+        object: ObjectId,
+        resource: ResourceId,
+    },
     ResourceAlreadyReleased(ResourceId),
     ObjectAlreadyPinned(ObjectId),
     ObjectNotPinned(ObjectId),
     CannotUnpinObjectWithExternalResources(ObjectId),
     PinnedObjectCannotBePromoted(ObjectId),
     ExternalResourceCannotBePromoted(ObjectId),
-    RegionContainsPinnedObject { region: RegionId, object: ObjectId },
-    RegionContainsExternalResource { region: RegionId, object: ObjectId },
+    RegionContainsPinnedObject {
+        region: RegionId,
+        object: ObjectId,
+    },
+    RegionContainsExternalResource {
+        region: RegionId,
+        object: ObjectId,
+    },
     ResourceOwnershipInvariant(ResourceId),
     ResourceReleaseCountOverflow(ResourceId),
     RegionAlreadyEnded(RegionId),
@@ -1379,9 +1388,7 @@ mod tests {
         let object = model.allocate_in_region(region).expect("region object");
         let mut resources = ResourceLedger::default();
         let resource = resources.allocate().expect("FFI/DMA resource");
-        resources
-            .attach_to_object(&mut model, object, resource)
-            .expect("attach external resource");
+        resources.attach_to_object(&mut model, object, resource).expect("attach external resource");
 
         assert_eq!(resources.owner(resource), Ok(ResourceOwner::Object(object)));
         assert_eq!(
@@ -1391,11 +1398,13 @@ mod tests {
         assert_eq!(
             resources.transfer_to_capture(
                 &model,
-                model.create_capture_environment(
-                    CaptureKind::Closure,
-                    CaptureLifetime::Scoped(region),
-                    &[request(object, CaptureMode::SharedBorrow)],
-                ).expect("scoped capture"),
+                model
+                    .create_capture_environment(
+                        CaptureKind::Closure,
+                        CaptureLifetime::Scoped(region),
+                        &[request(object, CaptureMode::SharedBorrow)],
+                    )
+                    .expect("scoped capture"),
                 &[resource]
             ),
             Err(ModelError::ResourceOwnedByObject(resource))
@@ -1427,7 +1436,8 @@ mod tests {
         );
 
         model.unpin_object(object).expect("explicit unpin");
-        let promoted = model.promote_region_graph(object, 1).expect("promote after close and unpin");
+        let promoted =
+            model.promote_region_graph(object, 1).expect("promote after close and unpin");
         assert!(model.contains(promoted.promoted_root));
         assert_eq!(model.end_region(region), Ok(vec![object]));
         assert_eq!(resources.release_count(resource), Ok(1));
@@ -1444,9 +1454,7 @@ mod tests {
         assert!(model.collect_tracing().is_empty());
         assert!(model.contains(object));
 
-        resources
-            .release_object_resource(&mut model, object, resource)
-            .expect("close resource");
+        resources.release_object_resource(&mut model, object, resource).expect("close resource");
         assert!(model.collect_tracing().is_empty());
         assert!(model.contains(object), "closed resource remains pinned until explicit unpin");
 
@@ -1461,11 +1469,7 @@ mod tests {
         let region = model.new_region().expect("region");
         let object = model.allocate_in_region(region).expect("object");
         let capture = model
-            .create_capture_environment(
-                CaptureKind::Closure,
-                CaptureLifetime::Scoped(region),
-                &[],
-            )
+            .create_capture_environment(CaptureKind::Closure, CaptureLifetime::Scoped(region), &[])
             .expect("capture");
         let mut resources = ResourceLedger::default();
         let resource = resources.allocate().expect("resource");
