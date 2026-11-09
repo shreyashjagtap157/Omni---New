@@ -130,6 +130,7 @@ struct MemoryModel {
     objects: BTreeMap<ObjectId, Object>,
     roots: BTreeSet<ObjectId>,
     captures: BTreeMap<CaptureId, CaptureEnvironment>,
+    capture_access: BTreeMap<ObjectId, BTreeMap<CaptureId, CaptureMode>>,
 }
 
 impl MemoryModel {
@@ -268,6 +269,17 @@ impl MemoryModel {
                 .get(&request.object)
                 .ok_or(ModelError::UnknownObject(request.object))?;
 
+            // A capture environment holds an access reservation for its entire
+            // lifetime. Shared reservations may coexist; exclusive and move
+            // reservations exclude every other live capture of this object.
+            if let Some(active) = self.capture_access.get(&request.object) {
+                let compatible = request.mode == CaptureMode::SharedBorrow
+                    && active.values().all(|mode| *mode == CaptureMode::SharedBorrow);
+                if !compatible {
+                    return Err(ModelError::BorrowConflict(request.object));
+                }
+            }
+
             match node.domain {
                 StorageDomain::Tracing => {
                     tracing_roots.insert(request.object);
@@ -299,6 +311,9 @@ impl MemoryModel {
         let id = CaptureId(next);
         self.next_capture = next;
         self.captures.insert(id, CaptureEnvironment { kind, lifetime, tracing_roots });
+        for request in requests {
+            self.capture_access.entry(request.object).or_default().insert(id, request.mode);
+        }
         Ok(id)
     }
 
@@ -311,6 +326,10 @@ impl MemoryModel {
 
     fn release_capture_environment(&mut self, capture: CaptureId) -> Result<(), ModelError> {
         self.captures.remove(&capture).ok_or(ModelError::UnknownCapture(capture))?;
+        for active in self.capture_access.values_mut() {
+            active.remove(&capture);
+        }
+        self.capture_access.retain(|_, active| !active.is_empty());
         Ok(())
     }
 
@@ -809,6 +828,146 @@ mod tests {
             Err(ModelError::BorrowConflict(value))
         );
         assert!(model.captures.is_empty(), "rejected capture must not publish an environment");
+    }
+
+    #[test]
+    fn capture_access_reservations_conflict_across_live_environments() {
+        let mut model = MemoryModel::default();
+        let object = model.allocate_tracing().expect("tracing object");
+
+        let first_shared = model
+            .create_capture_environment(
+                CaptureKind::StructuredTask,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::SharedBorrow)],
+            )
+            .expect("first shared capture");
+        let second_shared = model
+            .create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::SharedBorrow)],
+            )
+            .expect("second shared capture may coexist");
+
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::ExclusiveBorrow)],
+            ),
+            Err(ModelError::BorrowConflict(object))
+        );
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::Move)],
+            ),
+            Err(ModelError::BorrowConflict(object))
+        );
+
+        model.release_capture_environment(first_shared).expect("release first shared capture");
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::ExclusiveBorrow)],
+            ),
+            Err(ModelError::BorrowConflict(object)),
+            "the second shared capture must continue reserving shared access"
+        );
+
+        model.release_capture_environment(second_shared).expect("release second shared capture");
+        let exclusive = model
+            .create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::ExclusiveBorrow)],
+            )
+            .expect("exclusive capture after all shared reservations end");
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::SharedBorrow)],
+            ),
+            Err(ModelError::BorrowConflict(object))
+        );
+        model.release_capture_environment(exclusive).expect("release exclusive capture");
+
+        let moved = model
+            .create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::Move)],
+            )
+            .expect("move capture after previous reservations end");
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::SharedBorrow)],
+            ),
+            Err(ModelError::BorrowConflict(object))
+        );
+        model.release_capture_environment(moved).expect("release move reservation");
+    }
+
+    #[test]
+    fn rejected_cross_environment_capture_does_not_publish_or_consume_an_id() {
+        let mut model = MemoryModel::default();
+        let object = model.allocate_tracing().expect("tracing object");
+        let active = model
+            .create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::Move)],
+            )
+            .expect("move capture");
+        let next_before = model.next_capture;
+        let access_before = model.capture_access.clone();
+
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::SharedBorrow)],
+            ),
+            Err(ModelError::BorrowConflict(object))
+        );
+        assert_eq!(model.next_capture, next_before);
+        assert_eq!(model.capture_access, access_before);
+        assert_eq!(model.captures.len(), 1);
+
+        model.release_capture_environment(active).expect("release active capture");
+        let next = model
+            .create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::SharedBorrow)],
+            )
+            .expect("create after release");
+        assert_eq!(next.0, next_before + 1);
+    }
+
+    #[test]
+    fn repeated_shared_aliases_in_one_capture_release_one_environment_reservation() {
+        let mut model = MemoryModel::default();
+        let object = model.allocate_tracing().expect("tracing object");
+        let capture = model
+            .create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[
+                    request(object, CaptureMode::SharedBorrow),
+                    request(object, CaptureMode::SharedBorrow),
+                ],
+            )
+            .expect("two shared aliases in one environment");
+        assert_eq!(model.capture_access[&object].len(), 1);
+        model.release_capture_environment(capture).expect("release environment");
+        assert!(!model.capture_access.contains_key(&object));
     }
 
     #[test]
