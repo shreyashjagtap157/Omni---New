@@ -42,6 +42,14 @@ jobs:
           rustc +1.95.0 --edition=2021 --test -D warnings research/memory-model/spike.rs -o /tmp/omni-memory-model-spike
           /tmp/omni-memory-model-spike --test-threads=1
 
+      - name: Check memory-domain lifetime prototype formatting
+        run: rustfmt +1.95.0 --edition 2021 --check research/memory-model/domain_lifetimes.rs
+
+      - name: Run memory-domain lifetime and promotion prototype
+        run: |
+          rustc +1.95.0 --edition=2021 --test -D warnings research/memory-model/domain_lifetimes.rs -o /tmp/omni-domain-lifetimes
+          /tmp/omni-domain-lifetimes --test-threads=1
+
       - name: Run focused ownership verifier tests
         run: cargo test -j 1 -p omni-verify --locked -- --test-threads=1
 

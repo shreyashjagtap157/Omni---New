@@ -247,6 +247,22 @@ After reviewing this model, build a typed calculus/prototype combining domains a
 
 Do not add normative syntax until these interaction rules are explicit.
 
+
+
+### Second falsification model — closure/task capture and promotion
+
+The follow-on model is in research/memory-model/domain_lifetimes.rs, separate from the production compiler workspace. It encodes the following candidate constraints:
+
+- A closure or structured task scoped to a region may capture values from that region or an ancestor region, because those storage regions outlive the capture environment.
+- An outer-scoped closure/task may not capture a shorter-lived inner-region value.
+- A detached task or escaping closure may not retain region-backed storage, even when the source value is moved rather than borrowed. Move changes ownership, not the backing region's reclamation domain.
+- Tracing objects captured by a closure/task are roots for the capture environment's lifetime.
+- Region termination is rejected while capture environments scoped to that region remain live.
+- Explicit promotion deep-copies the complete reachable region-object subgraph into tracing storage, preserves cycles and shared subgraphs, and keeps already-tracing targets as targets. The model reports copy count and rejects an insufficient allocation budget before publishing partial nodes or consuming IDs.
+- Two logical tasks may hold shared access concurrently; exclusive access conflicts until the shared set is empty. This is an access-ledger experiment, not a scheduler or a formal concurrent-memory-model result.
+
+The capture and promotion rules are research candidates, not Edition 1 semantics. In particular, promotion is deliberately explicit and allocates a new managed graph; it is not a hidden pointer conversion or a zero-cost move. The model does not decide how resources, finalizers, pinned values, cross-runtime handles, or concurrent GC should behave.
+
 ## 10. Measurement plan
 
 Measure rather than assume:
@@ -282,7 +298,7 @@ Benchmark at least high-level managed, affine/explicit, and collector-free/regio
 ## 12. Immediate next steps
 
 1. Review exact CI results for the isolated model and preserve negative outcomes.
-2. Extend the model with closure/task capture and concurrent ownership/borrow cases; examine whether region promotion can be defined without hidden allocation or authority changes.
+2. The second isolated executable model now tests closure and structured/detached-task capture lifetimes, shared access from multiple logical tasks, and explicit deep-copy promotion of a reachable region graph into tracing storage. It preserves cycles and sharing, keeps already-tracing targets by reference, reports exact copy counts, and checks budget failure atomicity. It is EXPERIMENTALLY_VALIDATED only after the exact commit's CI run passes.
 3. Recover the original requirements interview and map the managed-memory requirement to exact statements.
 4. Compare default policies across embedded, bare-metal, real-time, and security-critical profiles.
 5. Formalize deterministic resource destruction separately from object reclamation.
