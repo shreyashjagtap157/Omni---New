@@ -2,7 +2,7 @@
 
 This repository contains the Rust implementation of the Omni Edition 1 programming language and toolchain. The implementation is governed by the normative specifications under `spec/`; implementation behavior must not be invented locally when a specification is silent or contradictory.
 
-> **Repository status — 9 November 2026:** this remains an active, early-stage compiler implementation, not a complete production compiler or self-hosted language. Commit `b841f4a6ed5bd6fdd1f1307e8924fea08a396a66` passed the complete Omni CI pipeline, including both isolated memory-research models (12/12 and 11/11 tests), focused ownership tests (16/16), strict Clippy, the locked workspace test suite, specification binding, semantic linkage, compiler topology, and the Foundation 0.0.0.13 technical gate. Rust build/tests, Cargo Audit, and both Rust and Actions CodeQL analyses also passed on that exact commit. This does not establish formal foundation sign-off, complete-language conformance, production readiness, or self-hosting. See [Actions](https://github.com/shreyashjagtap157/Omni---New/actions) for current run state.
+> **Repository status — 9 November 2026:** this remains an active, early-stage compiler implementation, not a complete production compiler or self-hosted language. Commit `fa1dcce1207843300edf70ed2b1ac3b30b694b89` passed the full Omni CI pipeline, both isolated memory-research models (12/12 and 18/18), focused ownership tests (16/16), Rust build/tests, strict Clippy, Cargo Audit, and CodeQL Rust/Actions analyses. The new cross-environment capture-permission tests enforce shared/exclusive/move reservations across live environments. Foundation 0.0.0.13 technical checks passed, but formal foundation sign-off, complete-language conformance, production readiness, and self-hosting remain unresolved. See [Actions](https://github.com/shreyashjagtap157/Omni---New/actions) for current run state.
 
 ## Generational roadmap
 
@@ -41,7 +41,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
 ```
 
-These commands express the core Rust qualification checks. Commit `b841f4a6` passed the complete main CI pipeline, including formatting and execution of both isolated memory-research models, focused ownership verification, locked workspace tests, specification linkage/topology checks, and the Foundation 0.0.0.13 technical gate. The exact workflows also passed Rust tests, strict Clippy, Cargo Audit, and both CodeQL languages. A passing technical gate does not by itself establish formal sign-off, complete-language qualification, or product release readiness.
+These commands express the core Rust qualification checks. Commit `fa1dcce` passed the complete main CI pipeline, including formatting and execution of both isolated memory-research models (12/12 and 18/18), focused ownership verification (16/16), locked workspace tests, specification linkage/topology checks, and the Foundation 0.0.0.13 technical gate. The exact workflows also passed Rust tests, strict Clippy, Cargo Audit, and both CodeQL analyses. A passing technical gate does not by itself establish formal sign-off, complete-language qualification, or product release readiness.
 
 Do not update `Cargo.lock` implicitly in CI. If dependency manifests have intentionally changed, update and review the lockfile in a deliberate commit, then rerun locked verification.
 
@@ -49,13 +49,13 @@ Fuzz jobs that require `-Z` options or sanitizers must use an explicitly support
 
 ## Security and dependency hygiene
 
-The prior `ruzstd` decompression-bomb issue [#46](https://github.com/shreyashjagtap157/Omni---New/issues/46) is closed. The unused direct `object` dependency and its compression feature path were removed; the current `Cargo.lock` contains neither `ruzstd` nor `flate2`. Cargo Audit run `42580391724` on commit `b841f4a6` passed. Re-run the audit after every dependency change; a green audit is commit-scoped and does not replace broader supply-chain review.
+The prior `ruzstd` decompression-bomb issue [#46](https://github.com/shreyashjagtap157/Omni---New/issues/46) is closed. The unused direct `object` dependency and its compression feature path were removed; the current `Cargo.lock` contains neither `ruzstd` nor `flate2`. Cargo Audit run `42587984888` on commit `fa1dcce` passed. Re-run the audit after every dependency change; a green audit is commit-scoped and does not replace broader supply-chain review.
 
 Open dependency updates must be evaluated against the language/compiler compatibility contract; a newer backend crate should not be adopted without compatibility testing.
 
 ## Current research and validation priorities
 
-1. Extend the memory-domain research with cancellation/failure paths and deterministic external-resource cleanup, then test region/tracing/RC interactions and pinned/FFI handles before evaluating any architecture candidate.
+1. Continue falsification of the memory-domain prototype: explicit source-place invalidation for move captures; pinned and FFI-backed objects; promotion/region-teardown boundaries; cross-domain strong/weak references and cleanup ownership.
 2. Continue CFG/NLL and reborrow testing across loops, reference parameters, drops, moves, return provenance, aggregate field reinitialization, and the verifier's trusted reference-provenance boundary where normative rules are explicit.
 3. Continue target/runtime research for allocation provenance, alignment, a fully specified native ABI, and host/target conformance. Opaque-handle reference memory is not a physical pointer ABI.
 4. Investigate the highest-priority incomplete compiler dependencies from actual source/spec/CI evidence, then implement only behavior with established Edition 1 semantics; fail closed where the specification is silent.

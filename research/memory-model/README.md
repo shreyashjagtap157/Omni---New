@@ -26,7 +26,7 @@ The main CI workflow runs the same formatting and test commands. The spike is ou
 
 ## Domain lifetime and promotion experiment
 
-The second prototype isolates closure/task capture lifetime checking, capture-held tracing roots, shared/exclusive access among logical tasks, and explicit deep-copy promotion of region graphs into tracing storage.
+The second prototype isolates closure/task capture lifetime checking, capture-held tracing roots, shared/exclusive access among logical tasks, per-object access reservations across independent capture environments, and explicit deep-copy promotion of region graphs into tracing storage.
 
 Reproduce with the pinned toolchain:
 
@@ -35,3 +35,6 @@ Reproduce with the pinned toolchain:
     /tmp/omni-domain-lifetimes --test-threads=1
 
 This model is also not production memory management, a task scheduler, or a complete concurrency/memory model. In particular, its promotion routine is a deterministic graph-copy model with an explicit allocation budget, not an OOM-safe allocator.
+
+
+The second model also rejects exclusive/move capture reservations that overlap any existing live capture of the same object, permits multiple shared capture leases, and removes leases when an environment is released. Its move mode remains a reservation model: caller-side source-place invalidation is not yet represented.
