@@ -22,6 +22,9 @@ struct TaskId(u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct ResourceId(u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct SourcePlaceId(u64);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StorageDomain {
     Tracing,
@@ -58,8 +61,16 @@ enum CaptureMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CaptureRequest {
+    source_place: SourcePlaceId,
     object: ObjectId,
     mode: CaptureMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourcePlaceState {
+    CallerOwned,
+    Captured(CaptureId),
+    Moved,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +78,7 @@ struct CaptureEnvironment {
     kind: CaptureKind,
     lifetime: CaptureLifetime,
     tracing_roots: BTreeSet<ObjectId>,
+    moved_source_places: BTreeSet<SourcePlaceId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +93,10 @@ enum ModelError {
     UnknownResource(ResourceId),
     UnknownRegion(RegionId),
     UnknownCapture(CaptureId),
+    SourcePlaceOwnedByCapture { place: SourcePlaceId, capture: CaptureId },
+    SourcePlaceMoved(SourcePlaceId),
+    SourcePlaceBoundToDifferentObject { place: SourcePlaceId, existing: ObjectId, requested: ObjectId },
+    SourcePlaceOwnershipInvariant(SourcePlaceId),
     DuplicateResourceInTransfer(ResourceId),
     ResourceOwnedByCapture(ResourceId),
     ResourceOwnedByObject(ResourceId),
@@ -151,6 +167,7 @@ struct MemoryModel {
     roots: BTreeSet<ObjectId>,
     captures: BTreeMap<CaptureId, CaptureEnvironment>,
     capture_access: BTreeMap<ObjectId, BTreeMap<CaptureId, CaptureMode>>,
+    source_places: BTreeMap<SourcePlaceId, (ObjectId, SourcePlaceState)>,
 }
 
 impl MemoryModel {
@@ -290,8 +307,30 @@ impl MemoryModel {
         }
 
         let mut tracing_roots = BTreeSet::new();
+        let mut moved_source_places = BTreeSet::new();
         let mut permissions: BTreeMap<ObjectId, (usize, bool, bool)> = BTreeMap::new();
         for request in requests {
+            match self.source_places.get(&request.source_place) {
+                None => {}
+                Some((existing, _)) if *existing != request.object => {
+                    return Err(ModelError::SourcePlaceBoundToDifferentObject {
+                        place: request.source_place,
+                        existing: *existing,
+                        requested: request.object,
+                    });
+                }
+                Some((_, SourcePlaceState::CallerOwned)) => {}
+                Some((_, SourcePlaceState::Captured(capture))) => {
+                    return Err(ModelError::SourcePlaceOwnedByCapture {
+                        place: request.source_place,
+                        capture: *capture,
+                    });
+                }
+                Some((_, SourcePlaceState::Moved)) => {
+                    return Err(ModelError::SourcePlaceMoved(request.source_place));
+                }
+            }
+
             let permission = permissions.entry(request.object).or_default();
             match request.mode {
                 CaptureMode::SharedBorrow => {
@@ -311,6 +350,7 @@ impl MemoryModel {
                         return Err(ModelError::BorrowConflict(request.object));
                     }
                     permission.2 = true;
+                    moved_source_places.insert(request.source_place);
                 }
             }
             let node = self
@@ -359,8 +399,25 @@ impl MemoryModel {
         let next = self.next_capture.checked_add(1).ok_or(ModelError::IdentifierExhausted)?;
         let id = CaptureId(next);
         self.next_capture = next;
-        self.captures.insert(id, CaptureEnvironment { kind, lifetime, tracing_roots });
+        self.captures.insert(
+            id,
+            CaptureEnvironment {
+                kind,
+                lifetime,
+                tracing_roots,
+                moved_source_places: moved_source_places.clone(),
+            },
+        );
         for request in requests {
+            self.source_places
+                .entry(request.source_place)
+                .or_insert((request.object, SourcePlaceState::CallerOwned));
+            if request.mode == CaptureMode::Move {
+                self.source_places.insert(
+                    request.source_place,
+                    (request.object, SourcePlaceState::Captured(id)),
+                );
+            }
             self.capture_access.entry(request.object).or_default().insert(id, request.mode);
         }
         Ok(id)
@@ -374,7 +431,25 @@ impl MemoryModel {
     }
 
     fn release_capture_environment(&mut self, capture: CaptureId) -> Result<(), ModelError> {
+        let environment = self.captures.get(&capture).ok_or(ModelError::UnknownCapture(capture))?;
+        for place in &environment.moved_source_places {
+            match self.source_places.get(place) {
+                Some((_, SourcePlaceState::Captured(owner))) if *owner == capture => {}
+                _ => return Err(ModelError::SourcePlaceOwnershipInvariant(*place)),
+            }
+        }
+
+        let moved_places = environment.moved_source_places.clone();
         self.captures.remove(&capture).ok_or(ModelError::UnknownCapture(capture))?;
+        for place in moved_places {
+            let (object, state) =
+                self.source_places.get_mut(&place).ok_or(ModelError::SourcePlaceOwnershipInvariant(place))?;
+            if *state != SourcePlaceState::Captured(capture) {
+                return Err(ModelError::SourcePlaceOwnershipInvariant(place));
+            }
+            *state = SourcePlaceState::Moved;
+            let _ = object;
+        }
         for active in self.capture_access.values_mut() {
             active.remove(&capture);
         }
@@ -873,7 +948,11 @@ mod tests {
     use super::*;
 
     fn request(object: ObjectId, mode: CaptureMode) -> CaptureRequest {
-        CaptureRequest { object, mode }
+        CaptureRequest { source_place: SourcePlaceId(object.0), object, mode }
+    }
+
+    fn request_at(source_place: SourcePlaceId, object: ObjectId, mode: CaptureMode) -> CaptureRequest {
+        CaptureRequest { source_place, object, mode }
     }
 
     #[test]
@@ -1116,6 +1195,147 @@ mod tests {
         assert_eq!(model.capture_access[&object].len(), 1);
         model.release_capture_environment(capture).expect("release environment");
         assert!(!model.capture_access.contains_key(&object));
+    }
+
+    #[test]
+    fn move_capture_invalidates_the_source_place_and_it_stays_moved_after_completion() {
+        let mut model = MemoryModel::default();
+        let object = model.allocate_tracing().expect("tracing object");
+        let source = SourcePlaceId(700);
+        let capture = model
+            .create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[request_at(source, object, CaptureMode::Move)],
+            )
+            .expect("move source place into task");
+        assert_eq!(
+            model.source_places.get(&source),
+            Some(&(object, SourcePlaceState::Captured(capture)))
+        );
+
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request_at(source, object, CaptureMode::SharedBorrow)],
+            ),
+            Err(ModelError::SourcePlaceOwnedByCapture { place: source, capture })
+        );
+
+        model.release_capture_environment(capture).expect("task completion drops moved value");
+        assert_eq!(
+            model.source_places.get(&source),
+            Some(&(object, SourcePlaceState::Moved))
+        );
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request_at(source, object, CaptureMode::SharedBorrow)],
+            ),
+            Err(ModelError::SourcePlaceMoved(source)),
+            "completion does not resurrect the moved source place"
+        );
+        assert_eq!(model.collect_tracing(), vec![object]);
+    }
+
+    #[test]
+    fn failed_move_capture_does_not_invalidate_any_source_place_or_consume_capture_id() {
+        let mut model = MemoryModel::default();
+        let first = model.allocate_tracing().expect("first object");
+        let second = model.allocate_tracing().expect("second object");
+        let first_place = SourcePlaceId(701);
+        let second_place = SourcePlaceId(702);
+        let blocking = model
+            .create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request_at(second_place, second, CaptureMode::SharedBorrow)],
+            )
+            .expect("existing shared capture");
+        let next_before = model.next_capture;
+
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[
+                    request_at(first_place, first, CaptureMode::Move),
+                    request_at(second_place, second, CaptureMode::Move),
+                ],
+            ),
+            Err(ModelError::BorrowConflict(second))
+        );
+        assert_eq!(model.next_capture, next_before);
+        assert_eq!(model.source_places.get(&first_place), None);
+        assert_eq!(
+            model.source_places.get(&second_place),
+            Some(&(second, SourcePlaceState::CallerOwned))
+        );
+
+        model.release_capture_environment(blocking).expect("release blocker");
+        let moved = model
+            .create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[
+                    request_at(first_place, first, CaptureMode::Move),
+                    request_at(second_place, second, CaptureMode::Move),
+                ],
+            )
+            .expect("retry move after conflict ends");
+        assert_eq!(
+            model.source_places.get(&first_place),
+            Some(&(first, SourcePlaceState::Captured(moved)))
+        );
+        assert_eq!(
+            model.source_places.get(&second_place),
+            Some(&(second, SourcePlaceState::Captured(moved)))
+        );
+    }
+
+    #[test]
+    fn move_of_one_handle_does_not_invalidate_a_distinct_source_place_alias() {
+        let mut model = MemoryModel::default();
+        let object = model.allocate_tracing().expect("tracing object");
+        let moved_place = SourcePlaceId(703);
+        let alias_place = SourcePlaceId(704);
+
+        let capture = model
+            .create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[request_at(moved_place, object, CaptureMode::Move)],
+            )
+            .expect("move one source handle");
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request_at(alias_place, object, CaptureMode::SharedBorrow)],
+            ),
+            Err(ModelError::BorrowConflict(object)),
+            "the object access reservation prevents a concurrent conflicting alias"
+        );
+
+        model.release_capture_environment(capture).expect("finish moved handle");
+        let shared = model
+            .create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[request_at(alias_place, object, CaptureMode::SharedBorrow)],
+            )
+            .expect("distinct source place remains caller-owned after moved handle ends");
+        assert_eq!(
+            model.source_places.get(&moved_place),
+            Some(&(object, SourcePlaceState::Moved))
+        );
+        assert_eq!(
+            model.source_places.get(&alias_place),
+            Some(&(object, SourcePlaceState::CallerOwned))
+        );
+        model.release_capture_environment(shared).expect("release alias borrow");
     }
 
     #[test]
