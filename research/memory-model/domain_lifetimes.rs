@@ -1248,10 +1248,7 @@ mod tests {
         );
 
         model.release_capture_environment(capture).expect("task completion drops moved value");
-        assert_eq!(
-            model.source_places.get(&source),
-            Some(&(object, SourcePlaceState::Moved))
-        );
+        assert_eq!(model.source_places.get(&source), Some(&(object, SourcePlaceState::Moved)));
         assert_eq!(
             model.create_capture_environment(
                 CaptureKind::Closure,
@@ -1380,10 +1377,7 @@ mod tests {
                 &[request_at(alias_place, object, CaptureMode::SharedBorrow)],
             )
             .expect("distinct source place remains caller-owned after moved handle ends");
-        assert_eq!(
-            model.source_places.get(&moved_place),
-            Some(&(object, SourcePlaceState::Moved))
-        );
+        assert_eq!(model.source_places.get(&moved_place), Some(&(object, SourcePlaceState::Moved)));
         assert_eq!(
             model.source_places.get(&alias_place),
             Some(&(object, SourcePlaceState::CallerOwned))
