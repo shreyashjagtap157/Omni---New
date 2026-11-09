@@ -529,7 +529,9 @@ impl ResourceLedger {
         if requested.len() != resources.len() {
             let duplicate = resources
                 .iter()
-                .find(|resource| resources.iter().filter(|candidate| candidate == *resource).count() > 1)
+                .find(|resource| {
+                    resources.iter().filter(|candidate| candidate == *resource).count() > 1
+                })
                 .copied()
                 .ok_or(ModelError::IdentifierExhausted)?;
             return Err(ModelError::DuplicateResourceInTransfer(duplicate));
@@ -608,7 +610,8 @@ impl ResourceLedger {
     }
 
     fn release_once(&mut self, resource: ResourceId) -> Result<(), ModelError> {
-        let owner = self.owners.get(&resource).copied().ok_or(ModelError::UnknownResource(resource))?;
+        let owner =
+            self.owners.get(&resource).copied().ok_or(ModelError::UnknownResource(resource))?;
         if owner == ResourceOwner::Released {
             return Err(ModelError::ResourceAlreadyReleased(resource));
         }
@@ -617,7 +620,8 @@ impl ResourceLedger {
             .get(&resource)
             .copied()
             .ok_or(ModelError::ResourceOwnershipInvariant(resource))?;
-        let next = count.checked_add(1).ok_or(ModelError::ResourceReleaseCountOverflow(resource))?;
+        let next =
+            count.checked_add(1).ok_or(ModelError::ResourceReleaseCountOverflow(resource))?;
         self.owners.insert(resource, ResourceOwner::Released);
         self.release_counts.insert(resource, next);
         Ok(())
@@ -930,11 +934,7 @@ mod tests {
     fn moved_resource_is_released_once_when_capture_completes() {
         let mut model = MemoryModel::default();
         let capture = model
-            .create_capture_environment(
-                CaptureKind::Closure,
-                CaptureLifetime::Escaping,
-                &[],
-            )
+            .create_capture_environment(CaptureKind::Closure, CaptureLifetime::Escaping, &[])
             .expect("escaping closure environment");
         let mut resources = ResourceLedger::default();
         let resource = resources.allocate().expect("resource");
