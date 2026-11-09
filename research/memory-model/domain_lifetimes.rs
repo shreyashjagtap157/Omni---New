@@ -837,7 +837,7 @@ mod tests {
 
         let first_shared = model
             .create_capture_environment(
-                CaptureKind::StructuredTask,
+                CaptureKind::Closure,
                 CaptureLifetime::Escaping,
                 &[request(object, CaptureMode::SharedBorrow)],
             )
