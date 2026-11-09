@@ -219,7 +219,7 @@ Required obligations, not yet proved:
 
 ## 9. Falsification experiment
 
-An isolated executable model is added under research/memory-model/spike.rs, outside the production Cargo workspace. The pinned CI run on commit 3529484d reports 11 passing model tests. It models:
+An isolated executable model is added under research/memory-model/spike.rs, outside the production Cargo workspace. The pinned CI run on commit b841f4a6ed5bd6fdd1f1307e8924fea08a396a66 reports 12 passing tests for the initial mixed-region/tracing prototype and 11 passing tests for the closure/task-capture and promotion prototype. It models:
 
 - Dynamic shared/exclusive access permission checks.
 - Region bulk reclamation.
@@ -263,6 +263,29 @@ The follow-on model is in research/memory-model/domain_lifetimes.rs, separate fr
 
 The capture and promotion rules are research candidates, not Edition 1 semantics. In particular, promotion is deliberately explicit and allocates a new managed graph; it is not a hidden pointer conversion or a zero-cost move. The model does not decide how resources, finalizers, pinned values, cross-runtime handles, or concurrent GC should behave.
 
+### Model-level transition contracts (not normative rules)
+
+Let outlives(a, b) mean that region a is the same as, or an ancestor of, region b in the prototype's region tree. The prototype encodes:
+
+- A region-to-region edge from object x in Region(r_x) to y in Region(r_y) is admissible only when outlives(r_y, r_x); the target storage lasts at least as long as the source object.
+- A tracing-to-region edge is rejected. A region-to-tracing edge is allowed and makes the tracing target reachable while the region remains live.
+- A scoped capture in region r_c may retain a region object in r_s only when outlives(r_s, r_c). An escaping capture may retain tracing objects only.
+- A live capture environment prevents its declared scope region from ending. Tracing objects captured by an environment participate as roots until the environment is released.
+- Promotion constructs a graph mapping from reachable region objects to freshly allocated tracing objects. It preserves internal edges (including cycles and shared targets), while edges to existing tracing objects remain references to those existing targets. The model preflights the copy budget and identifier range before publishing staged objects.
+
+A direct safety argument for the scoped-capture constraint is conditional on the model's region-tree lifecycle: because a storage region is the same as or an ancestor of the capture scope, the storage region cannot be ended while that scope remains live (ancestor termination is blocked by live descendants). This is a model-level argument, not a formal proof of Omni, a type system, or an implementation.
+
+### Exact prototype validation on b841f4a6
+
+- Initial memory-domain prototype: 12 passed; 0 failed.
+- Closure/task capture and explicit-promotion prototype: 11 passed; 0 failed.
+- Both prototypes were formatted and compiled with the pinned Rust 1.95.0 toolchain using -D warnings.
+- Focused omni-own tests: 16 passed; 0 failed.
+- Complete Omni CI pipeline passed all configured steps on this exact commit, including strict Clippy, workspace check/tests, locked metadata, spec binding, semantic linkage, topology, and the Foundation 0.0.0.13 technical gate.
+- Separate Rust build/tests, Clippy, Cargo Audit, and CodeQL (Rust and Actions) workflows passed on the same commit.
+
+Interpretation limit: these results validate the model's encoded transitions and the repository gates. They do not prove a composable Omni memory calculus, static task safety, a real scheduler, a collector, OOM-safe graph promotion, real concurrent memory ordering, deterministic cleanup under cancellation, or a production allocator/ABI. The CaptureMode ledger is a logical access policy model; it does not move or invalidate actual source-language places. The promotion allocation budget is an explicit simulation, not a guarantee about host allocator failure.
+
 ## 10. Measurement plan
 
 Measure rather than assume:
@@ -297,12 +320,12 @@ Benchmark at least high-level managed, affine/explicit, and collector-free/regio
 
 ## 12. Immediate next steps
 
-1. Review exact CI results for the isolated model and preserve negative outcomes.
-2. The second isolated executable model now tests closure and structured/detached-task capture lifetimes, shared access from multiple logical tasks, and explicit deep-copy promotion of a reachable region graph into tracing storage. It preserves cycles and sharing, keeps already-tracing targets by reference, reports exact copy counts, and checks budget failure atomicity. It is EXPERIMENTALLY_VALIDATED only after the exact commit's CI run passes.
+1. Add deterministic resource ownership to the closure/task model and test normal completion, cancellation, failure, and duplicate-cleanup paths. Keep storage reclamation separate from resource release.
+2. Falsify domain crossings involving cycles, region/tracing boundaries, region promotion of objects with external/FFI/pinned resources, partial initialization, allocation failure, and cross-domain strong/weak references.
 3. Recover the original requirements interview and map the managed-memory requirement to exact statements.
-4. Compare default policies across embedded, bare-metal, real-time, and security-critical profiles.
-5. Formalize deterministic resource destruction separately from object reclamation.
-6. Only then decide whether a second prototype should focus on A, B, or C.
+4. Compare default policies across embedded, bare-metal, real-time, security-critical, and ordinary application profiles, including measurable allocation/latency/space costs.
+5. Investigate whether the verifier's trusted internal provenance contract is sufficient or whether an opaque internal authority representation improves assurance without changing Edition 1 semantics.
+6. Continue independent Edition 1 compiler work on well-specified ownership/CFG gaps and fail closed where semantics are not stated.
 7. Do not edit Edition 1 normative text until evidence and controlled governance authorize it.
 
 ## 13. Sources

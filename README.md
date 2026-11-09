@@ -2,7 +2,7 @@
 
 This repository contains the Rust implementation of the Omni Edition 1 programming language and toolchain. The implementation is governed by the normative specifications under `spec/`; implementation behavior must not be invented locally when a specification is silent or contradictory.
 
-> **Repository status — 9 November 2026:** this remains an active, early-stage compiler implementation, not a complete production compiler or self-hosted language. Commit `3529484d992e46ded452d96afbc42254f47ea882` passed the complete Omni CI pipeline (including 11 isolated memory-model research tests), Rust build/tests, strict Clippy, Cargo Audit, and both Rust and Actions CodeQL analyses. Foundation 0.0.0.13 technical checks passed on that commit, but formal qualification scope/sign-off, complete-language conformance, and production readiness remain unresolved. Subsequent research changes require fresh validation. See [Actions](https://github.com/shreyashjagtap157/Omni---New/actions) for current run state.
+> **Repository status — 9 November 2026:** this remains an active, early-stage compiler implementation, not a complete production compiler or self-hosted language. Commit `b841f4a6ed5bd6fdd1f1307e8924fea08a396a66` passed the complete Omni CI pipeline, including both isolated memory-research models (12/12 and 11/11 tests), focused ownership tests (16/16), strict Clippy, the locked workspace test suite, specification binding, semantic linkage, compiler topology, and the Foundation 0.0.0.13 technical gate. Rust build/tests, Cargo Audit, and both Rust and Actions CodeQL analyses also passed on that exact commit. This does not establish formal foundation sign-off, complete-language conformance, production readiness, or self-hosting. See [Actions](https://github.com/shreyashjagtap157/Omni---New/actions) for current run state.
 
 ## Generational roadmap
 
@@ -41,7 +41,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
 ```
 
-These commands express the core Rust qualification checks. Commit `3529484d` also passed the complete main CI pipeline, including the additional isolated research-model check and Foundation 0.0.0.13 technical gate. A passing technical gate does not by itself establish formal sign-off, complete-language qualification, or product release readiness.
+These commands express the core Rust qualification checks. Commit `b841f4a6` passed the complete main CI pipeline, including formatting and execution of both isolated memory-research models, focused ownership verification, locked workspace tests, specification linkage/topology checks, and the Foundation 0.0.0.13 technical gate. The exact workflows also passed Rust tests, strict Clippy, Cargo Audit, and both CodeQL languages. A passing technical gate does not by itself establish formal sign-off, complete-language qualification, or product release readiness.
 
 Do not update `Cargo.lock` implicitly in CI. If dependency manifests have intentionally changed, update and review the lockfile in a deliberate commit, then rerun locked verification.
 
@@ -49,18 +49,18 @@ Fuzz jobs that require `-Z` options or sanitizers must use an explicitly support
 
 ## Security and dependency hygiene
 
-The prior `ruzstd` decompression-bomb issue [#46](https://github.com/shreyashjagtap157/Omni---New/issues/46) is closed. The unused direct `object` dependency and its compression feature path were removed; the current `Cargo.lock` contains neither `ruzstd` nor `flate2`. Cargo Audit run `42570448695` on commit `3529484d` passed. Re-run the audit after every dependency change; a green audit is commit-scoped and does not replace broader supply-chain review.
+The prior `ruzstd` decompression-bomb issue [#46](https://github.com/shreyashjagtap157/Omni---New/issues/46) is closed. The unused direct `object` dependency and its compression feature path were removed; the current `Cargo.lock` contains neither `ruzstd` nor `flate2`. Cargo Audit run `42580391724` on commit `b841f4a6` passed. Re-run the audit after every dependency change; a green audit is commit-scoped and does not replace broader supply-chain review.
 
 Open dependency updates must be evaluated against the language/compiler compatibility contract; a newer backend crate should not be adopted without compatibility testing.
 
 ## Current research and validation priorities
 
-1. Continue the memory-architecture research in [the managed-memory versus affine-ownership study](docs/research/memory-architecture-managed-vs-affine.md). The historical managed-memory-default requirement and the Edition 1 affine-ownership reference remain an open design conflict; no architecture has been selected.
-2. Extend CFG/NLL and reborrow testing across loops, reference parameters, drops, moves, return provenance, and aggregate field reinitialization where normative rules are explicit.
+1. Extend the memory-domain research with cancellation/failure paths and deterministic external-resource cleanup, then test region/tracing/RC interactions and pinned/FFI handles before evaluating any architecture candidate.
+2. Continue CFG/NLL and reborrow testing across loops, reference parameters, drops, moves, return provenance, aggregate field reinitialization, and the verifier's trusted reference-provenance boundary where normative rules are explicit.
 3. Continue target/runtime research for allocation provenance, alignment, a fully specified native ABI, and host/target conformance. Opaque-handle reference memory is not a physical pointer ABI.
-4. Maintain the research-to-prototype-to-specification-to-implementation-to-validation cycle; do not let a passing prototype become an unapproved language rule.
-5. Keep every semantic feature linked to its normative rule and executable conformance evidence.
-6. Keep formal foundation sign-off, full-language qualification, self-hosting, and production readiness distinct from successful technical CI.
+4. Investigate the highest-priority incomplete compiler dependencies from actual source/spec/CI evidence, then implement only behavior with established Edition 1 semantics; fail closed where the specification is silent.
+5. Recover and reconcile the original requirements interview and connect the independent Omni-Research workspace to executable research/implementation evidence when that workspace is accessible.
+6. Maintain the research-to-prototype-to-specification-to-implementation-to-validation cycle. Keep proposals, prototypes, tests, proofs, qualification, and release claims distinct.
 ## Releases
 
 Do not infer a public release from development version strings or changelog entries. A release claim requires a qualified tag and matching release evidence under the project's versioning and governance policy.
