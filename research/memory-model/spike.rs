@@ -23,6 +23,9 @@ enum ModelError {
     NoActiveSharedBorrow(ObjectId),
     NoActiveMutableBorrow(ObjectId),
     ReferenceCountUnderflow(ObjectId),
+    TracingRootCannotReferenceRegion(ObjectId),
+    TracingToRegionEscape { source: ObjectId, target: ObjectId },
+    CrossRegionReference { source: ObjectId, target: ObjectId },
 }
 
 #[derive(Debug, Default)]
@@ -312,6 +315,162 @@ impl RcHeap {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StorageDomain {
+    Tracing,
+    Region(RegionId),
+}
+
+#[derive(Debug, Default)]
+struct MixedDomainNode {
+    domain: Option<StorageDomain>,
+    edges: BTreeSet<ObjectId>,
+}
+
+/// A conservative mixed-region/tracing model. Active region objects are roots
+/// for tracing objects they reference. Longer-lived tracing objects may not
+/// retain shorter-lived region objects. Nested-region outlives relations are
+/// intentionally not modeled: references between distinct regions are rejected.
+#[derive(Debug, Default)]
+struct MixedDomainHeap {
+    next_object: u64,
+    next_region: u64,
+    live_regions: BTreeSet<RegionId>,
+    objects: BTreeMap<ObjectId, MixedDomainNode>,
+    tracing_roots: BTreeSet<ObjectId>,
+}
+
+impl MixedDomainHeap {
+    fn new_region(&mut self) -> RegionId {
+        let region = RegionId(self.next_region + 1);
+        self.next_region += 1;
+        self.live_regions.insert(region);
+        region
+    }
+
+    fn allocate_tracing(&mut self) -> ObjectId {
+        let object = ObjectId(self.next_object + 1);
+        self.next_object += 1;
+        self.objects.insert(
+            object,
+            MixedDomainNode { domain: Some(StorageDomain::Tracing), edges: BTreeSet::new() },
+        );
+        object
+    }
+
+    fn allocate_in_region(&mut self, region: RegionId) -> Result<ObjectId, ModelError> {
+        if !self.live_regions.contains(&region) {
+            return Err(ModelError::UnknownRegion(region));
+        }
+        let object = ObjectId(self.next_object + 1);
+        self.next_object += 1;
+        self.objects.insert(
+            object,
+            MixedDomainNode { domain: Some(StorageDomain::Region(region)), edges: BTreeSet::new() },
+        );
+        Ok(object)
+    }
+
+    fn add_tracing_root(&mut self, object: ObjectId) -> Result<(), ModelError> {
+        let node = self.objects.get(&object).ok_or(ModelError::UnknownObject(object))?;
+        if node.domain != Some(StorageDomain::Tracing) {
+            return Err(ModelError::TracingRootCannotReferenceRegion(object));
+        }
+        self.tracing_roots.insert(object);
+        Ok(())
+    }
+
+    fn add_edge(&mut self, source: ObjectId, target: ObjectId) -> Result<(), ModelError> {
+        let source_domain = self
+            .objects
+            .get(&source)
+            .ok_or(ModelError::UnknownObject(source))?
+            .domain
+            .ok_or(ModelError::UnknownObject(source))?;
+        let target_domain = self
+            .objects
+            .get(&target)
+            .ok_or(ModelError::UnknownObject(target))?
+            .domain
+            .ok_or(ModelError::UnknownObject(target))?;
+
+        match (source_domain, target_domain) {
+            (StorageDomain::Tracing, StorageDomain::Region(_)) => {
+                return Err(ModelError::TracingToRegionEscape { source, target });
+            }
+            (StorageDomain::Region(a), StorageDomain::Region(b)) if a != b => {
+                return Err(ModelError::CrossRegionReference { source, target });
+            }
+            _ => {}
+        }
+
+        self.objects
+            .get_mut(&source)
+            .expect("source checked above")
+            .edges
+            .insert(target);
+        Ok(())
+    }
+
+    fn end_region(&mut self, region: RegionId) -> Result<Vec<ObjectId>, ModelError> {
+        if !self.live_regions.remove(&region) {
+            return Err(ModelError::RegionAlreadyEnded(region));
+        }
+        let members = self
+            .objects
+            .iter()
+            .filter_map(|(object, node)| {
+                (node.domain == Some(StorageDomain::Region(region))).then_some(*object)
+            })
+            .collect::<Vec<_>>();
+        for object in &members {
+            self.objects.remove(object);
+        }
+        Ok(members)
+    }
+
+    /// Region objects in live regions act as roots for outgoing tracing-domain
+    /// edges. Once a region ends, those roots disappear and a later collection
+    /// can reclaim otherwise-unreachable tracing objects.
+    fn collect_tracing(&mut self) -> Vec<ObjectId> {
+        let mut pending = VecDeque::from_iter(self.tracing_roots.iter().copied());
+        for node in self.objects.values() {
+            if matches!(node.domain, Some(StorageDomain::Region(region)) if self.live_regions.contains(&region)) {
+                pending.extend(node.edges.iter().copied());
+            }
+        }
+
+        let mut live = BTreeSet::new();
+        while let Some(object) = pending.pop_front() {
+            if !live.insert(object) {
+                continue;
+            }
+            if let Some(node) = self.objects.get(&object) {
+                if node.domain == Some(StorageDomain::Tracing) {
+                    pending.extend(node.edges.iter().copied());
+                }
+            }
+        }
+
+        let reclaimed = self
+            .objects
+            .iter()
+            .filter_map(|(object, node)| {
+                (node.domain == Some(StorageDomain::Tracing) && !live.contains(object))
+                    .then_some(*object)
+            })
+            .collect::<Vec<_>>();
+        for object in &reclaimed {
+            self.objects.remove(object);
+        }
+        reclaimed
+    }
+
+    fn contains(&self, object: ObjectId) -> bool {
+        self.objects.contains_key(&object)
+    }
+}
+
 struct DeterministicResourceToken(Rc<Cell<usize>>);
 
 impl DeterministicResourceToken {
@@ -424,6 +583,71 @@ mod tests {
         assert!(heap.contains(object));
         assert_eq!(heap.release_root(object).expect("release final root"), vec![object]);
         assert!(!heap.contains(object));
+    }
+
+    #[test]
+    fn tracing_domain_cannot_retain_a_shorter_lived_region_object() {
+        let mut heap = MixedDomainHeap::default();
+        let region = heap.new_region();
+        let region_object = heap.allocate_in_region(region).expect("region allocation");
+        let tracing_object = heap.allocate_tracing();
+        heap.add_tracing_root(tracing_object).expect("root tracing object");
+
+        assert_eq!(
+            heap.add_edge(tracing_object, region_object),
+            Err(ModelError::TracingToRegionEscape {
+                source: tracing_object,
+                target: region_object,
+            })
+        );
+        assert!(heap.collect_tracing().is_empty());
+        assert!(heap.contains(tracing_object));
+        assert!(heap.contains(region_object));
+    }
+
+    #[test]
+    fn live_region_edges_keep_tracing_objects_alive_until_region_end() {
+        let mut heap = MixedDomainHeap::default();
+        let region = heap.new_region();
+        let region_object = heap.allocate_in_region(region).expect("region allocation");
+        let managed_object = heap.allocate_tracing();
+
+        heap.add_edge(region_object, managed_object).expect("shorter-lived to longer-lived edge");
+        assert!(heap.collect_tracing().is_empty());
+        assert!(heap.contains(managed_object));
+
+        assert_eq!(heap.end_region(region), Ok(vec![region_object]));
+        assert_eq!(heap.collect_tracing(), vec![managed_object]);
+        assert!(!heap.contains(managed_object));
+    }
+
+    #[test]
+    fn explicit_tracing_root_survives_the_region_that_also_referenced_it() {
+        let mut heap = MixedDomainHeap::default();
+        let region = heap.new_region();
+        let region_object = heap.allocate_in_region(region).expect("region allocation");
+        let managed_object = heap.allocate_tracing();
+
+        heap.add_edge(region_object, managed_object).expect("region edge");
+        heap.add_tracing_root(managed_object).expect("explicit long-lived root");
+        heap.end_region(region).expect("end short region");
+        assert!(heap.collect_tracing().is_empty());
+        assert!(heap.contains(managed_object));
+
+        heap.tracing_roots.remove(&managed_object);
+        assert_eq!(heap.collect_tracing(), vec![managed_object]);
+    }
+
+    #[test]
+    fn tracing_root_api_rejects_a_region_object() {
+        let mut heap = MixedDomainHeap::default();
+        let region = heap.new_region();
+        let region_object = heap.allocate_in_region(region).expect("region allocation");
+
+        assert_eq!(
+            heap.add_tracing_root(region_object),
+            Err(ModelError::TracingRootCannotReferenceRegion(region_object))
+        );
     }
 
     #[test]

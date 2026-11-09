@@ -33,7 +33,17 @@ The supplied master project vision records the earlier user requirement as manag
 
 The original requirements interview and all underlying responses have not been recovered in this audit. Complete historical provenance must not be claimed.
 
-### 2.2 Current core reference — SOURCE-RECORDED
+### 2.2 Archived v2.0 design rationale — HISTORICAL / NON-NORMATIVE
+
+A more detailed historical source was recovered from the Library: the consolidated Candidate 3 document titled Omni_Complete_Specification_Edition1_1_0_0-candidate_3_vibe_reconciled_final_reviewed_v2, whose own consolidation note says Candidate 3 Part I is the candidate semantic baseline while Parts II/III retain historical/non-normative rationale. The document states that its suite status is not ratified or implementation-certified.
+
+In that archive's historical v2.0 design rationale, §2.2, “Why Not Choose One Memory Model”, the recorded design decision is: ownership as the core model, with a GC-compatible layer in higher-level modes. It adds generational references, drawing on Vale, as an ergonomic bridge for graph-like and cyclic data structures.
+
+The same archive's §10, “Generational references and cyclic data”, explicitly says Gen<T> does not automatically solve arbitrary memory reclamation. It requires allocation identity, generation/version, live/dead state, arena ownership, mutation authorization, reclamation, and stale-handle behaviour to be specified separately. It also states that cycles remain a reclamation problem unless an owning arena, RC domain, managed domain, or explicit collector supplies a complete policy, and that Gen<T> is not equivalent to a tracing collector.
+
+**Interpretation:** this historical rationale is a meaningful intermediate design direction between the original managed-memory-default requirement and the later affine core. It suggests ownership-first semantics plus GC-compatible higher-level modes and generational handles, but it is not proof that the original user requirement was fully adjudicated, nor does it establish current repository semantics. The raw requirements interview has still not been recovered.
+
+### 2.3 Current core reference — SOURCE-RECORDED
 
 The repository's spec/reference/core_semantics_and_types.md, §5, is labelled a “Normative Candidate Reference for Edition 1”. It states:
 
@@ -46,7 +56,7 @@ The repository's spec/reference/core_semantics_and_types.md, §5, is labelled a 
 
 This section is the current core reference direction; this research does not silently reinterpret its status or amend it.
 
-### 2.3 Current implementation — IMPLEMENTED, NOT A MEMORY-ARCHITECTURE PROOF
+### 2.4 Current implementation — IMPLEMENTED, NOT A MEMORY-ARCHITECTURE PROOF
 
 The compiler/omni-own crate implements place states, moves, projections, loans, shared/mutable conflict checks, parent-authorized reborrowing, and conservative ownership-state joins. It is an analysis primitive, not a heap collector or allocator.
 
@@ -109,7 +119,7 @@ A preprint submitted 2026-11-04, “Verified Implementation of the Next-gen Borr
 
 ## 6. Three candidate architectures
 
-At least three materially different candidates remain open.
+At least three materially different candidates remain open. Candidate C has conceptual overlap with the archived v2.0 direction (ownership core plus managed higher-level modes), but the additional separation of storage domains, access permissions, and resource lifetimes remains a research hypothesis, not a recovered accepted decision.
 
 ### Candidate A — Affine/ownership-first core; managed domains are explicit
 
