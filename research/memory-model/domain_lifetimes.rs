@@ -32,6 +32,8 @@ enum StorageDomain {
 struct Object {
     domain: StorageDomain,
     edges: BTreeSet<ObjectId>,
+    pinned: bool,
+    external_resources: BTreeSet<ResourceId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +83,16 @@ enum ModelError {
     UnknownCapture(CaptureId),
     DuplicateResourceInTransfer(ResourceId),
     ResourceOwnedByCapture(ResourceId),
+    ResourceOwnedByObject(ResourceId),
+    ResourceNotAttachedToObject { object: ObjectId, resource: ResourceId },
     ResourceAlreadyReleased(ResourceId),
+    ObjectAlreadyPinned(ObjectId),
+    ObjectNotPinned(ObjectId),
+    CannotUnpinObjectWithExternalResources(ObjectId),
+    PinnedObjectCannotBePromoted(ObjectId),
+    ExternalResourceCannotBePromoted(ObjectId),
+    RegionContainsPinnedObject { region: RegionId, object: ObjectId },
+    RegionContainsExternalResource { region: RegionId, object: ObjectId },
     ResourceOwnershipInvariant(ResourceId),
     ResourceReleaseCountOverflow(ResourceId),
     RegionAlreadyEnded(RegionId),
@@ -179,8 +190,37 @@ impl MemoryModel {
         let next = self.next_object.checked_add(1).ok_or(ModelError::IdentifierExhausted)?;
         let object = ObjectId(next);
         self.next_object = next;
-        self.objects.insert(object, Object { domain, edges: BTreeSet::new() });
+        self.objects.insert(
+            object,
+            Object {
+                domain,
+                edges: BTreeSet::new(),
+                pinned: false,
+                external_resources: BTreeSet::new(),
+            },
+        );
         Ok(object)
+    }
+
+    fn pin_object(&mut self, object: ObjectId) -> Result<(), ModelError> {
+        let node = self.objects.get_mut(&object).ok_or(ModelError::UnknownObject(object))?;
+        if node.pinned {
+            return Err(ModelError::ObjectAlreadyPinned(object));
+        }
+        node.pinned = true;
+        Ok(())
+    }
+
+    fn unpin_object(&mut self, object: ObjectId) -> Result<(), ModelError> {
+        let node = self.objects.get_mut(&object).ok_or(ModelError::UnknownObject(object))?;
+        if !node.pinned {
+            return Err(ModelError::ObjectNotPinned(object));
+        }
+        if !node.external_resources.is_empty() {
+            return Err(ModelError::CannotUnpinObjectWithExternalResources(object));
+        }
+        node.pinned = false;
+        Ok(())
     }
 
     fn add_edge(&mut self, source: ObjectId, target: ObjectId) -> Result<(), ModelError> {
@@ -359,6 +399,12 @@ impl MemoryModel {
                 if !self.regions.contains_key(&region) {
                     return Err(ModelError::UnknownRegion(region));
                 }
+                if !node.external_resources.is_empty() {
+                    return Err(ModelError::ExternalResourceCannotBePromoted(object));
+                }
+                if node.pinned {
+                    return Err(ModelError::PinnedObjectCannotBePromoted(object));
+                }
                 for edge in &node.edges {
                     let target = self.objects.get(edge).ok_or(ModelError::UnknownObject(*edge))?;
                     if matches!(target.domain, StorageDomain::Region(_)) {
@@ -397,7 +443,15 @@ impl MemoryModel {
                 .iter()
                 .map(|target| copies.get(target).copied().unwrap_or(*target))
                 .collect::<BTreeSet<_>>();
-            staged.push((copies[original], Object { domain: StorageDomain::Tracing, edges }));
+            staged.push((
+                copies[original],
+                Object {
+                    domain: StorageDomain::Tracing,
+                    edges,
+                    pinned: false,
+                    external_resources: BTreeSet::new(),
+                },
+            ));
         }
 
         for (id, object) in staged {
@@ -423,7 +477,6 @@ impl MemoryModel {
             return Err(ModelError::RegionHasLiveCaptures(region));
         }
 
-        self.regions.remove(&region);
         let members = self
             .objects
             .iter()
@@ -431,6 +484,17 @@ impl MemoryModel {
                 (node.domain == StorageDomain::Region(region)).then_some(*object)
             })
             .collect::<Vec<_>>();
+        for object in &members {
+            let node = self.objects.get(object).expect("region member exists");
+            if !node.external_resources.is_empty() {
+                return Err(ModelError::RegionContainsExternalResource { region, object: *object });
+            }
+            if node.pinned {
+                return Err(ModelError::RegionContainsPinnedObject { region, object: *object });
+            }
+        }
+
+        self.regions.remove(&region);
         for object in &members {
             self.objects.remove(object);
         }
@@ -444,6 +508,9 @@ impl MemoryModel {
         for capture in self.captures.values() {
             pending.extend(capture.tracing_roots.iter().copied());
         }
+        pending.extend(self.objects.iter().filter_map(|(object, node)| {
+            (node.domain == StorageDomain::Tracing && node.pinned).then_some(*object)
+        }));
         for node in self.objects.values() {
             if matches!(node.domain, StorageDomain::Region(region) if self.regions.contains_key(&region))
             {
@@ -507,6 +574,7 @@ enum CaptureFinishReason {
 enum ResourceOwner {
     Caller,
     Capture(CaptureId),
+    Object(ObjectId),
     Released,
 }
 
@@ -563,6 +631,9 @@ impl ResourceLedger {
                 Some(ResourceOwner::Capture(_)) => {
                     return Err(ModelError::ResourceOwnedByCapture(*resource));
                 }
+                Some(ResourceOwner::Object(_)) => {
+                    return Err(ModelError::ResourceOwnedByObject(*resource));
+                }
                 Some(ResourceOwner::Released) => {
                     return Err(ModelError::ResourceAlreadyReleased(*resource));
                 }
@@ -576,12 +647,80 @@ impl ResourceLedger {
         Ok(())
     }
 
+    /// Attaches an external resource to a stable object. Attachment transfers
+    /// resource ownership to the object and pins the object's storage.
+    fn attach_to_object(
+        &mut self,
+        model: &mut MemoryModel,
+        object: ObjectId,
+        resource: ResourceId,
+    ) -> Result<(), ModelError> {
+        let node = model.objects.get(&object).ok_or(ModelError::UnknownObject(object))?;
+        if node.external_resources.contains(&resource) {
+            return Err(ModelError::ResourceOwnershipInvariant(resource));
+        }
+        match self.owners.get(&resource).copied() {
+            None => return Err(ModelError::UnknownResource(resource)),
+            Some(ResourceOwner::Caller) => {}
+            Some(ResourceOwner::Capture(_)) => {
+                return Err(ModelError::ResourceOwnedByCapture(resource));
+            }
+            Some(ResourceOwner::Object(_)) => {
+                return Err(ModelError::ResourceOwnedByObject(resource));
+            }
+            Some(ResourceOwner::Released) => {
+                return Err(ModelError::ResourceAlreadyReleased(resource));
+            }
+        }
+
+        let node = model.objects.get_mut(&object).expect("object validated");
+        node.external_resources.insert(resource);
+        node.pinned = true;
+        self.owners.insert(resource, ResourceOwner::Object(object));
+        Ok(())
+    }
+
+    /// Deterministically releases a resource attached to an object. The object
+    /// remains pinned until a separate unpin transition succeeds.
+    fn release_object_resource(
+        &mut self,
+        model: &mut MemoryModel,
+        object: ObjectId,
+        resource: ResourceId,
+    ) -> Result<(), ModelError> {
+        let node = model.objects.get(&object).ok_or(ModelError::UnknownObject(object))?;
+        if !node.external_resources.contains(&resource) {
+            return Err(ModelError::ResourceNotAttachedToObject { object, resource });
+        }
+        if self.owners.get(&resource) != Some(&ResourceOwner::Object(object)) {
+            return Err(ModelError::ResourceOwnershipInvariant(resource));
+        }
+        let count = self
+            .release_counts
+            .get(&resource)
+            .copied()
+            .ok_or(ModelError::ResourceOwnershipInvariant(resource))?;
+        count.checked_add(1).ok_or(ModelError::ResourceReleaseCountOverflow(resource))?;
+
+        model
+            .objects
+            .get_mut(&object)
+            .expect("object validated")
+            .external_resources
+            .remove(&resource);
+        self.release_once(resource)?;
+        Ok(())
+    }
+
     /// Caller-side release is permitted only before ownership is transferred.
     fn release_by_caller(&mut self, resource: ResourceId) -> Result<(), ModelError> {
         match self.owners.get(&resource).copied() {
             None => return Err(ModelError::UnknownResource(resource)),
             Some(ResourceOwner::Capture(_)) => {
                 return Err(ModelError::ResourceOwnedByCapture(resource));
+            }
+            Some(ResourceOwner::Object(_)) => {
+                return Err(ModelError::ResourceOwnedByObject(resource));
             }
             Some(ResourceOwner::Released) => {
                 return Err(ModelError::ResourceAlreadyReleased(resource));
@@ -1208,6 +1347,137 @@ mod tests {
             Ok(1),
             "storage collection must not release the resource twice"
         );
+    }
+
+    #[test]
+    fn pinned_objects_cannot_be_promoted_or_ended_until_explicitly_unpinned() {
+        let mut model = MemoryModel::default();
+        let region = model.new_region().expect("region");
+        let object = model.allocate_in_region(region).expect("region object");
+        model.pin_object(object).expect("pin object");
+
+        assert_eq!(
+            model.promote_region_graph(object, 1),
+            Err(ModelError::PinnedObjectCannotBePromoted(object))
+        );
+        assert_eq!(
+            model.end_region(region),
+            Err(ModelError::RegionContainsPinnedObject { region, object })
+        );
+        assert!(model.contains(object));
+
+        model.unpin_object(object).expect("unpin after external use ends");
+        let promoted = model.promote_region_graph(object, 1).expect("promotion after unpin");
+        assert!(model.contains(promoted.promoted_root));
+        assert_eq!(model.end_region(region), Ok(vec![object]));
+    }
+
+    #[test]
+    fn attached_external_resource_blocks_copy_and_region_teardown_until_closed_and_unpinned() {
+        let mut model = MemoryModel::default();
+        let region = model.new_region().expect("region");
+        let object = model.allocate_in_region(region).expect("region object");
+        let mut resources = ResourceLedger::default();
+        let resource = resources.allocate().expect("FFI/DMA resource");
+        resources
+            .attach_to_object(&mut model, object, resource)
+            .expect("attach external resource");
+
+        assert_eq!(resources.owner(resource), Ok(ResourceOwner::Object(object)));
+        assert_eq!(
+            resources.release_by_caller(resource),
+            Err(ModelError::ResourceOwnedByObject(resource))
+        );
+        assert_eq!(
+            resources.transfer_to_capture(
+                &model,
+                model.create_capture_environment(
+                    CaptureKind::Closure,
+                    CaptureLifetime::Scoped(region),
+                    &[request(object, CaptureMode::SharedBorrow)],
+                ).expect("scoped capture"),
+                &[resource]
+            ),
+            Err(ModelError::ResourceOwnedByObject(resource))
+        );
+        assert_eq!(
+            model.promote_region_graph(object, 1),
+            Err(ModelError::ExternalResourceCannotBePromoted(object))
+        );
+        assert_eq!(
+            model.end_region(region),
+            Err(ModelError::RegionContainsExternalResource { region, object })
+        );
+        assert_eq!(resources.release_count(resource), Ok(0));
+
+        resources
+            .release_object_resource(&mut model, object, resource)
+            .expect("close external resource");
+        assert_eq!(resources.owner(resource), Ok(ResourceOwner::Released));
+        assert_eq!(resources.release_count(resource), Ok(1));
+
+        assert_eq!(
+            model.promote_region_graph(object, 1),
+            Err(ModelError::PinnedObjectCannotBePromoted(object)),
+            "closing the resource does not implicitly unpin its storage"
+        );
+        assert_eq!(
+            model.end_region(region),
+            Err(ModelError::RegionContainsPinnedObject { region, object })
+        );
+
+        model.unpin_object(object).expect("explicit unpin");
+        let promoted = model.promote_region_graph(object, 1).expect("promote after close and unpin");
+        assert!(model.contains(promoted.promoted_root));
+        assert_eq!(model.end_region(region), Ok(vec![object]));
+        assert_eq!(resources.release_count(resource), Ok(1));
+    }
+
+    #[test]
+    fn pinned_tracing_objects_are_gc_roots_until_resource_close_and_unpin() {
+        let mut model = MemoryModel::default();
+        let object = model.allocate_tracing().expect("tracing object");
+        let mut resources = ResourceLedger::default();
+        let resource = resources.allocate().expect("device resource");
+        resources.attach_to_object(&mut model, object, resource).expect("attach resource");
+
+        assert!(model.collect_tracing().is_empty());
+        assert!(model.contains(object));
+
+        resources
+            .release_object_resource(&mut model, object, resource)
+            .expect("close resource");
+        assert!(model.collect_tracing().is_empty());
+        assert!(model.contains(object), "closed resource remains pinned until explicit unpin");
+
+        model.unpin_object(object).expect("unpin");
+        assert_eq!(model.collect_tracing(), vec![object]);
+        assert_eq!(resources.release_count(resource), Ok(1));
+    }
+
+    #[test]
+    fn object_resource_attachment_is_atomic_for_unknown_or_non_caller_owned_resources() {
+        let mut model = MemoryModel::default();
+        let region = model.new_region().expect("region");
+        let object = model.allocate_in_region(region).expect("object");
+        let capture = model
+            .create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Scoped(region),
+                &[],
+            )
+            .expect("capture");
+        let mut resources = ResourceLedger::default();
+        let resource = resources.allocate().expect("resource");
+        resources.transfer_to_capture(&model, capture, &[resource]).expect("transfer");
+
+        assert_eq!(
+            resources.attach_to_object(&mut model, object, resource),
+            Err(ModelError::ResourceOwnedByCapture(resource))
+        );
+        assert_eq!(resources.owner(resource), Ok(ResourceOwner::Capture(capture)));
+        assert!(!model.objects[&object].pinned);
+        assert!(model.objects[&object].external_resources.is_empty());
     }
 
     #[test]
