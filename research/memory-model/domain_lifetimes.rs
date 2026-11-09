@@ -19,6 +19,9 @@ struct CaptureId(u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct TaskId(u64);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct ResourceId(u64);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StorageDomain {
     Tracing,
@@ -73,8 +76,14 @@ struct PromotionResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ModelError {
     UnknownObject(ObjectId),
+    UnknownResource(ResourceId),
     UnknownRegion(RegionId),
     UnknownCapture(CaptureId),
+    DuplicateResourceInTransfer(ResourceId),
+    ResourceOwnedByCapture(ResourceId),
+    ResourceAlreadyReleased(ResourceId),
+    ResourceOwnershipInvariant(ResourceId),
+    ResourceReleaseCountOverflow(ResourceId),
     RegionAlreadyEnded(RegionId),
     RegionHasLiveChildren(RegionId),
     RegionHasLiveCaptures(RegionId),
@@ -468,6 +477,165 @@ impl MemoryModel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptureFinishReason {
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceOwner {
+    Caller,
+    Capture(CaptureId),
+    Released,
+}
+
+/// Explicit owner ledger for external resources. Ordinary data-object storage
+/// may remain live after a resource is closed, and a task environment that owns
+/// a moved resource is responsible for releasing it on every finish path.
+#[derive(Debug, Default)]
+struct ResourceLedger {
+    next_resource: u64,
+    owners: BTreeMap<ResourceId, ResourceOwner>,
+    capture_resources: BTreeMap<CaptureId, BTreeSet<ResourceId>>,
+    release_counts: BTreeMap<ResourceId, u32>,
+    finish_reasons: BTreeMap<CaptureId, CaptureFinishReason>,
+}
+
+impl ResourceLedger {
+    fn allocate(&mut self) -> Result<ResourceId, ModelError> {
+        let next = self.next_resource.checked_add(1).ok_or(ModelError::IdentifierExhausted)?;
+        let resource = ResourceId(next);
+        self.next_resource = next;
+        self.owners.insert(resource, ResourceOwner::Caller);
+        self.release_counts.insert(resource, 0);
+        Ok(resource)
+    }
+
+    /// Transfers a complete batch atomically. The caller retains ownership if
+    /// any requested resource is unknown, already moved, or already released.
+    fn transfer_to_capture(
+        &mut self,
+        model: &MemoryModel,
+        capture: CaptureId,
+        resources: &[ResourceId],
+    ) -> Result<(), ModelError> {
+        if !model.captures.contains_key(&capture) {
+            return Err(ModelError::UnknownCapture(capture));
+        }
+
+        let requested = resources.iter().copied().collect::<BTreeSet<_>>();
+        if requested.len() != resources.len() {
+            let duplicate = resources
+                .iter()
+                .find(|resource| resources.iter().filter(|candidate| candidate == *resource).count() > 1)
+                .copied()
+                .ok_or(ModelError::IdentifierExhausted)?;
+            return Err(ModelError::DuplicateResourceInTransfer(duplicate));
+        }
+
+        for resource in &requested {
+            match self.owners.get(resource).copied() {
+                None => return Err(ModelError::UnknownResource(*resource)),
+                Some(ResourceOwner::Caller) => {}
+                Some(ResourceOwner::Capture(_)) => {
+                    return Err(ModelError::ResourceOwnedByCapture(*resource));
+                }
+                Some(ResourceOwner::Released) => {
+                    return Err(ModelError::ResourceAlreadyReleased(*resource));
+                }
+            }
+        }
+
+        for resource in &requested {
+            self.owners.insert(*resource, ResourceOwner::Capture(capture));
+        }
+        self.capture_resources.entry(capture).or_default().extend(requested);
+        Ok(())
+    }
+
+    /// Caller-side release is permitted only before ownership is transferred.
+    fn release_by_caller(&mut self, resource: ResourceId) -> Result<(), ModelError> {
+        match self.owners.get(&resource).copied() {
+            None => return Err(ModelError::UnknownResource(resource)),
+            Some(ResourceOwner::Capture(_)) => {
+                return Err(ModelError::ResourceOwnedByCapture(resource));
+            }
+            Some(ResourceOwner::Released) => {
+                return Err(ModelError::ResourceAlreadyReleased(resource));
+            }
+            Some(ResourceOwner::Caller) => {}
+        }
+        self.release_once(resource)?;
+        Ok(())
+    }
+
+    /// A task/closure environment releases every resource it owns when it
+    /// completes, is cancelled, or fails. State is validated before mutation.
+    fn finish_capture(
+        &mut self,
+        model: &mut MemoryModel,
+        capture: CaptureId,
+        reason: CaptureFinishReason,
+    ) -> Result<Vec<ResourceId>, ModelError> {
+        if !model.captures.contains_key(&capture) {
+            return Err(ModelError::UnknownCapture(capture));
+        }
+
+        let resources = self.capture_resources.get(&capture).cloned().unwrap_or_default();
+        for resource in &resources {
+            if self.owners.get(resource) != Some(&ResourceOwner::Capture(capture)) {
+                return Err(ModelError::ResourceOwnershipInvariant(*resource));
+            }
+            let count = self
+                .release_counts
+                .get(resource)
+                .copied()
+                .ok_or(ModelError::ResourceOwnershipInvariant(*resource))?;
+            if count.checked_add(1).is_none() {
+                return Err(ModelError::ResourceReleaseCountOverflow(*resource));
+            }
+        }
+
+        for resource in &resources {
+            self.release_once(*resource)?;
+        }
+        self.capture_resources.remove(&capture);
+        self.finish_reasons.insert(capture, reason);
+        model.release_capture_environment(capture)?;
+        Ok(resources.into_iter().collect())
+    }
+
+    fn release_once(&mut self, resource: ResourceId) -> Result<(), ModelError> {
+        let owner = self.owners.get(&resource).copied().ok_or(ModelError::UnknownResource(resource))?;
+        if owner == ResourceOwner::Released {
+            return Err(ModelError::ResourceAlreadyReleased(resource));
+        }
+        let count = self
+            .release_counts
+            .get(&resource)
+            .copied()
+            .ok_or(ModelError::ResourceOwnershipInvariant(resource))?;
+        let next = count.checked_add(1).ok_or(ModelError::ResourceReleaseCountOverflow(resource))?;
+        self.owners.insert(resource, ResourceOwner::Released);
+        self.release_counts.insert(resource, next);
+        Ok(())
+    }
+
+    fn owner(&self, resource: ResourceId) -> Result<ResourceOwner, ModelError> {
+        self.owners.get(&resource).copied().ok_or(ModelError::UnknownResource(resource))
+    }
+
+    fn release_count(&self, resource: ResourceId) -> Result<u32, ModelError> {
+        self.release_counts.get(&resource).copied().ok_or(ModelError::UnknownResource(resource))
+    }
+
+    fn finish_reason(&self, capture: CaptureId) -> Result<CaptureFinishReason, ModelError> {
+        self.finish_reasons.get(&capture).copied().ok_or(ModelError::UnknownCapture(capture))
+    }
+}
+
 #[derive(Debug, Default)]
 struct TaskBorrowState {
     shared: BTreeSet<TaskId>,
@@ -756,6 +924,122 @@ mod tests {
         assert_eq!(result.promoted_root, tracing);
         assert!(result.copies.is_empty());
         assert_eq!(model.next_object, before_next_id);
+    }
+
+    #[test]
+    fn moved_resource_is_released_once_when_capture_completes() {
+        let mut model = MemoryModel::default();
+        let capture = model
+            .create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[],
+            )
+            .expect("escaping closure environment");
+        let mut resources = ResourceLedger::default();
+        let resource = resources.allocate().expect("resource");
+
+        resources
+            .transfer_to_capture(&model, capture, &[resource])
+            .expect("move resource into closure");
+        assert_eq!(resources.owner(resource), Ok(ResourceOwner::Capture(capture)));
+        assert_eq!(
+            resources.release_by_caller(resource),
+            Err(ModelError::ResourceOwnedByCapture(resource))
+        );
+
+        assert_eq!(
+            resources.finish_capture(&mut model, capture, CaptureFinishReason::Completed),
+            Ok(vec![resource])
+        );
+        assert_eq!(resources.owner(resource), Ok(ResourceOwner::Released));
+        assert_eq!(resources.release_count(resource), Ok(1));
+        assert_eq!(resources.finish_reason(capture), Ok(CaptureFinishReason::Completed));
+        assert_eq!(resources.finish_capture(&mut model, capture, CaptureFinishReason::Completed), Err(ModelError::UnknownCapture(capture)));
+        assert_eq!(resources.release_count(resource), Ok(1));
+    }
+
+    #[test]
+    fn cancellation_and_failure_release_captured_resources_exactly_once() {
+        for reason in [CaptureFinishReason::Cancelled, CaptureFinishReason::Failed] {
+            let mut model = MemoryModel::default();
+            let capture = model
+                .create_capture_environment(
+                    CaptureKind::DetachedTask,
+                    CaptureLifetime::Escaping,
+                    &[],
+                )
+                .expect("detached task environment");
+            let mut resources = ResourceLedger::default();
+            let first = resources.allocate().expect("first resource");
+            let second = resources.allocate().expect("second resource");
+            resources
+                .transfer_to_capture(&model, capture, &[first, second])
+                .expect("transfer resources");
+
+            let released = resources.finish_capture(&mut model, capture, reason).expect("finish task");
+            assert_eq!(released, vec![first, second]);
+            assert_eq!(resources.release_count(first), Ok(1));
+            assert_eq!(resources.release_count(second), Ok(1));
+            assert_eq!(resources.finish_reason(capture), Ok(reason));
+            assert_eq!(resources.owner(first), Ok(ResourceOwner::Released));
+            assert_eq!(resources.owner(second), Ok(ResourceOwner::Released));
+        }
+    }
+
+    #[test]
+    fn failed_batch_resource_transfer_is_atomic() {
+        let mut model = MemoryModel::default();
+        let capture = model
+            .create_capture_environment(
+                CaptureKind::StructuredTask,
+                CaptureLifetime::Scoped(model.new_region().expect("region")),
+                &[],
+            )
+            .expect("structured task environment");
+        let mut resources = ResourceLedger::default();
+        let caller_owned = resources.allocate().expect("caller-owned resource");
+        let already_released = resources.allocate().expect("second resource");
+        resources.release_by_caller(already_released).expect("release second resource");
+
+        assert_eq!(
+            resources.transfer_to_capture(&model, capture, &[caller_owned, already_released]),
+            Err(ModelError::ResourceAlreadyReleased(already_released))
+        );
+        assert_eq!(resources.owner(caller_owned), Ok(ResourceOwner::Caller));
+        assert_eq!(resources.release_count(caller_owned), Ok(0));
+        assert_eq!(
+            resources.transfer_to_capture(&model, capture, &[caller_owned, caller_owned]),
+            Err(ModelError::DuplicateResourceInTransfer(caller_owned))
+        );
+        assert_eq!(resources.owner(caller_owned), Ok(ResourceOwner::Caller));
+    }
+
+    #[test]
+    fn resource_cleanup_and_traced_storage_reclamation_are_independent() {
+        let mut model = MemoryModel::default();
+        let object = model.allocate_tracing().expect("tracing object");
+        model.add_tracing_root(object).expect("external root");
+        let capture = model
+            .create_capture_environment(
+                CaptureKind::DetachedTask,
+                CaptureLifetime::Escaping,
+                &[request(object, CaptureMode::SharedBorrow)],
+            )
+            .expect("capture tracing object");
+        let mut resources = ResourceLedger::default();
+        let resource = resources.allocate().expect("external resource");
+        resources.transfer_to_capture(&model, capture, &[resource]).expect("resource transfer");
+
+        resources
+            .finish_capture(&mut model, capture, CaptureFinishReason::Cancelled)
+            .expect("cancel task and release external resource");
+        assert_eq!(resources.release_count(resource), Ok(1));
+        assert!(model.contains(object), "object storage stays live through independent root");
+
+        model.roots.remove(&object);
+        assert_eq!(model.collect_tracing(), vec![object]);
+        assert_eq!(resources.release_count(resource), Ok(1), "storage collection must not release the resource twice");
     }
 
     #[test]
