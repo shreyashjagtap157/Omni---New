@@ -693,19 +693,13 @@ mod tests {
         // A longer-lived outer allocation cannot retain an inner allocation.
         assert_eq!(
             heap.add_edge(outer_object, inner_object),
-            Err(ModelError::CrossRegionReference {
-                source: outer_object,
-                target: inner_object,
-            })
+            Err(ModelError::CrossRegionReference { source: outer_object, target: inner_object })
         );
 
         // Sibling regions have no outlives relationship.
         assert_eq!(
             heap.add_edge(inner_object, sibling_object),
-            Err(ModelError::CrossRegionReference {
-                source: inner_object,
-                target: sibling_object,
-            })
+            Err(ModelError::CrossRegionReference { source: inner_object, target: sibling_object })
         );
 
         // An outer region cannot be ended while a child scope remains live.
