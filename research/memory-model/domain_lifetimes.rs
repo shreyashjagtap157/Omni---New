@@ -530,7 +530,7 @@ impl ResourceLedger {
             let duplicate = resources
                 .iter()
                 .find(|resource| {
-                    resources.iter().filter(|candidate| candidate == *resource).count() > 1
+                    resources.iter().filter(|candidate| *candidate == *resource).count() > 1
                 })
                 .copied()
                 .ok_or(ModelError::IdentifierExhausted)?;
@@ -994,10 +994,11 @@ mod tests {
     #[test]
     fn failed_batch_resource_transfer_is_atomic() {
         let mut model = MemoryModel::default();
+        let region = model.new_region().expect("region");
         let capture = model
             .create_capture_environment(
                 CaptureKind::StructuredTask,
-                CaptureLifetime::Scoped(model.new_region().expect("region")),
+                CaptureLifetime::Scoped(region),
                 &[],
             )
             .expect("structured task environment");
