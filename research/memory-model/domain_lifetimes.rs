@@ -1395,20 +1395,18 @@ mod tests {
             resources.release_by_caller(resource),
             Err(ModelError::ResourceOwnedByObject(resource))
         );
+        let capture = model
+            .create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Scoped(region),
+                &[request(object, CaptureMode::SharedBorrow)],
+            )
+            .expect("scoped capture");
         assert_eq!(
-            resources.transfer_to_capture(
-                &model,
-                model
-                    .create_capture_environment(
-                        CaptureKind::Closure,
-                        CaptureLifetime::Scoped(region),
-                        &[request(object, CaptureMode::SharedBorrow)],
-                    )
-                    .expect("scoped capture"),
-                &[resource]
-            ),
+            resources.transfer_to_capture(&model, capture, &[resource]),
             Err(ModelError::ResourceOwnedByObject(resource))
         );
+        model.release_capture_environment(capture).expect("release scoped capture");
         assert_eq!(
             model.promote_region_graph(object, 1),
             Err(ModelError::ExternalResourceCannotBePromoted(object))
