@@ -2,7 +2,7 @@
 
 This repository contains the Rust implementation of the Omni Edition 1 programming language and toolchain. The implementation is governed by the normative specifications under `spec/`; implementation behavior must not be invented locally when a specification is silent or contradictory.
 
-> **Repository status — 22 October 2026:** this is an active, early-stage compiler implementation, not a complete production compiler or self-hosted language. The latest inspected main-branch qualification run failed at focused ownership-verifier tests because Cargo.lock needed an update under `--locked`. A recent fuzz workflow also encountered a stable/nightly toolchain mismatch. See [Actions](https://github.com/shreyashjagtap157/Omni---New/actions) for live state.
+> **Repository status — 9 November 2026:** this remains an active, early-stage compiler implementation, not a complete production compiler or self-hosted language. The latest fully validated code head before this research update is `6de67f1d760c251371e8c8206e0af3f5376c8e1c`; its full Omni CI, Rust tests, strict Clippy, Cargo Audit, and CodeQL workflows passed. Foundation 0.0.0.13 technical checks passed on that head, but formal qualification scope/sign-off, complete-language conformance, and production readiness remain unresolved. See [Actions](https://github.com/shreyashjagtap157/Omni---New/actions) for current run state.
 
 ## Generational roadmap
 
@@ -20,6 +20,8 @@ These are roadmap targets, not claims that all stages have been completed.
 - `tests/` — tests.
 - `ci/` — CI qualification helpers.
 - `tools/` — repository and specification tooling.
+- `docs/research/` — evidence-based architecture studies and research handoffs.
+- `research/` — isolated executable research prototypes; not production compiler components.
 - `Cargo.toml` and `Cargo.lock` — Rust workspace and dependency lock.
 - `rust-toolchain.toml` — pinned toolchain contract.
 
@@ -51,15 +53,14 @@ The repository has an open issue concerning a ruzstd decompression-bomb advisory
 
 Open dependency updates must be evaluated against the language/compiler compatibility contract; a newer backend crate should not be adopted without compatibility testing.
 
-## Current validation priorities
+## Current research and validation priorities
 
-1. Reconcile Cargo manifests and lockfile for repeatable `--locked` builds.
-2. Fix the focused ownership-verifier failures and rerun the complete workspace gate.
-3. Align fuzz/sanitizer jobs with a compatible nightly toolchain.
-4. Resolve and document the dependency security advisory.
-5. Keep each semantic feature linked to its normative rule and executable conformance test.
-6. Do not claim self-hosting or production readiness until the corresponding end-to-end stage passes.
-
+1. Continue the memory-architecture research in [the managed-memory versus affine-ownership study](docs/research/memory-architecture-managed-vs-affine.md). The historical managed-memory-default requirement and the Edition 1 affine-ownership reference remain an open design conflict; no architecture has been selected.
+2. Extend CFG/NLL and reborrow testing across loops, reference parameters, drops, moves, return provenance, and aggregate field reinitialization where normative rules are explicit.
+3. Continue target/runtime research for allocation provenance, alignment, a fully specified native ABI, and host/target conformance. Opaque-handle reference memory is not a physical pointer ABI.
+4. Maintain the research-to-prototype-to-specification-to-implementation-to-validation cycle; do not let a passing prototype become an unapproved language rule.
+5. Keep every semantic feature linked to its normative rule and executable conformance evidence.
+6. Keep formal foundation sign-off, full-language qualification, self-hosting, and production readiness distinct from successful technical CI.
 ## Releases
 
 No GitHub release was found in the repository audit dated 22 October 2026. Treat any version or changelog entry as development metadata unless accompanied by a qualified tag and release evidence.

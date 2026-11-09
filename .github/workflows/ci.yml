@@ -34,6 +34,14 @@ jobs:
       - name: Check Code Formatting
         run: cargo fmt --all -- --check
 
+      - name: Check memory-model research prototype formatting
+        run: rustfmt +1.95.0 --edition 2021 --check research/memory-model/spike.rs
+
+      - name: Run isolated memory-model research prototype
+        run: |
+          rustc +1.95.0 --edition=2021 --test -D warnings research/memory-model/spike.rs -o /tmp/omni-memory-model-spike
+          /tmp/omni-memory-model-spike --test-threads=1
+
       - name: Run focused ownership verifier tests
         run: cargo test -j 1 -p omni-verify --locked -- --test-threads=1
 

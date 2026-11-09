@@ -4,6 +4,12 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### Research — managed memory and affine ownership
+
+- Added a source-backed study of the historical managed-memory-default requirement versus the current Edition 1 affine ownership reference. Compared affine-first, managed-first, and composable memory-domain candidates; recorded the access/reclamation/resource-lifetime distinction as a hypothesis, not an accepted architecture.
+- Added an isolated executable model for region bulk reclamation, strong reference counting, tracing reachability, shared/exclusive access permissions, and deterministic resource-token destruction. The model is outside the production Cargo workspace and is not normative or production memory management.
+- Added rustfmt and executable-prototype checks to the pinned Rust 1.95.0 Omni CI pipeline. No Edition 1 grammar, semantics, registry lifecycle, manifest digest, or release version changed.
+
 ### Security, qualification integrity, and implementation evidence
 ### Fallible allocation paths
 
