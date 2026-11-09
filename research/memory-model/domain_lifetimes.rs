@@ -93,9 +93,16 @@ enum ModelError {
     UnknownResource(ResourceId),
     UnknownRegion(RegionId),
     UnknownCapture(CaptureId),
-    SourcePlaceOwnedByCapture { place: SourcePlaceId, capture: CaptureId },
+    SourcePlaceOwnedByCapture {
+        place: SourcePlaceId,
+        capture: CaptureId,
+    },
     SourcePlaceMoved(SourcePlaceId),
-    SourcePlaceBoundToDifferentObject { place: SourcePlaceId, existing: ObjectId, requested: ObjectId },
+    SourcePlaceBoundToDifferentObject {
+        place: SourcePlaceId,
+        existing: ObjectId,
+        requested: ObjectId,
+    },
     SourcePlaceOwnershipInvariant(SourcePlaceId),
     DuplicateResourceInTransfer(ResourceId),
     ResourceOwnedByCapture(ResourceId),
@@ -308,8 +315,21 @@ impl MemoryModel {
 
         let mut tracing_roots = BTreeSet::new();
         let mut moved_source_places = BTreeSet::new();
+        let mut requested_places = BTreeMap::new();
         let mut permissions: BTreeMap<ObjectId, (usize, bool, bool)> = BTreeMap::new();
         for request in requests {
+            if let Some(existing) = requested_places.get(&request.source_place).copied() {
+                if existing != request.object {
+                    return Err(ModelError::SourcePlaceBoundToDifferentObject {
+                        place: request.source_place,
+                        existing,
+                        requested: request.object,
+                    });
+                }
+            } else {
+                requested_places.insert(request.source_place, request.object);
+            }
+
             match self.source_places.get(&request.source_place) {
                 None => {}
                 Some((existing, _)) if *existing != request.object => {
@@ -413,10 +433,8 @@ impl MemoryModel {
                 .entry(request.source_place)
                 .or_insert((request.object, SourcePlaceState::CallerOwned));
             if request.mode == CaptureMode::Move {
-                self.source_places.insert(
-                    request.source_place,
-                    (request.object, SourcePlaceState::Captured(id)),
-                );
+                self.source_places
+                    .insert(request.source_place, (request.object, SourcePlaceState::Captured(id)));
             }
             self.capture_access.entry(request.object).or_default().insert(id, request.mode);
         }
@@ -442,8 +460,10 @@ impl MemoryModel {
         let moved_places = environment.moved_source_places.clone();
         self.captures.remove(&capture).ok_or(ModelError::UnknownCapture(capture))?;
         for place in moved_places {
-            let (object, state) =
-                self.source_places.get_mut(&place).ok_or(ModelError::SourcePlaceOwnershipInvariant(place))?;
+            let (_, state) = self
+                .source_places
+                .get_mut(&place)
+                .ok_or(ModelError::SourcePlaceOwnershipInvariant(place))?;
             if *state != SourcePlaceState::Captured(capture) {
                 return Err(ModelError::SourcePlaceOwnershipInvariant(place));
             }
@@ -951,7 +971,11 @@ mod tests {
         CaptureRequest { source_place: SourcePlaceId(object.0), object, mode }
     }
 
-    fn request_at(source_place: SourcePlaceId, object: ObjectId, mode: CaptureMode) -> CaptureRequest {
+    fn request_at(
+        source_place: SourcePlaceId,
+        object: ObjectId,
+        mode: CaptureMode,
+    ) -> CaptureRequest {
         CaptureRequest { source_place, object, mode }
     }
 
@@ -1238,6 +1262,35 @@ mod tests {
             "completion does not resurrect the moved source place"
         );
         assert_eq!(model.collect_tracing(), vec![object]);
+    }
+
+    #[test]
+    fn one_capture_batch_cannot_bind_one_source_place_to_two_objects() {
+        let mut model = MemoryModel::default();
+        let first = model.allocate_tracing().expect("first object");
+        let second = model.allocate_tracing().expect("second object");
+        let source = SourcePlaceId(699);
+        let next_before = model.next_capture;
+
+        assert_eq!(
+            model.create_capture_environment(
+                CaptureKind::Closure,
+                CaptureLifetime::Escaping,
+                &[
+                    request_at(source, first, CaptureMode::SharedBorrow),
+                    request_at(source, second, CaptureMode::SharedBorrow),
+                ],
+            ),
+            Err(ModelError::SourcePlaceBoundToDifferentObject {
+                place: source,
+                existing: first,
+                requested: second,
+            })
+        );
+        assert_eq!(model.next_capture, next_before);
+        assert!(model.source_places.is_empty());
+        assert!(model.capture_access.is_empty());
+        assert!(model.captures.is_empty());
     }
 
     #[test]
