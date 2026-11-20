@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Omni Foundation Qualification Record",
+  "type": "object",
+  "description": "Formal owner-attested qualification record for the Omni foundation gate (OMNI-IMP-0.0.0.13). Separates technical CI outcomes from governance approval.",
+  "properties": {
+    "commit_sha": {
+      "type": "string",
+      "description": "Exact Git commit SHA that was qualified.",
+      "example": "27c5565a1b3d8e8f9a0b1c2d3e4f5a6b7c8d9e0f"
+    },
+    "technical_status": {
+      "type": "string",
+      "enum": ["passed", "failed"],
+      "description": "Result of the full CI validation run (fmt, clippy, build, test)."
+    },
+    "verified_item_count": {
+      "type": "integer",
+      "description": "Number of mandatory inventory items with Verified status at the time of qualification.",
+      "example": 23
+    },
+    "total_mandatory_items": {
+      "type": "integer",
+      "description": "Total count of mandatory inventory items.",
+      "example": 26
+    },
+    "verified_gaps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["COMP-020", "INST-002", "ADR-0002"]
+      },
+      "description": "List of mandatory items that are not yet Verified. Empty array means all mandatory items are Verified.",
+      "example": ["COMP-020", "INST-002"]
+    },
+    "formal_status": {
+      "type": "string",
+      "enum": ["approved", "pending", "rejected"],
+      "description": "Governance-level formal sign-off status. 'approved' means the project owner has attested the qualification record.",
+      "example": "pending"
+    },
+    "attester": {
+      "type": "string",
+      "description": "Identity of the person/body attesting formal qualification.",
+      "example": "project-owner@example.com"
+    },
+    "attestation_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 date-time when the formal attestation was recorded.",
+      "example": "2026-11-20T12:00:00Z"
+    },
+    "blocked_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Human-readable reason why each remaining item is blocked."
+      },
+      "description": "Why mandatory items are not yet Verified. Corresponds to D-001 style discrepancies."
+    },
+    "spec_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 digest of the spec tree at qualification time, to prevent post-hoc changes."
+    }
+  },
+  "required": ["commit_sha", "technical_status", "verified_item_count", "total_mandatory_items", "verified_gaps", "formal_status"],
+  "additionalProperties": false
+}
