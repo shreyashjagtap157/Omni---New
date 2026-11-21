@@ -57,7 +57,7 @@ run_check cargo run -j 1 -p omni-topology --locked
 # Timeouts, hangs, crashes, sanitizer failures, and nondeterministic outputs are failures.
 if command -v cargo-fuzz >/dev/null 2>&1; then
     echo "Fuzz: lexer_fuzz budget=${FUZZ_BUDGET}s"
-    timeout "${MAX_TIME}s" cargo fuzz run lexer_fuzz -- -max_total_time="${FUZZ_BUDGET}"
+    run_check cargo fuzz run lexer_fuzz -- -max_total_time="${FUZZ_BUDGET}"
 else
     echo "WARN: cargo-fuzz not installed; fuzz budget (${FUZZ_BUDGET}s/target) declared but not enforced on this host."
 fi
