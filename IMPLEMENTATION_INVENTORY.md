@@ -1,5 +1,8 @@
 # Omni Implementation Inventory
 
+
+> **Remote-main evidence warning — 2026-11-21:** The status table below preserves the owner-reported local-workspace snapshot from 2026-11-20. It is **not** an independently verified status count for the public `main` branch. The remote-main audit at commit `0daf201d1e5148e38302c33b5f433c9d2e74737a` found missing implementation paths and inconsistencies between the summary ID list and the detailed item table. Preserve this historical snapshot, but do not use its 24/26 count as current release evidence until the local source is restored, reconciled and requalified. See [Remote-main gate reconciliation](docs/implementation/remote-main-gate-reconciliation-2026-11-21.md).
+
 ## Status Tracking for Mandatory Inventory Items
 
 ## Summary
