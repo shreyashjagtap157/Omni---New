@@ -1,405 +1,212 @@
-#!/usr/bin/env powershell
 name: Omni CI Pipeline
+
 on:
   push:
-    branches: [ main, "feature/**" ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+
 permissions:
   contents: read
 
+concurrency:
+  group: omni-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 1
+  CARGO_BUILD_CODEGEN_UNITS: 1
+
 jobs:
-  validate:
-    name: Build & Qualify (Pinned Rust 1.95.0)
-    runs-on: ubuntu-latest
-    env:
-      CARGO_BUILD_JOBS: 1
-      CARGO_BUILD_CODEGEN_UNITS: 1
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Rust Toolchain (pinned contract)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.95.0
-          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, riscv64gc-unknown-none-elf
-          components: rustfmt, clippy, rust-src, llvm-tools-preview
-
-      - name: Assert pinned toolchain identity
-        run: ./ci/assert-toolchain.sh
-
-      - name: Check Code Formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run Strict Clippy Lints
-        run: cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
-
-      - name: Check Workspace
-        run: cargo check -j 1 --workspace --locked
-
-      - name: Execute Workspace Test Suite
-        run: cargo test -j 1 --workspace --locked -- --test-threads=1
-
-      - name: Verify Locked Metadata
-        run: cargo metadata --format-version 1 --locked > /dev/null
-
-      - name: Verify Specification Manifest Binding
-        run: cargo run -j 1 -p omni-conform --locked
-
-      - name: Verify Compiler Crate Topology
-        run: cargo run -j 1 -p omni-topology --locked
-
-      - name: Check Inventory Verification Status
-        run: |
-          echo "Checking implementation inventory verification status..."
-          if [ -f IMPLEMENTATION_INVENTORY.md ]; then
-            echo "IMPLEMENTATION_INVENTORY.md exists - verifying verified count"
-            # Parse the inventory table: extract COMP- entries and their status
-            # Table format: | ID | Item | Crate/Module | Current Status | Blockers |
-            # A COMP- entry is "Verified" only if ALL mandatory items have status Verified
-            unverified=$(awk '
-              /^| COMP-/,/^| $/ {
-                if ($0 ~ /| [A-Z]/ && !/^|----/ && !/^|/ IDs/) {
-                  # Extract the status field (4th field, split by |)
-                  n = split($0, fields, "|")
-                  if (n >= 5) {
-                    status = fields[5]
-                    sub(/^ /, "", status)
-                    sub(/ $/, "", status)
-                    if (status != "Verified") {
-                      unverified_id = fields[2]
-                      gsub(/^ /, "", unverified_id)
-                      gsub(/ $/, "", unverified_id)
-                      print unverified_id, status
-                    }
-                  }
-                }
-              }
-            ' IMPLEMENTATION_INVENTORY.md)
-            if [ -n "$unverified" ]; then
-              echo "FAIL: The following mandatory items are not Verified:"
-              echo "$unverified"
-              exit 1
-            else
-              echo "PASS: All mandatory inventory items are Verified."
-            fi
-          else
-            echo "WARN: IMPLEMENTATION_INVENTORY.md not found"
-            exit 1
-          fi
-
-      - name: Generate Stabilization Report
-        run: |
-          echo "Release-Candidate Stabilization Report" > stabilization_report.md
-          echo "Date: $(date -u)" >> stabilization_report.md
-          echo "Platform: ubuntu-latest" >> stabilization_report.md
-          echo "" >> stabilization_report.md
-          echo "## Test Results" >> stabilization_report.md
-          echo "- cargo fmt: PASSED" >> stabilization_report.md
-          echo "- cargo clippy: PASSED (zero warnings)" >> stabilization_report.md
-          echo "- cargo build: PASSED" >> stabilization_report.md
-          echo "- cargo test: PASSED (full workspace suite)" >> stabilization_report.md
-          echo "" >> stabilization_report.md
-          echo "## Verified Items" >> stabilization_report.md
-          echo "- All 26 mandatory inventory items Verified" >> stabilization_report.md
-          echo "" >> stabilization_report.md
-          echo "## Known Issues" >> stabilization_report.md
-          echo "- COMP-020: Linux/macOS support - tested via GitHub Actions native runners" >> stabilization_report.md
-          echo "- INST-002: Installer code signing - production certificates required (externally blocked)" >> stabilization_report.md
-          echo "- ADR-0002: Foundation gate sign-off - Alternative C approved, record pending owner attestation" >> stabilization_report.md
-          echo "- PLAT-001: C API compatibility - under evaluation" >> stabilization_report.md
-
-      - name: Verify Locked Metadata
-        run: cargo metadata --format-version 1 --locked > /dev/null
-
-      - name: Verify Specification Manifest Binding
-        run: cargo run -j 1 -p omni-conform --locked
-
-      - name: Stabilize RC
-        run: ./ci/gate-0-0-0-14.sh
-
   validate-linux:
-    name: Build & Qualify (Linux, Pinned Rust 1.95.0)
+    name: Validate (Linux, Rust 1.95.0)
     runs-on: ubuntu-latest
-    env:
-      CARGO_BUILD_JOBS: 1
-      CARGO_BUILD_CODEGEN_UNITS: 1
-
+    timeout-minutes: 90
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust Toolchain (pinned contract)
+      - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.95.0
-          targets: x86_64-unknown-linux-gnu, riscv64gc-unknown-none-elf
-          components: rustfmt, clippy, rust-src, llvm-tools-preview
+          targets: x86_64-unknown-linux-gnu,riscv64gc-unknown-none-elf
+          components: rustfmt,clippy,rust-src,llvm-tools-preview
 
-      - name: Assert pinned toolchain identity (Linux)
+      - name: Assert pinned toolchain
         run: ./ci/assert-toolchain.sh
 
-      - name: Check Code Formatting (Linux)
-        run: cargo fmt --all -- --check
-
-      - name: Run Strict Clippy Lints (Linux)
-        run: cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
-
-      - name: Check Workspace (Linux)
-        run: cargo check -j 1 --workspace --locked
-
-      - name: Execute Workspace Test Suite (Linux)
-        run: cargo test -j 1 --workspace --locked -- --test-threads=1
-
-      - name: Verify Locked Metadata (Linux)
-        run: cargo metadata --format-version 1 --locked > /dev/null
-
-      - name: Verify Specification Manifest Binding (Linux)
-        run: cargo run -j 1 -p omni-conform --locked
+      - name: Run complete Linux validation
+        run: ./ci/pipeline.sh pr
 
   validate-macos:
-    name: Build & Qualify (macOS, Pinned Rust 1.95.0)
+    name: Validate (macOS, Rust 1.95.0)
     runs-on: macos-latest
-    env:
-      CARGO_BUILD_JOBS: 1
-      CARGO_BUILD_CODEGEN_UNITS: 1
-
+    timeout-minutes: 90
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust Toolchain (pinned contract)
+      - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.95.0
-          targets: x86_64-apple-darwin, riscv64gc-unknown-none-elf
-          components: rustfmt, clippy, rust-src, llvm-tools-preview
+          targets: x86_64-unknown-linux-gnu,riscv64gc-unknown-none-elf
+          components: rustfmt,clippy,rust-src,llvm-tools-preview
 
-      - name: Assert pinned toolchain identity (macOS)
+      - name: Assert pinned toolchain
         run: ./ci/assert-toolchain.sh
 
-      - name: Check Code Formatting (macOS)
-        run: cargo fmt --all -- --check
-
-      - name: Run Strict Clippy Lints (macOS)
-        run: cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
-
-      - name: Check Workspace (macOS)
-        run: cargo check -j 1 --workspace --locked
-
-      - name: Execute Workspace Test Suite (macOS)
-        run: cargo test -j 1 --workspace --locked -- --test-threads=1
-
-      - name: Verify Locked Metadata (macOS)
-        run: cargo metadata --format-version 1 --locked > /dev/null
-
-      - name: Verify Specification Manifest Binding (macOS)
-        run: cargo run -j 1 -p omni-conform --locked
+      - name: Run complete macOS validation
+        run: ./ci/pipeline.sh pr
 
   validate-windows:
-    name: Build & Qualify (Windows, Pinned Rust 1.95.0)
+    name: Validate (Windows, Rust 1.95.0)
     runs-on: windows-latest
-    env:
-      CARGO_BUILD_JOBS: 1
-      CARGO_BUILD_CODEGEN_UNITS: 1
-
+    timeout-minutes: 90
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust Toolchain (pinned contract)
+      - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.95.0
-          targets: x86_64-pc-windows-msvc
-          components: rustfmt, clippy, rust-src, llvm-tools-preview
+          targets: x86_64-unknown-linux-gnu,x86_64-pc-windows-msvc,riscv64gc-unknown-none-elf
+          components: rustfmt,clippy,rust-src,llvm-tools-preview
 
-      - name: Assert pinned toolchain identity (Windows)
+      - name: Assert pinned toolchain
         shell: pwsh
         run: ./ci/assert-toolchain.ps1
 
-      - name: Check Code Formatting (Windows)
+      - name: Check formatting
         shell: pwsh
         run: cargo fmt --all -- --check
 
-      - name: Run Strict Clippy Lints (Windows)
+      - name: Check workspace
+        shell: pwsh
+        run: cargo check -j 1 --workspace --all-targets --locked
+
+      - name: Build workspace
+        shell: pwsh
+        run: cargo build -j 1 --workspace --locked
+
+      - name: Run strict Clippy
         shell: pwsh
         run: cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
 
-      - name: Check Workspace (Windows)
-        shell: pwsh
-        run: cargo check -j 1 --workspace --locked
-
-      - name: Execute Workspace Test Suite (Windows)
+      - name: Run workspace tests
         shell: pwsh
         run: cargo test -j 1 --workspace --locked -- --test-threads=1
 
-      - name: Verify Locked Metadata (Windows)
+      - name: Verify locked metadata and dependency tree
         shell: pwsh
-        run: cargo metadata --format-version 1 --locked > $null
-
-      - name: Verify Specification Manifest Binding (Windows)
-        shell: pwsh
-        run: cargo run -j 1 -p omni-conform --locked
-
-      - name: Run Installer Qualification (Windows)
-        shell: pwsh
-        run: ./tools/omni-installer/installer-qualify.ps1
-
-  stabilize-rc:
-    name: Release-Candidate Stabilization
-    runs-on: ubuntu-latest
-    env:
-      CARGO_BUILD_JOBS: 1
-      CARGO_BUILD_CODEGEN_UNITS: 1
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Rust Toolchain (pinned contract)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.95.0
-          targets: x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc, riscv64gc-unknown-none-elf
-          components: rustfmt, clippy, rust-src, llvm-tools-preview
-
-      - name: Assert pinned toolchain identity
-        run: ./ci/assert-toolchain.sh
-
-      - name: Check Code Formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run Strict Clippy Lints
-        run: cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
-
-      - name: Check Workspace
-        run: cargo check -j 1 --workspace --locked
-
-      - name: Execute Full Workspace Test Suite
-        run: cargo test -j 1 --workspace --locked -- --test-threads=1
-
-      - name: Verify Locked Metadata
-        run: cargo metadata --format-version 1 --locked > /dev/null
-
-      - name: Verify Specification Manifest Binding
-        run: cargo run -j 1 -p omni-conform --locked
-
-      - name: Check Inventory Verification Status
         run: |
-          echo "Checking implementation inventory verification status..."
-          if [ -f IMPLEMENTATION_INVENTORY.md ]; then
-            echo "IMPLEMENTATION_INVENTORY.md exists - verifying verified count"
-            # Parse each COMP- entry: extract the status (5th pipe-delimited field)
-            # and flag any that are not "Verified". This replaces the unreliable
-            # "grep -c" + "greater than 15" heuristic.
-            unverified=$(grep '| COMP-' IMPLEMENTATION_INVENTORY.md | while IFS= read -r line; do
-              status=$(echo "$line" | awk -F'|' '{print $5}' | xargs)
-              if [ "$status" != "Verified" ]; then
-                id=$(echo "$line" | awk -F'|' '{print $2}' | xargs)
-                echo "$id $status"
-              fi
-            done)
-            if [ -n "$unverified" ]; then
-              echo "FAIL: The following mandatory items are not Verified:"
-              echo "$unverified"
-              exit 1
-            else
-              echo "PASS: All mandatory inventory items are Verified."
-            fi
-          else
-            echo "WARN: IMPLEMENTATION_INVENTORY.md not found"
-            exit 1
-          fi
+          cargo metadata --format-version 1 --locked | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo tree --locked | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Generate Stabilization Report
+      - name: Verify specification and architecture gates
+        shell: pwsh
         run: |
-          echo "Release-Candidate Stabilization Report" > stabilization_report.md
-          echo "Date: $(date -u)" >> stabilization_report.md
-          echo "Platform: ubuntu-latest" >> stabilization_report.md
-          echo "" >> stabilization_report.md
-          echo "## Test Results" >> stabilization_report.md
-          echo "- cargo fmt: PASSED" >> stabilization_report.md
-          echo "- cargo clippy: PASSED (zero warnings)" >> stabilization_report.md
-          echo "- cargo build: PASSED" >> stabilization_report.md
-          echo "- cargo test: PASSED (full workspace suite)" >> stabilization_report.md
-          echo "" >> stabilization_report.md
-          echo "## Verified Items" >> stabilization_report.md
-          echo "- All 26 mandatory inventory items Verified" >> stabilization_report.md
-          echo "" >> stabilization_report.md
-          echo "## Known Issues" >> stabilization_report.md
-          echo "- COMP-020: Linux/macOS support - tested via GitHub Actions native runners" >> stabilization_report.md
-          echo "- INST-002: Installer code signing - production certificates required (externally blocked)" >> stabilization_report.md
-          echo "- ADR-0002: Foundation gate sign-off - Alternative C approved, record pending owner attestation" >> stabilization_report.md
-          echo "- PLAT-001: C API compatibility - under evaluation" >> stabilization_report.md
+          cargo run -j 1 -p omni-conform --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run -j 1 -p omni-audit --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run -j 1 -p omni-topology --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Verify Locked Metadata
-        run: cargo metadata --format-version 1 --locked > /dev/null
-
-      - name: Verify Specification Manifest Binding
-        run: cargo run -j 1 -p omni-conform --locked
-
-      - name: Stabilize RC
-        run: ./ci/gate-0-0-0-14.sh
-
-   stabilize-windows:
-    name: Windows Installer Qualification
-    runs-on: windows-latest
-    env:
-      CARGO_BUILD_JOBS: 1
-      CARGO_BUILD_CODEGEN_UNITS: 1
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Rust Toolchain (pinned contract)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.95.0
-          targets: x86_64-pc-windows-msvc
-          components: rustfmt, clippy, rust-src, llvm-tools-preview
-
-      - name: Assert pinned toolchain identity (Windows)
-        shell: pwsh
-        run: ./ci/assert-toolchain.ps1
-
-      - name: Check Code Formatting (Windows)
-        shell: pwsh
-        run: cargo fmt --all -- --check
-
-      - name: Run Strict Clippy Lints (Windows)
-        shell: pwsh
-        run: cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
-
-      - name: Check Workspace (Windows)
-        shell: pwsh
-        run: cargo check -j 1 --workspace --locked
-
-      - name: Execute Workspace Test Suite (Windows)
-        shell: pwsh
-        run: cargo test -j 1 --workspace --locked -- --test-threads=1
-
-      - name: Verify Locked Metadata (Windows)
-        shell: pwsh
-        run: cargo metadata --format-version 1 --locked > $null
-
-      - name: Verify Specification Manifest Binding (Windows)
-        shell: pwsh
-        run: cargo run -j 1 -p omni-conform --locked
-
-      - name: Run Installer Qualification (Windows)
-        shell: pwsh
-        run: ./tools/omni-installer/installer-qualify.ps1
-
-  stabilizing:
-    name: Stabilization Summary
+  gate-readiness:
+    name: First-stage gate readiness (informational; does not grant qualification)
+    if: always()
+    needs: [validate-linux, validate-macos, validate-windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Display Stabilization Report
-        run: cat stabilization_report.md
+      - name: Report exact gate blockers
+        env:
+          LINUX_RESULT: ${{ needs.validate-linux.result }}
+          MACOS_RESULT: ${{ needs.validate-macos.result }}
+          WINDOWS_RESULT: ${{ needs.validate-windows.result }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import os
+
+          root = Path(".")
+          blockers = []
+          results = {
+              "Linux validation": os.environ["LINUX_RESULT"],
+              "macOS validation": os.environ["MACOS_RESULT"],
+              "Windows validation": os.environ["WINDOWS_RESULT"],
+          }
+          for name, result in results.items():
+              if result != "success":
+                  blockers.append(f"{name} result is {result!r}, not 'success'.")
+
+          required_paths = [
+              "tools/omni-installer",
+              "tools/omni-installer/installer-qualify.ps1",
+              "ci/gate-0-0-0-14.sh",
+          ]
+          for relative in required_paths:
+              if not (root / relative).exists():
+                  blockers.append(f"Required repository artifact is absent: {relative}")
+
+          inventory_path = root / "IMPLEMENTATION_INVENTORY.md"
+          if inventory_path.exists():
+              inventory = inventory_path.read_text(encoding="utf-8")
+              summary = re.search(
+                  r"\|\s*Verified\s*\|\s*(\d+)\s*\|.*?\n"
+                  r"\|\s*Accepted\s*\|\s*(\d+)\s*\|.*?\n"
+                  r"\|\s*Blocked\s*\|\s*(\d+)\s*\|.*?\n"
+                  r"\|\s*\*\*Total\*\*\s*\|\s*(\d+)\s*\|",
+                  inventory,
+                  re.S,
+              )
+              if not summary:
+                  blockers.append("Inventory summary could not be parsed from its declared table.")
+              else:
+                  verified, accepted, blocked, total = map(int, summary.groups())
+                  if total != 26:
+                      blockers.append(f"Inventory declares {total} mandatory items, expected 26.")
+                  if (verified, accepted, blocked) != (26, 0, 0):
+                      blockers.append(
+                          f"Inventory is {verified} Verified / {accepted} Accepted / "
+                          f"{blocked} Blocked / {total} Total; gate requires 26/0/0."
+                      )
+          else:
+              blockers.append("IMPLEMENTATION_INVENTORY.md is absent.")
+
+          blockers.append(
+              "INST-002 still requires a genuinely trusted production Authenticode "
+              "publisher identity and successful clean-Windows trust verification."
+          )
+          blockers.append(
+              "ADR-0002 formal qualification still requires a truthful, exact-commit "
+              "record backed by passing technical evidence and owner approval."
+          )
+
+          summary = [
+              "# Omni first-stage gate readiness",
+              "",
+              "**Result: NOT PASSED.** This report is informational and does not grant "
+              "qualification.",
+              "",
+              "## Native validation jobs",
+          ]
+          summary.extend(f"- {name}: {result}" for name, result in results.items())
+          summary += ["", "## Outstanding blockers"]
+          summary.extend(f"- {item}" for item in blockers)
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
+              "\n".join(summary) + "\n", encoding="utf-8"
+          )
+          print("\n".join(summary))
+          PY
