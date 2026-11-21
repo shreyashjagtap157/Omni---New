@@ -163,18 +163,21 @@ jobs:
           inventory_path = root / "IMPLEMENTATION_INVENTORY.md"
           if inventory_path.exists():
               inventory = inventory_path.read_text(encoding="utf-8")
-              summary = re.search(
-                  r"\|\s*Verified\s*\|\s*(\d+)\s*\|.*?\n"
-                  r"\|\s*Accepted\s*\|\s*(\d+)\s*\|.*?\n"
-                  r"\|\s*Blocked\s*\|\s*(\d+)\s*\|.*?\n"
-                  r"\|\s*\*\*Total\*\*\s*\|\s*(\d+)\s*\|",
-                  inventory,
-                  re.S,
+              def count_for(label, pattern=None):
+                  expression = pattern or rf"^\|\s*{label}\s*\|\s*(\d+)\s*\|"
+                  match = re.search(expression, inventory, re.M)
+                  return int(match.group(1)) if match else None
+
+              verified = count_for("Verified")
+              accepted = count_for("Accepted")
+              blocked = count_for("Blocked")
+              total = count_for(
+                  "Total",
+                  r"^\|\s*\*\*Total\*\*\s*\|\s*(\d+)\s*\|",
               )
-              if not summary:
+              if None in (verified, accepted, blocked, total):
                   blockers.append("Inventory summary could not be parsed from its declared table.")
               else:
-                  verified, accepted, blocked, total = map(int, summary.groups())
                   if total != 26:
                       blockers.append(f"Inventory declares {total} mandatory items, expected 26.")
                   if (verified, accepted, blocked) != (26, 0, 0):
