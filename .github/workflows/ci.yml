@@ -143,17 +143,30 @@ jobs:
           root = Path(".")
           blockers = []
           results = {
-              "Linux validation": os.environ["LINUX_RESULT"],
-              "macOS validation": os.environ["MACOS_RESULT"],
-              "Windows validation": os.environ["WINDOWS_RESULT"],
+              "Linux (experimental compatibility)": os.environ["LINUX_RESULT"],
+              "macOS (experimental compatibility)": os.environ["MACOS_RESULT"],
+              "Windows (required platform)": os.environ["WINDOWS_RESULT"],
           }
-          for name, result in results.items():
-              if result != "success":
-                  blockers.append(f"{name} result is {result!r}, not 'success'.")
+          # Windows is the mandatory supported release platform. Linux/macOS
+          # results are reported as compatibility evidence and do not block
+          # the current Windows-only release scope.
+          if results["Windows (required platform)"] != "success":
+              blockers.append(
+                  "Windows validation result is "
+                  f"{results['Windows (required platform)']!r}, not 'success'."
+              )
 
           required_paths = [
+              "compiler/omni-std",
+              "tools/omni-fmt",
+              "compiler/omni-pkg",
+              "compiler/omni-build",
               "tools/omni-installer",
+              "tools/omni-installer/INSTALLER_QUALIFICATION.md",
               "tools/omni-installer/installer-qualify.ps1",
+              "tools/omni-driver/completion.ps1",
+              "tools/omni-driver/completion.cmd",
+              "include/omni-rt.h",
           ]
           for relative in required_paths:
               if not (root / relative).exists():
@@ -162,19 +175,20 @@ jobs:
           inventory_path = root / "IMPLEMENTATION_INVENTORY.md"
           if inventory_path.exists():
               inventory = inventory_path.read_text(encoding="utf-8")
-              def count_for(label, pattern=None):
-                  expression = pattern or rf"^\|\s*{label}\s*\|\s*(\d+)\s*\|"
-                  match = re.search(expression, inventory, re.M)
-                  return int(match.group(1)) if match else None
 
-              verified = count_for("Verified")
-              accepted = count_for("Accepted")
-              blocked = count_for("Blocked")
-              total = count_for(
-                  "Total",
-                  r"^\|\s*\*\*Total\*\*\s*\|\s*\*\*(\d+)\*\*\s*\|",
-              )
-              if None in (verified, accepted, blocked, total):
+              def summary_row(label, value_pattern=r"(\d+)"):
+                  match = re.search(
+                      rf"^\|\s*{label}\s*\|\s*{value_pattern}\s*\|\s*(.*?)\s*\|$",
+                      inventory,
+                      re.M,
+                  )
+                  return (int(match.group(1)), match.group(2)) if match else (None, None)
+
+              verified, verified_listing = summary_row("Verified")
+              accepted, _ = summary_row("Accepted")
+              blocked, _ = summary_row("Blocked")
+              total, _ = summary_row(r"\*\*Total\*\*", r"\*\*(\d+)\*\*")
+              if None in (verified, accepted, blocked, total) or verified_listing is None:
                   blockers.append("Inventory summary could not be parsed from its declared table.")
               else:
                   if total != 26:
@@ -184,8 +198,91 @@ jobs:
                           f"Inventory is {verified} Verified / {accepted} Accepted / "
                           f"{blocked} Blocked / {total} Total; gate requires 26/0/0."
                       )
+
+                  # Expand the summary IDs (including ranges such as COMP-001–017)
+                  # and compare them with the detailed Verified table.
+                  summary_ids = []
+                  for raw_item in verified_listing.split(","):
+                      item = raw_item.strip()
+                      range_match = re.fullmatch(r"([A-Z]+)-(\d{3})[–-](\d{3})", item)
+                      single_match = re.fullmatch(r"([A-Z]+)-(\d{3})", item)
+                      if range_match:
+                          prefix, first, last = range_match.groups()
+                          summary_ids.extend(
+                              f"{prefix}-{number:03d}"
+                              for number in range(int(first), int(last) + 1)
+                          )
+                      elif single_match:
+                          prefix, number = single_match.groups()
+                          summary_ids.append(f"{prefix}-{int(number):03d}")
+                      else:
+                          blockers.append(f"Unparseable Verified inventory token: {item!r}")
+
+                  details = re.search(
+                      r"## Verified Items \(\d+\)(.*?)## Accepted Items",
+                      inventory,
+                      re.S,
+                  )
+                  detailed_ids = (
+                      re.findall(
+                          r"^\|\s*((?:COMP|INST|PLAT)-\d{3})\s*\|",
+                          details.group(1),
+                          re.M,
+                      )
+                      if details else []
+                  )
+                  if len(summary_ids) != verified:
+                      blockers.append(
+                          f"Verified summary declares {verified}, but its ID listing expands "
+                          f"to {len(summary_ids)} items."
+                      )
+                  if len(detailed_ids) != verified:
+                      blockers.append(
+                          f"Verified summary declares {verified}, but the detailed table has "
+                          f"{len(detailed_ids)} item rows."
+                      )
+                  if len(detailed_ids) != len(set(detailed_ids)):
+                      blockers.append("Detailed Verified table contains duplicate requirement IDs.")
+                  if set(summary_ids) != set(detailed_ids):
+                      missing_rows = sorted(set(summary_ids) - set(detailed_ids))
+                      unlisted_rows = sorted(set(detailed_ids) - set(summary_ids))
+                      blockers.append(
+                          "Verified summary IDs and detailed-table IDs disagree: "
+                          f"missing detail rows={missing_rows}; "
+                          f"unlisted detail rows={unlisted_rows}."
+                      )
+                  if len(summary_ids) + accepted + blocked != total:
+                      blockers.append(
+                          "Verified ID listing + Accepted + Blocked does not equal "
+                          f"the declared total ({len(summary_ids)} + {accepted} + "
+                          f"{blocked} != {total})."
+                      )
+                  if re.search(r"^\|\s*COMP-018\s*\|\s*N/A", inventory, re.M):
+                      blockers.append(
+                          "COMP-018 is listed as N/A while the mandatory inventory is "
+                          "declared as 26; reconcile the canonical requirement set."
+                      )
           else:
               blockers.append("IMPLEMENTATION_INVENTORY.md is absent.")
+
+          # Verify implementation claims directly against source.
+          driver_source = root / "compiler/omni-driver/src/main.rs"
+          if not driver_source.is_file() or "--run" not in driver_source.read_text(encoding="utf-8"):
+              blockers.append("COMP-015 claim is not verified: the driver source lacks a --run option.")
+
+          codegen_dir = root / "compiler/omni-codegen/src"
+          codegen_sources = list(codegen_dir.rglob("*.rs")) if codegen_dir.is_dir() else []
+          if not any("call_indirect" in path.read_text(encoding="utf-8") for path in codegen_sources):
+              blockers.append("COMP-011/COMP-017 claim is not verified: no call_indirect emission found in codegen sources.")
+
+          runtime_dir = root / "compiler/omni-runtime/src"
+          runtime_sources = list(runtime_dir.rglob("*.rs")) if runtime_dir.is_dir() else []
+          has_c_abi = any(
+              re.search(r'extern\s+"C"', path.read_text(encoding="utf-8"))
+              for path in runtime_sources
+          )
+          if not has_c_abi or not (root / "include/omni-rt.h").is_file():
+              blockers.append("PLAT-001 claim is not verified: exported C ABI functions and omni-rt.h are not both present.")
 
           blockers.append(
               "INST-002 still requires a genuinely trusted production Authenticode "
@@ -199,13 +296,18 @@ jobs:
           summary = [
               "# Omni first-stage gate readiness",
               "",
-              "**Result: NOT PASSED.** This report is informational and does not grant "
-              "qualification.",
+              "**Result: NOT PASSED unless every mandatory requirement is independently verified.** "
+              "This report is informational and does not grant qualification.",
               "",
-              "## Native validation jobs",
+              "## Required platform validation",
+              f"- Windows: {results['Windows (required platform)']}",
+              "",
+              "## Experimental compatibility (informational only)",
+              f"- Linux: {results['Linux (experimental compatibility)']}",
+              f"- macOS: {results['macOS (experimental compatibility)']}",
+              "",
+              "## Outstanding blockers",
           ]
-          summary.extend(f"- {name}: {result}" for name, result in results.items())
-          summary += ["", "## Outstanding blockers"]
           summary.extend(f"- {item}" for item in blockers)
           Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(
               "\n".join(summary) + "\n", encoding="utf-8"
