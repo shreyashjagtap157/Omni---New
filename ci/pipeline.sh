@@ -24,15 +24,35 @@ export CARGO_BUILD_CODEGEN_UNITS=1
 
 test "$(umask)" = "0022" || { echo "FATAL: umask must be 0022." >&2; exit 106; }
 
-# The timeout command is part of the CI execution environment, not a language semantic dependency.
-timeout "${MAX_TIME}s" cargo fmt --all -- --check
-timeout "${MAX_TIME}s" cargo check -j 1 --workspace --locked
-timeout "${MAX_TIME}s" cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
-timeout "${MAX_TIME}s" cargo test -j 1 --workspace --locked -- --test-threads=1
-timeout "${MAX_TIME}s" cargo metadata --format-version 1 --locked > /dev/null
-timeout "${MAX_TIME}s" cargo run -j 1 -p omni-conform --locked
-timeout "${MAX_TIME}s" cargo run -j 1 -p omni-audit --locked
-timeout "${MAX_TIME}s" cargo run -j 1 -p omni-topology --locked
+# Use the native timeout utility where available. GitHub job-level timeout-minutes
+# remains the hard CI ceiling on macOS, where GNU timeout is not preinstalled.
+TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_BIN="gtimeout"
+else
+    echo "WARN: timeout/gtimeout unavailable; relying on the caller's job timeout."
+fi
+
+run_check() {
+    if [ -n "$TIMEOUT_BIN" ]; then
+        "$TIMEOUT_BIN" "${MAX_TIME}s" "$@"
+    else
+        "$@"
+    fi
+}
+
+run_check cargo fmt --all -- --check
+run_check cargo check -j 1 --workspace --all-targets --locked
+run_check cargo build -j 1 --workspace --locked
+run_check cargo clippy -j 1 --workspace --all-targets --locked -- -D warnings
+run_check cargo test -j 1 --workspace --locked -- --test-threads=1
+run_check cargo metadata --format-version 1 --locked > /dev/null
+run_check cargo tree --locked > /dev/null
+run_check cargo run -j 1 -p omni-conform --locked
+run_check cargo run -j 1 -p omni-audit --locked
+run_check cargo run -j 1 -p omni-topology --locked
 # Fuzz budget enforcement (0.0.0.3): per-target budget declared above.
 # Timeouts, hangs, crashes, sanitizer failures, and nondeterministic outputs are failures.
 if command -v cargo-fuzz >/dev/null 2>&1; then
