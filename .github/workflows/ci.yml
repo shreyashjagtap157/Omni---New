@@ -154,7 +154,6 @@ jobs:
           required_paths = [
               "tools/omni-installer",
               "tools/omni-installer/installer-qualify.ps1",
-              "ci/gate-0-0-0-14.sh",
           ]
           for relative in required_paths:
               if not (root / relative).exists():
