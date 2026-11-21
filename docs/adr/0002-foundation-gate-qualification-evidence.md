@@ -1,6 +1,6 @@
 # ADR-0002: Foundation-gate technical evidence and formal qualification
 
-Status: proposed (not accepted).
+Status: Accepted.
 
 Date: 2026-11-07.
 
@@ -134,23 +134,51 @@ The existing status/blocker validation in `omni-conform` should be treated
 only as a consistency guard. It is necessary, not sufficient, evidence of
 qualification.
 
-## Interim handling (until this ADR is accepted)
+## Accepted decision and approval provenance
 
-- Do not describe the complete Omni compiler, language, or a product release
-  as qualified on the basis of the foundation gate.
-- Describe the 0.0.0.13 technical CI checks by their exact commit and run.
-- Do not silently change the current gate status, required evidence threshold,
-  or release/version policy.
-- Keep the digest discrepancy visible until `docs/foundation-gates.md` is
-  reconciled with the canonical manifest and tool output.
-- Re-run all checks, including Security Audit, on the latest `main` commit
-  before making a current qualification claim.
-- Preserve the existing historical records.
+**Decision:** Alternative C is accepted.
 
-## Approval required
+**Decision date:** 2026-11-21.
 
-The project owner/maintainer must approve the milestone scope, minimum
-evidence threshold, and sign-off authority before Alternative A, B, or C is
-adopted as normative qualification policy.
+**Approving authority:** Project owner.
 
-No normative language grammar or semantics are changed by this proposal.
+**Approval provenance:** The project owner explicitly directed that INST-002 and
+ADR-0002 be supplied and that the existing Alternative C decision be treated
+as accepted in the conversation dated 2026-11-21. This ADR records that
+governance decision. The Git commit containing this text provides repository
+history for the decision; this prose is not a cryptographic signature.
+
+### Accepted policy
+
+1. Technical CI outcome and formal qualification are separate states.
+2. A passing CI run is evidence only for the exact commit and scope tested.
+3. A committed `foundation-gate.json` status is not independent proof of
+   qualification.
+4. Formal qualification must be backed by a separate record bound to the
+   exact qualified commit and actual specification digest, with evidence
+   references and the approving identity.
+5. An approved record must not be interpreted as qualification of the complete
+   Omni compiler, the complete Edition 1 language, or a public product release.
+6. Empty conformance evidence and Candidate-only registry rules remain visible
+   limitations; they are not silently converted into rule-level qualification.
+
+## Qualification handling after acceptance
+
+- Keep technical outcome, formal approval, mandatory implementation
+  inventory, and release readiness as distinct gates.
+- Bind every technical claim to the exact commit and workflow run; rerun the
+  full required technical checks on the candidate commit.
+- Do not mark a failed or incomplete technical run as passed.
+- Do not claim the first-stage gate has passed while mandatory inventory
+  entries remain Accepted, Blocked, Partial, or otherwise unverified.
+- Preserve historical records and disclose digest or evidence discrepancies
+  until reconciled against the canonical manifest and tool output.
+- Reconcile this ADR with `IMPLEMENTATION_INVENTORY.md`,
+  `docs/foundation-gates.md`, and
+  `spec/release/qualification-record.schema.json`.
+
+This acceptance changes the governance decision only. It does not attest that
+any particular current commit has passed the technical gate, does not resolve
+INST-002, and does not qualify the complete compiler or language.
+
+No normative language grammar or semantics are changed by this decision.
