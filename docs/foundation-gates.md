@@ -208,8 +208,14 @@ not to infer qualification from that field alone. `omni-conform` now requires th
 status to be `qualified` and `blocked_reasons` to be empty; this is a consistency check, not
 independent sign-off. The CI technical checks passed on `d270e938` and `64f734b9` (including
 the canonical digest and gate step). The evidence corpus remains empty, all 567 rules remain
-Candidate, and there are zero E-code diagnostics and zero rule-witness records. Formal
-qualification remains unresolved pending the scope/evidence/sign-off decision in ADR-0002.
+Candidate, and there are zero E-code diagnostics and zero rule-witness records.
+
+Per ADR-0002 (Alternative C, accepted 2026-11-19):
+- Technical CI results and formal qualification are independently recorded.
+- The JSON `qualified` status is a TECHNICAL declaration, not formal sign-off.
+- Formal qualification requires a separate owner-attested qualification record
+  (see spec/schemas/qualification-record.schema.json).
+- Formal qualification status: PENDING.
 No product release or complete-language qualification is implied.
 
 ## Unicode data binding (SRC-0004) and the SRC-0006 annotation syntax

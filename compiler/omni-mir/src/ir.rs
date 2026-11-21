@@ -362,6 +362,11 @@ pub enum Rvalue {
         index: Operand,
         ty: Ty,
     },
+    /// Loads a function pointer value for indirect calls.
+    ///
+    /// The type of the resulting place must be `TyKind::FnPtr(param_types, return_type)`,
+    /// matching the callee's signature.
+    FnRef(String),
 }
 
 /// A literal scalar value in MIR.

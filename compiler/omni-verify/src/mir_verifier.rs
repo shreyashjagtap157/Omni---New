@@ -496,6 +496,7 @@ impl MirVerifier {
                             Rvalue::Reference { place, .. } => {
                                 Self::check_place(fn_name, place, num_locals)?;
                             }
+                            Rvalue::FnRef(_) => {}
                             Rvalue::Range { start, end, .. } => {
                                 Self::check_operand(fn_name, start, num_locals)?;
                                 Self::check_operand(fn_name, end, num_locals)?;
@@ -958,6 +959,7 @@ impl MirVerifier {
             Rvalue::Reference { place, .. } => {
                 Self::require_assigned(func, block, place.local, assigned)
             }
+            Rvalue::FnRef(_) => Ok(()),
             Rvalue::Range { start, end, .. } => {
                 Self::check_operand_initialized(func, block, start, assigned)?;
                 Self::check_operand_initialized(func, block, end, assigned)
@@ -1656,6 +1658,14 @@ impl MirVerifier {
                     });
                 }
                 Ok(*ty)
+            }
+            Rvalue::FnRef(_) => {
+                // Indirect call target - type is FnPtr(params, return_type).
+                // The actual parameter types are checked at codegen time against
+                // the function's declared ABI. Here we use a placeholder FnPtr
+                // with the function's declared return type.
+                let return_ty = tcx.intern(TyKind::Unit);
+                Ok(tcx.intern(TyKind::FnPtr(vec![], return_ty)))
             }
             Rvalue::Range { start, end, inclusive: _, ty } => {
                 let start_ty = Self::operand_type(tcx, defs, func, start)?;

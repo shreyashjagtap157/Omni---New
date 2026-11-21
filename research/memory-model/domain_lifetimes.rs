@@ -468,7 +468,6 @@ impl MemoryModel {
                 return Err(ModelError::SourcePlaceOwnershipInvariant(place));
             }
             *state = SourcePlaceState::Moved;
-            let _ = object;
         }
         for active in self.capture_access.values_mut() {
             active.remove(&capture);

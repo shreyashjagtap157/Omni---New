@@ -1,14 +1,18 @@
 //! Native Code Generation via Cranelift for Omni.
 
+use cranelift_codegen::ir::immediates::Imm64;
 use cranelift_codegen::ir::InstBuilder;
-use cranelift_codegen::ir::{types, AbiParam, Signature, StackSlot, StackSlotData, StackSlotKind};
+use cranelift_codegen::ir::{
+    types, AbiParam, ExternalName, GlobalValueData, Signature, StackSlot, StackSlotData,
+    StackSlotKind, UserExternalNameRef,
+};
 use cranelift_codegen::settings::{self, Configurable};
+use cranelift_entity::EntityRef;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::collections::HashMap;
 use target_lexicon::Triple;
-
 /// Compiles a fully qualified, concrete monomorphized program to a native object file.
 /// This is the only source of native emission; frontend orchestration belongs to omni-driver.
 fn native_abi_type_from_ty(
@@ -571,7 +575,14 @@ fn compile_mir_program(
             for stmt in &mir_block.statements {
                 match stmt {
                     omni_mir::ir::Statement::Assign(place, rval) => {
-                        emit_assign(&mut builder, &mut emitter, place, rval)?;
+                        emit_assign(
+                            &mut builder,
+                            &mut emitter,
+                            &mut module,
+                            place,
+                            rval,
+                            &function_abis,
+                        )?;
                     }
                     omni_mir::ir::Statement::Assume(_) | omni_mir::ir::Statement::Drop(_) => {}
                     omni_mir::ir::Statement::BoundsCheck { index, length } => {
@@ -676,7 +687,13 @@ fn compile_mir_program(
                     builder.ins().jump(target_cl, &[]);
                 }
                 omni_mir::ir::Terminator::SwitchInt { discr, targets, otherwise } => {
-                    let discr_val = lower_operand_to_cl(&mut builder, &mut emitter, discr)?;
+                    let discr_val = lower_operand_to_cl(
+                        &mut builder,
+                        &mut emitter,
+                        &mut module,
+                        &function_abis,
+                        discr,
+                    )?;
                     let otherwise_cl = *cl_blocks.get(&otherwise.index()).ok_or_else(|| {
                         format!("Codegen error: undefined switch target {:?}", otherwise)
                     })?;
@@ -702,16 +719,207 @@ fn compile_mir_program(
                             mir_func.name
                         ));
                     }
-                    let fn_name =
-                        match func {
-                            omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(
-                                name,
-                            )) => name,
-                            _ => return Err(
+                    let fn_name = match func {
+                        omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(name)) => {
+                            name.clone()
+                        }
+                        omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => {
+                            // Indirect call: function pointer loaded from a place.
+                            let callee_ty = emitter.body.local_decls[place.local]
+                                    .ty
+                                    .ok_or_else(|| {
+                                        format!(
+                                            "Codegen error: indirect call target local {:?} has no type",
+                                            place.local
+                                        )
+                                    })?;
+
+                            let (param_types, return_type) =
+                                    match emitter.tcx.get(callee_ty) {
+                                        omni_mir::TyKind::FnPtr(pt, rt) =>
+                                            (pt.clone(), *rt),
+                                        other => {
+                                            return Err(format!(
+                                                "Codegen error: indirect call target in '{}' is not a FnPtr type, got {:?}",
+                                                mir_func.name, other
+                                            ))
+                                        }
+                                    };
+
+                            // Build the ABI from the FnPtr type.
+                            let mut param_abis = Vec::new();
+                            for pt in &param_types {
+                                param_abis.push(
+                                        NativeParamAbi::Direct(
+                                            native_abi_type_from_ty(&mir_prog.tcx, *pt)?
+                                                .ok_or_else(|| {
+                                                    format!(
+                                                        "Codegen error: indirect call parameter type {:?} has no ABI type",
+                                                        pt
+                                                    )
+                                                })?,
+                                        ),
+                                    );
+                            }
+
+                            let return_abi =
+                                    match emitter.tcx.get(return_type) {
+                                        omni_mir::TyKind::Unit => NativeReturnAbi::Unit,
+                                        omni_mir::TyKind::Reference { .. } => {
+                                            NativeReturnAbi::Direct(
+                                                native_abi_type_from_ty(&mir_prog.tcx, return_type)?
+                                                    .ok_or_else(|| {
+                                                        format!(
+                                                            "Codegen error: indirect call return type {:?} has no ABI type",
+                                                            return_type
+                                                        )
+                                                    })?,
+                                            )
+                                        }
+                                        omni_mir::TyKind::FnPtr(_, _) => {
+                                            NativeReturnAbi::Direct(
+                                                native_abi_type_from_ty(&mir_prog.tcx, return_type)?
+                                                    .ok_or_else(|| {
+                                                        format!(
+                                                            "Codegen error: indirect call return type {:?} has no ABI type",
+                                                            return_type
+                                                        )
+                                                    })?,
+                                            )
+                                        }
+                                        omni_mir::TyKind::Tuple(_)
+                                        | omni_mir::TyKind::Array(..)
+                                        | omni_mir::TyKind::Struct(..) => {
+                                            layout_engine
+                                                .aggregate_layout(emitter.layout_workspace, return_type)
+                                                .map_err(|e| {
+                                                    format!(
+                                                        "Codegen error: aggregate return type of indirect call in '{}' has no target layout: {}",
+                                                        mir_func.name, e
+                                                    )
+                                                })?;
+                                            NativeReturnAbi::AggregateAddress
+                                        }
+                                        other => {
+                                            return Err(format!(
+                                                "Codegen error: indirect call return type {:?} requires pointer storage and ownership lowering in '{}'",
+                                                other, mir_func.name
+                                            ))
+                                        }
+                                    };
+
+                            let callee_abi = NativeFunctionAbi { return_abi, params: param_abis };
+
+                            // Load the function pointer value from the place.
+                            let ptr_val = lower_operand_to_cl(
+                                &mut builder,
+                                &mut emitter,
+                                &mut module,
+                                &function_abis,
+                                &omni_mir::ir::Operand::Copy(place.clone()),
+                            )?;
+
+                            // Build call args from operand args.
+                            let mut call_args = Vec::with_capacity(args.len());
+                            for arg in args {
+                                let value = lower_operand_to_cl(
+                                    &mut builder,
+                                    &mut emitter,
+                                    &mut module,
+                                    &function_abis,
+                                    arg,
+                                )?;
+                                call_args.push(value);
+                            }
+
+                            // Build signature and import it into the function's signature map.
+                            let sig = signature_for_native_abi(&module, &callee_abi);
+                            let sig_id = builder.func.dfg.signatures.push(sig);
+                            let call_inst =
+                                builder.ins().call_indirect(sig_id, ptr_val, &call_args);
+                            let results = builder.inst_results(call_inst);
+
+                            // Handle return values based on return_abi.
+                            match &callee_abi.return_abi {
+                                NativeReturnAbi::AggregateAddress => {
+                                    if destination.is_some() {
+                                        return Err(format!(
+                                                "Codegen error: aggregate-returning indirect call '{}' requires no destination",
+                                                mir_func.name
+                                            ));
+                                    }
+                                    // Jump to the call target block.
+                                    let target_cl =
+                                        *cl_blocks.get(&target.index()).ok_or_else(|| {
+                                            format!(
+                                                "Codegen error: undefined call target {:?}",
+                                                target
+                                            )
+                                        })?;
+                                    builder.ins().jump(target_cl, &[]);
+                                }
+                                NativeReturnAbi::Direct(_) => {
+                                    if destination.is_none() {
+                                        return Err(format!(
+                                                "Codegen error: direct-value returning indirect call '{}' requires a destination",
+                                                mir_func.name
+                                            ));
+                                    }
+                                    if results.len() != 1 {
+                                        return Err(format!(
+                                                "Codegen error: direct-value returning indirect call '{}' expected 1 result, got {}",
+                                                mir_func.name, results.len()
+                                            ));
+                                    }
+                                    // Store result into destination local.
+                                    let dest_local = destination.as_ref().unwrap().local;
+                                    if let Some(NativeStorage::Scalar(variable)) =
+                                        emitter.storage.get(&dest_local)
+                                    {
+                                        builder.def_var(*variable, results[0]);
+                                    } else {
+                                        return Err(format!(
+                                                "Codegen error: indirect call '{}' destination has no scalar storage",
+                                                mir_func.name
+                                            ));
+                                    }
+                                    // Jump to the call target block.
+                                    let target_cl =
+                                        *cl_blocks.get(&target.index()).ok_or_else(|| {
+                                            format!(
+                                                "Codegen error: undefined call target {:?}",
+                                                target
+                                            )
+                                        })?;
+                                    builder.ins().jump(target_cl, &[]);
+                                }
+                                NativeReturnAbi::Unit => {
+                                    if !results.is_empty() {
+                                        return Err(format!(
+                                                "Codegen error: unit-returning indirect call '{}' unexpectedly produced results",
+                                                mir_func.name
+                                            ));
+                                    }
+                                    // Jump to the call target block.
+                                    let target_cl =
+                                        *cl_blocks.get(&target.index()).ok_or_else(|| {
+                                            format!(
+                                                "Codegen error: undefined call target {:?}",
+                                                target
+                                            )
+                                        })?;
+                                    builder.ins().jump(target_cl, &[]);
+                                }
+                            }
+                            return Ok(vec![]);
+                        }
+                        _ => {
+                            return Err(
                                 "Indirect function calls not yet supported in Cranelift emission"
                                     .into(),
-                            ),
-                        };
+                            )
+                        }
+                    };
                     let source_callee =
                         prog.functions.iter().find(|f| f.name == *fn_name).ok_or_else(|| {
                             format!("Codegen error: call target '{}' not found", fn_name)
@@ -725,7 +933,7 @@ fn compile_mir_program(
                         ));
                     }
 
-                    let callee_abi = function_abis.get(fn_name).ok_or_else(|| {
+                    let callee_abi = function_abis.get(&fn_name).ok_or_else(|| {
                         format!("Codegen error: ABI for callee '{}' was not precomputed", fn_name)
                     })?;
                     if args.len() != callee_abi.params.len() {
@@ -762,7 +970,13 @@ fn compile_mir_program(
                     {
                         match param_abi {
                             NativeParamAbi::Direct(expected) => {
-                                let value = lower_operand_to_cl(&mut builder, &mut emitter, arg)?;
+                                let value = lower_operand_to_cl(
+                                    &mut builder,
+                                    &mut emitter,
+                                    &mut module,
+                                    &function_abis,
+                                    arg,
+                                )?;
                                 if builder.func.dfg.value_type(value) != *expected {
                                     return Err(format!(
                                         "Codegen error: call '{}' argument {} ABI type mismatch: expected {:?}, found {:?}",
@@ -789,7 +1003,7 @@ fn compile_mir_program(
                         }
                     }
 
-                    let callee_id = *function_ids.get(fn_name).ok_or_else(|| {
+                    let callee_id = *function_ids.get(&fn_name).ok_or_else(|| {
                         format!("Codegen error: callee '{}' was not predeclared", fn_name)
                     })?;
                     let local_callee = module.declare_func_in_func(callee_id, builder.func);
@@ -909,8 +1123,10 @@ struct PlaceEmitter<'a, 'l> {
 fn emit_assign(
     builder: &mut FunctionBuilder,
     emitter: &mut PlaceEmitter,
+    module: &mut ObjectModule,
     place: &omni_mir::ir::Place,
     rval: &omni_mir::ir::Rvalue,
+    function_abis: &std::collections::HashMap<String, NativeFunctionAbi>,
 ) -> Result<(), String> {
     let storage = emitter.storage.get(&place.local).cloned().ok_or_else(|| {
         format!(
@@ -926,7 +1142,7 @@ fn emit_assign(
                     place, emitter.func_name, place.local
                 ));
             }
-            let val = lower_rvalue_to_cl(builder, emitter, rval)?;
+            let val = lower_rvalue_to_cl(builder, emitter, module, function_abis, rval)?;
             builder.def_var(variable, val);
             Ok(())
         }
@@ -942,6 +1158,8 @@ fn emit_assign(
                 emit_aggregate_store(
                     builder,
                     emitter,
+                    module,
+                    function_abis,
                     &site,
                     rval,
                     &format!("initialization of aggregate local {:?}", place.local),
@@ -949,7 +1167,7 @@ fn emit_assign(
             } else {
                 let (address, _) =
                     resolve_place_address(builder, emitter, place, "assignment target")?;
-                let val = lower_rvalue_to_cl(builder, emitter, rval)?;
+                let val = lower_rvalue_to_cl(builder, emitter, module, function_abis, rval)?;
                 match address {
                     NativeAddress::Stack { slot, offset } => {
                         builder.ins().stack_store(
@@ -1755,6 +1973,8 @@ fn copy_aggregate(
 fn emit_part_store(
     builder: &mut FunctionBuilder,
     emitter: &mut PlaceEmitter,
+    module: &mut ObjectModule,
+    function_abis: &std::collections::HashMap<String, NativeFunctionAbi>,
     site: &AggregateSite,
     operand: &omni_mir::ir::Operand,
     context: &str,
@@ -1771,7 +1991,7 @@ fn emit_part_store(
                 emitter.tcx.get(site.ty)
             ));
         }
-        let value = lower_operand_to_cl(builder, emitter, operand)?;
+        let value = lower_operand_to_cl(builder, emitter, module, function_abis, operand)?;
         if builder.func.dfg.value_type(value) != clif_ty {
             return Err(format!(
                 "Codegen error: {} part expects {:?} but the operand lowers to {:?}",
@@ -1948,6 +2168,8 @@ fn emit_index_projection_load(
 fn emit_aggregate_store(
     builder: &mut FunctionBuilder,
     emitter: &mut PlaceEmitter,
+    module: &mut ObjectModule,
+    function_abis: &std::collections::HashMap<String, NativeFunctionAbi>,
     site: &AggregateSite,
     rval: &omni_mir::ir::Rvalue,
     context: &str,
@@ -1995,6 +2217,8 @@ fn emit_aggregate_store(
                 emit_part_store(
                     builder,
                     emitter,
+                    module,
+                    function_abis,
                     &site.child(part_tys[index].1, part, context)?,
                     operand,
                     &format!("{} field '{}.{}'", context, name, field_name),
@@ -2057,6 +2281,8 @@ fn emit_aggregate_store(
                 emit_part_store(
                     builder,
                     emitter,
+                    module,
+                    function_abis,
                     &site.child(part_tys[index].1, part, context)?,
                     operand,
                     &format!("{} part {}", context, index),
@@ -2119,6 +2345,8 @@ fn emit_aggregate_store(
 fn lower_operand_to_cl(
     builder: &mut FunctionBuilder,
     emitter: &mut PlaceEmitter,
+    module: &mut ObjectModule,
+    function_abis: &std::collections::HashMap<String, NativeFunctionAbi>,
     op: &omni_mir::ir::Operand,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match op {
@@ -2140,6 +2368,24 @@ fn lower_operand_to_cl(
             }
         }
         omni_mir::ir::Operand::Constant(c) => match c {
+            omni_mir::ir::Constant::FnRef(name) => {
+                let callee_abi = function_abis.get(name).ok_or_else(|| {
+                    format!("Codegen error: indirect call target '{}' not found", name)
+                })?;
+                let sig = signature_for_native_abi(module, callee_abi);
+                let _sig_id = builder.func.dfg.signatures.push(sig.clone());
+                let func_id = module
+                    .declare_function(name, Linkage::Import, &sig)
+                    .map_err(|e| format!("Codegen error: failed to declare '{}': {}", name, e))?;
+                let func_ref = UserExternalNameRef::from_u32(func_id.index() as u32);
+                let gv = builder.func.create_global_value(GlobalValueData::Symbol {
+                    name: ExternalName::user(func_ref),
+                    offset: Imm64::from(0),
+                    colocated: false,
+                    tls: false,
+                });
+                Ok(builder.ins().symbol_value(emitter.pointer_type, gv))
+            }
             omni_mir::ir::Constant::Lit(lit) => match lit {
                 omni_mir::ast::Lit::Int(n) => Ok(builder.ins().iconst(types::I64, *n)),
                 omni_mir::ast::Lit::Bool(b) => {
@@ -2152,24 +2398,21 @@ fn lower_operand_to_cl(
                 }
                 _ => Err(format!("Unsupported literal form in MIR codegen: {:?}", lit)),
             },
-            omni_mir::ir::Constant::FnRef(name) => Err(format!(
-                "FnRef constant operand {:?} evaluated outside Call terminator context",
-                name
-            )),
         },
     }
 }
-
 fn lower_rvalue_to_cl(
     builder: &mut FunctionBuilder,
     emitter: &mut PlaceEmitter,
+    module: &mut ObjectModule,
+    function_abis: &std::collections::HashMap<String, NativeFunctionAbi>,
     rval: &omni_mir::ir::Rvalue,
 ) -> Result<cranelift_codegen::ir::Value, String> {
     match rval {
-        omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, emitter, op),
+        omni_mir::ir::Rvalue::Use(op) => lower_operand_to_cl(builder, emitter, module, function_abis, op),
         omni_mir::ir::Rvalue::BinaryOp(op, lhs, rhs) => {
-            let l = lower_operand_to_cl(builder, emitter, lhs)?;
-            let r = lower_operand_to_cl(builder, emitter, rhs)?;
+            let l = lower_operand_to_cl(builder, emitter, module, function_abis, lhs)?;
+            let r = lower_operand_to_cl(builder, emitter, module, function_abis, rhs)?;
             let is_float = builder.func.dfg.value_type(l) == types::F64;
             match op {
                 omni_mir::ir::BinOp::Add if is_float => Ok(builder.ins().fadd(l, r)),
@@ -2287,6 +2530,24 @@ fn lower_rvalue_to_cl(
         omni_mir::ir::Rvalue::Reference { .. } => Err(
             "Codegen error: reference value representation requires target pointer/lifetime ABI".into(),
         ),
+        omni_mir::ir::Rvalue::FnRef(name) => {
+            let callee_abi = function_abis.get(name).ok_or_else(|| {
+                format!("Codegen error: indirect call target '{}' not found", name)
+            })?;
+            let sig = signature_for_native_abi(module, callee_abi);
+            let _sig_id = builder.func.dfg.signatures.push(sig.clone());
+            let func_id = module
+                .declare_function(name, Linkage::Import, &sig)
+                .map_err(|e| format!("Codegen error: failed to declare '{}': {}", name, e))?;
+            let func_ref = UserExternalNameRef::from_u32(func_id.index() as u32);
+            let gv = builder.func.create_global_value(GlobalValueData::Symbol {
+                name: ExternalName::user(func_ref),
+                offset: Imm64::from(0),
+                colocated: false,
+                tls: false,
+            });
+            Ok(builder.ins().symbol_value(emitter.pointer_type, gv))
+        }
         omni_mir::ir::Rvalue::Range { .. } => Err(
             "Codegen error: range value representation requires target layout metadata".into(),
         ),
@@ -2299,7 +2560,7 @@ fn lower_rvalue_to_cl(
             "index projection",
         ),
         omni_mir::ir::Rvalue::Cast { operand, from, to } => {
-            let value = lower_operand_to_cl(builder, emitter, operand)?;
+            let value = lower_operand_to_cl(builder, emitter, module, function_abis, operand)?;
             let from_float = matches!(emitter.tcx.get(*from), omni_mir::TyKind::Float);
             let to_float = matches!(emitter.tcx.get(*to), omni_mir::TyKind::Float);
             match (from_float, to_float) {
@@ -2310,7 +2571,7 @@ fn lower_rvalue_to_cl(
             }
         }
         omni_mir::ir::Rvalue::UnaryOp(op, operand) => {
-            let val = lower_operand_to_cl(builder, emitter, operand)?;
+            let val = lower_operand_to_cl(builder, emitter, module, function_abis, operand)?;
             match op {
                 omni_mir::ir::UnOp::Neg => {
                     if builder.func.dfg.value_type(val) == types::F64 {

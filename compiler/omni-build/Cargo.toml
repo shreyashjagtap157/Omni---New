@@ -1,0 +1,10 @@
+[package]
+name = "omni-build"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+omni-types = { path = "../omni-types" }
+omni-hir = { path = "../omni-hir" }
+omni-mir = { path = "../omni-mir" }
+omni-codegen = { path = "../omni-codegen" }

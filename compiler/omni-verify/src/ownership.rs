@@ -24,6 +24,11 @@ struct FlowState {
     /// Reference locals may denote different loans after a CFG join, so keep
     /// the complete may-live region set for each local.
     reference_loans: BTreeMap<Local, BTreeSet<String>>,
+    /// Reference values stored in projected places (e.g., struct fields) may
+    /// denote different loans after a CFG join. Keyed by the projected place
+    /// that holds the reference, so `s.f` carries its own loan provenance
+    /// distinct from other fields of `s`.
+    reference_slot_loans: BTreeMap<OwnershipPlace, BTreeSet<String>>,
     /// For each loan, the parent loans it may depend on through a reborrow.
     loan_parents: BTreeMap<String, BTreeSet<String>>,
 }
@@ -33,6 +38,7 @@ impl FlowState {
         Self {
             ownership: OwnershipState::new(),
             reference_loans: BTreeMap::new(),
+            reference_slot_loans: BTreeMap::new(),
             loan_parents: BTreeMap::new(),
         }
     }
@@ -48,6 +54,15 @@ impl FlowState {
                     .extend(loans.iter().cloned());
             }
         }
+        let mut reference_slot_loans = BTreeMap::new();
+        for state in states {
+            for (place, loans) in &state.reference_slot_loans {
+                reference_slot_loans
+                    .entry(place.clone())
+                    .or_insert_with(BTreeSet::new)
+                    .extend(loans.iter().cloned());
+            }
+        }
         let mut loan_parents = BTreeMap::new();
         for state in states {
             for (loan, parents) in &state.loan_parents {
@@ -57,7 +72,12 @@ impl FlowState {
                     .extend(parents.iter().cloned());
             }
         }
-        Ok(Self { ownership: OwnershipState::join_all(&inputs)?, reference_loans, loan_parents })
+        Ok(Self {
+            ownership: OwnershipState::join_all(&inputs)?,
+            reference_loans,
+            reference_slot_loans,
+            loan_parents,
+        })
     }
 }
 
@@ -238,19 +258,25 @@ fn transfer_block(
 
                 let new_reference_loans = if let Rvalue::Reference { place, mutable, .. } = rvalue {
                     if !destination.projections.is_empty() {
-                        // For projected places, we need to track provenance differently.
-                        // Until aggregate-contained reference provenance is modeled, reject
-                        // storage of references in projected places to maintain fail-closed behavior.
-                        return Err(OwnershipVerificationError {
-                            function: function.name.clone(),
-                            block,
-                            context: context.clone(),
-                            message: "reference stored in a projected place has no tracked provenance representation - projected reference storage requires aggregate-contained reference provenance modeling".into(),
-                        });
+                        // Store a reference into a projected place (e.g., struct field).
+                        // Create the loan in OwnershipState, then record provenance
+                        // in reference_slot_loans keyed by the projected place so that
+                        // later dereferences through that slot can resolve their origin.
+                        let new_loans = create_reference_loans(
+                            function, block, &context, place, *mutable, &mut state,
+                        )?;
+                        let ownership_place = ownership_place(function, destination);
+                        state
+                            .reference_slot_loans
+                            .entry(ownership_place)
+                            .or_default()
+                            .extend(new_loans.iter().cloned());
+                        None
+                    } else {
+                        Some(create_reference_loans(
+                            function, block, &context, place, *mutable, &mut state,
+                        )?)
                     }
-                    Some(create_reference_loans(
-                        function, block, &context, place, *mutable, &mut state,
-                    )?)
                 } else {
                     if let Some((source, loans)) = moved_reference {
                         transfer_place_access(
@@ -277,12 +303,68 @@ fn transfer_block(
                     state.reference_loans.insert(destination.local, loans);
                 }
                 assign_place(function, block, &context, destination, &mut state)?;
+
+                // Track reference provenance for references stored in projected places.
+                // When a reference local is copied/moved into a projected destination,
+                // record its loans in reference_slot_loans keyed by the projected place
+                // so that later dereferences through that slot can resolve their origin.
+                if !destination.projections.is_empty() {
+                    if let Rvalue::Use(Operand::Copy(source_place) | Operand::Move(source_place)) =
+                        rvalue
+                    {
+                        let source_ty = function.body.local_decls[source_place.local].ty;
+                        let is_reference = source_ty.is_some_and(|ty| {
+                            tcx.contains(ty)
+                                && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })
+                        });
+                        if is_reference {
+                            let regions = state
+                                .reference_loans
+                                .get(&source_place.local)
+                                .cloned()
+                                .unwrap_or_default();
+                            if !regions.is_empty() {
+                                let ownership_place = ownership_place(function, destination);
+                                state
+                                    .reference_slot_loans
+                                    .entry(ownership_place)
+                                    .or_default()
+                                    .extend(regions);
+                            }
+                        }
+                    }
+                }
+
+                // Track reference provenance for references stored inside aggregate
+                // fields (e.g., `holder = Holder { slot: r1 }` where `slot` is a
+                // reference field). Provenance is recorded per-field in
+                // reference_slot_loans keyed by the projected place
+                // `destination.field_name`.
+                track_aggregate_reference_provenance(
+                    function,
+                    block,
+                    &context,
+                    destination,
+                    rvalue,
+                    tcx,
+                    &mut state,
+                )?;
             }
             Statement::Drop(place) => {
-                // Drop a reference place - only end loans if the place has no projections
-                // (i.e., it's a local, not a projected/aggregate storage)
+                // Drop a reference place - end any loans tracked for this place.
+                // For non-projected locals, loans are tracked in reference_loans.
+                // For projected places (e.g., struct fields), loans are tracked
+                // in reference_slot_loans keyed by the projected ownership place.
                 if place.projections.is_empty() {
                     if let Some(loans) = state.reference_loans.remove(&place.local) {
+                        for region in loans {
+                            end_tracked_loan_if_unreferenced(&mut state, &region)
+                                .map_err(|error| violation(function, block, &context, error))?;
+                        }
+                    }
+                } else {
+                    let ownership_place = ownership_place(function, place);
+                    if let Some(loans) = state.reference_slot_loans.remove(&ownership_place) {
                         for region in loans {
                             end_tracked_loan_if_unreferenced(&mut state, &region)
                                 .map_err(|error| violation(function, block, &context, error))?;
@@ -472,6 +554,11 @@ fn verify_reference_return_provenance(
 /// Fail closed when a reference local crosses a storage boundary for which
 /// FlowState.reference_loans has no representation. Check before transfer so
 /// moving the source cannot silently discard the only provenance association.
+///
+/// References stored in projected places (e.g. struct fields) are tracked
+/// separately in `FlowState.reference_slot_loans`, keyed by the projected
+/// place that holds the reference. This function validates the type-level
+/// boundary; provenance recording happens in [`transfer_block`] after assignment.
 fn verify_reference_storage_boundary(
     function: &MirFunction,
     block: BasicBlock,
@@ -482,22 +569,6 @@ fn verify_reference_storage_boundary(
     struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
 ) -> Result<(), OwnershipVerificationError> {
     if !destination.projections.is_empty() {
-        if let Rvalue::Use(operand) = rvalue {
-            if let Some(source) =
-                reference_operand_source_name(function, block, context, tcx, struct_defs, operand)?
-            {
-                return Err(OwnershipVerificationError {
-                    function: function.name.clone(),
-                    block,
-                    context: context.to_string(),
-                    message: format!(
-                        "reference operand '{}' stored in a projected place has no tracked provenance representation",
-                        source
-                    ),
-                });
-            }
-        }
-
         // Field/index/enum-field and cast rvalues carry an explicit result type.
         // When they produce a reference directly into projected storage, no
         // reference local exists for the local-to-loan map to track.
@@ -506,7 +577,7 @@ fn verify_reference_storage_boundary(
                 Some(*ty)
             }
             Rvalue::Cast { to, .. } => Some(*to),
-            Rvalue::Reference { .. } => None, // Rejected by the creation-specific check below.
+            Rvalue::Reference { .. } => None, // Tracked in transfer_block via reference_slot_loans.
             _ => None,
         };
         if result_ty.is_some_and(|ty| {
@@ -523,6 +594,10 @@ fn verify_reference_storage_boundary(
 
     let reference_source = match rvalue {
         Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
+            // Aggregate-contained references are permitted; provenance for each
+            // reference field is tracked in transfer_block via
+            // track_aggregate_reference_provenance. We only detect sources here
+            // so the boundary check can validate types without rejecting.
             let mut source = None;
             for operand in operands {
                 if let Some(found) = reference_operand_source_name(
@@ -558,17 +633,10 @@ fn verify_reference_storage_boundary(
         }
         _ => None,
     };
-    if let Some(source) = reference_source {
-        return Err(OwnershipVerificationError {
-            function: function.name.clone(),
-            block,
-            context: context.to_string(),
-            message: format!(
-                "aggregate-contained reference provenance is not yet representable (source '{}')",
-                source
-            ),
-        });
-    }
+    // NOTE: reference_source is intentionally unused here. Aggregate-contained
+    // references are no longer rejected at the boundary; provenance tracking
+    // happens in transfer_block after assignment.
+    let _ = reference_source;
 
     Ok(())
 }
@@ -820,6 +888,7 @@ fn rvalue_local_uses(rvalue: &Rvalue, uses: &mut BTreeSet<Local>) {
         Rvalue::Reference { place, .. } => {
             place_local_effects(place, uses, &mut BTreeSet::new(), false);
         }
+        Rvalue::FnRef(_) => {}
         Rvalue::Range { start, end, .. } => {
             operand_local_uses(start, uses);
             operand_local_uses(end, uses);
@@ -892,9 +961,11 @@ fn loan_has_active_children(state: &FlowState, region: &str) -> bool {
 }
 
 /// End a loan only after no live reference local or active child reborrow
-/// depends on it. Releasing a child can make an otherwise orphaned parent
-/// eligible for release, so walk parent links transitively and guard against
-/// malformed cyclic metadata.
+/// depends on it. Also checks `reference_slot_loans` because a loan may be
+/// held only by a projected place (e.g. a struct field) rather than a local.
+/// Releasing a child can make an otherwise orphaned parent eligible for
+/// release, so walk parent links transitively and guard against malformed
+/// cyclic metadata.
 fn end_tracked_loan_if_unreferenced(
     state: &mut FlowState,
     region: &str,
@@ -907,7 +978,8 @@ fn end_tracked_loan_if_unreferenced(
             continue;
         }
 
-        let has_reference = state.reference_loans.values().any(|loans| loans.contains(&current));
+        let has_reference = state.reference_loans.values().any(|loans| loans.contains(&current))
+            || state.reference_slot_loans.values().any(|loans| loans.contains(&current));
         if has_reference || loan_has_active_children(state, &current) {
             continue;
         }
@@ -947,10 +1019,175 @@ fn shorten_dead_reference_loans(
             }
         }
 
+        // Clean up slot loans whose regions are no longer referenced by any
+        // live local or any other slot. This handles the case where the only
+        // reference to a loan was through a projected place whose owning
+        // local has gone dead.
+        let dead_slots: Vec<OwnershipPlace> = state
+            .reference_slot_loans
+            .keys()
+            .filter(|place| {
+                let regions = state.reference_slot_loans.get(*place).cloned().unwrap_or_default();
+                regions.iter().all(|region| {
+                    !state.reference_loans.values().any(|loans| loans.contains(region))
+                        && !state.reference_slot_loans.values().any(|loans| loans.contains(region))
+                })
+            })
+            .cloned()
+            .collect();
+        for slot in dead_slots {
+            state.reference_slot_loans.remove(&slot);
+            changed = true;
+        }
+
         if !changed {
             break;
         }
     }
+    Ok(())
+}
+
+/// Track reference provenance for references stored inside aggregate fields.
+///
+/// When an aggregate (struct, tuple, array) containing reference operands is
+/// assigned to a place, each reference field's provenance is recorded in
+/// `reference_slot_loans` keyed by the projected place
+/// `destination.field_name` or `destination[i]`. This lets later dereferences
+/// through `*aggregate.field` resolve their origin.
+///
+/// For `Operand::Move` from a projected place, the source's slot loan is ended
+/// so the moved reference cannot be used through both source and destination.
+fn track_aggregate_reference_provenance(
+    function: &MirFunction,
+    block: BasicBlock,
+    context: &str,
+    destination: &Place,
+    rvalue: &Rvalue,
+    tcx: &omni_mir::TyCtxt,
+    state: &mut FlowState,
+) -> Result<(), OwnershipVerificationError> {
+    /// Returns the provenance regions for a source place, checking both
+    /// `reference_loans` (for locals) and `reference_slot_loans` (for projected
+    /// places).
+    fn source_regions(
+        function: &MirFunction,
+        state: &FlowState,
+        source_place: &omni_mir::ir::Place,
+    ) -> BTreeSet<String> {
+        if source_place.projections.is_empty() {
+            state.reference_loans.get(&source_place.local).cloned().unwrap_or_default()
+        } else {
+            let ownership_place = ownership_place(function, source_place);
+            state.reference_slot_loans.get(&ownership_place).cloned().unwrap_or_default()
+        }
+    }
+
+    /// Records provenance for one operand and, on `Move`, ends the source's
+    /// slot loan so the moved reference is not usable through both paths.
+    #[allow(clippy::too_many_arguments)]
+    fn record_reference_operand(
+        function: &MirFunction,
+        state: &mut FlowState,
+        destination: &Place,
+        source_place: &omni_mir::ir::Place,
+        operand_kind: &omni_mir::ir::Operand,
+        tcx: &omni_mir::TyCtxt,
+        projection: omni_mir::ir::Projection,
+        block: BasicBlock,
+        context: &str,
+    ) -> Result<(), OwnershipVerificationError> {
+        let source_ty = function.body.local_decls[source_place.local].ty;
+        let is_reference = source_ty.is_some_and(|ty| {
+            tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })
+        });
+        if is_reference {
+            let regions = source_regions(function, state, source_place);
+            if !regions.is_empty() {
+                let field_place = destination.project(projection);
+                let field_gv = ownership_place(function, &field_place);
+                state.reference_slot_loans.entry(field_gv).or_default().extend(regions);
+                // On a move, end the source's slot loan so the reference
+                // cannot be accessed through both source and destination.
+                if matches!(operand_kind, omni_mir::ir::Operand::Move(_))
+                    && !source_place.projections.is_empty()
+                {
+                    let source_gv = ownership_place(function, source_place);
+                    if let Some(loans) = state.reference_slot_loans.remove(&source_gv) {
+                        for region in loans {
+                            end_tracked_loan_if_unreferenced(state, &region)
+                                .map_err(|e| violation(function, block, context, e))?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    match rvalue {
+        Rvalue::Struct { fields, .. } => {
+            for (field_name, operand) in fields.iter() {
+                if let Operand::Copy(source_place) | Operand::Move(source_place) = operand {
+                    record_reference_operand(
+                        function,
+                        state,
+                        destination,
+                        source_place,
+                        operand,
+                        tcx,
+                        omni_mir::ir::Projection::Field(field_name.clone()),
+                        block,
+                        context,
+                    )?;
+                }
+            }
+        }
+        Rvalue::Aggregate { kind, operands, .. } => {
+            for (index, operand) in operands.iter().enumerate() {
+                if let Operand::Copy(source_place) | Operand::Move(source_place) = operand {
+                    let projection = match kind {
+                        omni_mir::ir::AggregateKind::Tuple => {
+                            omni_mir::ir::Projection::ConstantIndex(index)
+                        }
+                        omni_mir::ir::AggregateKind::Array => {
+                            omni_mir::ir::Projection::ConstantIndex(index)
+                        }
+                    };
+                    record_reference_operand(
+                        function,
+                        state,
+                        destination,
+                        source_place,
+                        operand,
+                        tcx,
+                        projection,
+                        block,
+                        context,
+                    )?;
+                }
+            }
+        }
+        Rvalue::EnumVariant { operands, .. } => {
+            for (index, operand) in operands.iter().enumerate() {
+                if let Operand::Copy(source_place) | Operand::Move(source_place) = operand {
+                    let projection = omni_mir::ir::Projection::ConstantIndex(index);
+                    record_reference_operand(
+                        function,
+                        state,
+                        destination,
+                        source_place,
+                        operand,
+                        tcx,
+                        projection,
+                        block,
+                        context,
+                    )?;
+                }
+            }
+        }
+        _ => {}
+    }
+
     Ok(())
 }
 
@@ -996,6 +1233,7 @@ fn transfer_rvalue(
         // Reference creation is handled by the assignment transfer so the
         // created loan and its reference-local provenance are updated atomically.
         Rvalue::Reference { .. } => Ok(()),
+        Rvalue::FnRef(_) => Ok(()),
         Rvalue::Range { start, end, .. } => {
             transfer_operand(function, block, &format!("{context} range start"), start, state)?;
             transfer_operand(function, block, &format!("{context} range end"), end, state)
@@ -1123,9 +1361,12 @@ struct PendingReborrow {
 }
 
 /// Resolve the first dereference projection to the place(s) borrowed by the
-/// tracked reference local. Unsupported projected-reference and nested-deref
-/// shapes fail closed rather than treating a pointer projection as independent
-/// storage.
+/// tracked reference local. Unsupported nested-deref shapes fail closed rather
+/// than treating a pointer projection as independent storage.
+///
+/// When the dereference occurs through a projected place (e.g. `*s.f`), the
+/// reference provenance is looked up in `reference_slot_loans`, keyed by the
+/// projected place that holds the reference.
 fn resolve_deref_origins(
     function: &MirFunction,
     block: BasicBlock,
@@ -1138,12 +1379,11 @@ fn resolve_deref_origins(
     else {
         return Ok(None);
     };
-    if deref_index != 0
-        || place
-            .projections
-            .iter()
-            .skip(1)
-            .any(|projection| matches!(projection, Projection::Deref))
+    if place
+        .projections
+        .iter()
+        .skip(deref_index + 1)
+        .any(|projection| matches!(projection, Projection::Deref))
     {
         return Err(OwnershipVerificationError {
             function: function.name.clone(),
@@ -1153,18 +1393,41 @@ fn resolve_deref_origins(
         });
     }
 
-    let regions = state.reference_loans.get(&place.local).cloned().unwrap_or_default();
-    if regions.is_empty() {
-        return Err(OwnershipVerificationError {
-            function: function.name.clone(),
-            block,
-            context: context.to_string(),
-            message: format!(
-                "cannot verify dereference of local '{}' without tracked loan provenance",
-                local_name(function, place.local)
-            ),
-        });
-    }
+    let (regions, _slot_place) = if deref_index == 0 {
+        // Direct dereference of a reference local: `*r`
+        let regions = state.reference_loans.get(&place.local).cloned().unwrap_or_default();
+        if regions.is_empty() {
+            return Err(OwnershipVerificationError {
+                function: function.name.clone(),
+                block,
+                context: context.to_string(),
+                message: format!(
+                    "cannot verify dereference of local '{}' without tracked loan provenance",
+                    local_name(function, place.local)
+                ),
+            });
+        }
+        (regions, None)
+    } else {
+        // Dereference through a projected place: `*s.f`
+        // Look up the reference provenance stored in reference_slot_loans
+        // for the projected place that holds the reference.
+        let projected_place = place.truncate(deref_index);
+        let ownership_place = ownership_place(function, &projected_place);
+        let regions = state.reference_slot_loans.get(&ownership_place).cloned().unwrap_or_default();
+        if regions.is_empty() {
+            return Err(OwnershipVerificationError {
+                function: function.name.clone(),
+                block,
+                context: context.to_string(),
+                message: format!(
+                    "cannot verify dereference of projected place '{}' without tracked loan provenance",
+                    projected_place
+                ),
+            });
+        }
+        (regions, Some(ownership_place))
+    };
 
     let mut grouped = BTreeMap::<OwnershipPlace, DerefOrigin>::new();
     for region in regions {
@@ -1172,7 +1435,7 @@ fn resolve_deref_origins(
             || violation(function, block, context, OwnershipError::UnknownLoan(region.clone())),
         )?;
         let mut origin = loan.place.clone();
-        for projection in place.projections.iter().skip(1) {
+        for projection in place.projections.iter().skip(deref_index + 1) {
             origin.projections.push(match projection {
                 Projection::Field(name) => OwnershipProjection::Field(name.clone()),
                 Projection::ConstantIndex(index) => OwnershipProjection::Index(*index),
@@ -2599,7 +2862,7 @@ mod tests {
     }
 
     #[test]
-    fn returning_tuple_with_projected_reference_field_is_rejected() {
+    fn returning_tuple_with_projected_reference_field_tracks_provenance() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let reference =
@@ -2645,14 +2908,10 @@ mod tests {
         )
         .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
 
-        let error = verify_program(&program)
-            .expect_err("a projected reference field must not bypass aggregate provenance checks");
-        assert!(
-            error
-                .message
-                .contains("aggregate-contained reference provenance is not yet representable"),
-            "unexpected ownership error: {error:?}"
-        );
+        // Copying a projected reference field into a tuple tracks provenance
+        // in reference_slot_loans keyed by the tuple element.
+        verify_program(&program)
+            .expect("a projected reference field copied into a tuple should track provenance");
     }
 
     #[test]
@@ -2703,7 +2962,7 @@ mod tests {
     }
 
     #[test]
-    fn struct_constructor_rejects_projected_reference_field_operand() {
+    fn struct_constructor_tracks_projected_reference_field_operand() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
@@ -2763,15 +3022,10 @@ mod tests {
             ("Wrapper".into(), wrapper_def),
         ]));
 
-        let error = verify_program(&program).expect_err(
-            "struct construction must not bypass projected reference provenance checks",
-        );
-        assert!(
-            error
-                .message
-                .contains("aggregate-contained reference provenance is not yet representable"),
-            "unexpected ownership error: {error:?}"
-        );
+        // Moving a projected reference field into a struct field tracks
+        // provenance in reference_slot_loans keyed by the destination field.
+        verify_program(&program)
+            .expect("moving a projected reference field into a struct should track provenance");
     }
 
     #[test]
@@ -2834,7 +3088,7 @@ mod tests {
     }
 
     #[test]
-    fn array_constructor_rejects_projected_reference_element_operand() {
+    fn array_constructor_tracks_projected_reference_element_operand() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let reference =
@@ -2870,14 +3124,10 @@ mod tests {
             }],
         );
 
-        let error = verify_program(&program)
-            .expect_err("an array reference element must not bypass aggregate provenance checks");
-        assert!(
-            error
-                .message
-                .contains("aggregate-contained reference provenance is not yet representable"),
-            "unexpected ownership error: {error:?}"
-        );
+        // Copying a projected array element into a tuple tracks provenance
+        // in reference_slot_loans keyed by the tuple element.
+        verify_program(&program)
+            .expect("copying a projected reference element into a tuple should track provenance");
     }
 
     #[test]
@@ -3108,7 +3358,7 @@ mod tests {
     }
 
     #[test]
-    fn returning_tuple_with_local_reference_is_rejected() {
+    fn returning_tuple_with_local_reference_tracks_provenance() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let reference =
@@ -3152,14 +3402,10 @@ mod tests {
             }],
         );
 
-        let error = verify_program(&program)
-            .expect_err("a local reference must not escape inside an aggregate");
-        assert!(
-            error
-                .message
-                .contains("aggregate-contained reference provenance is not yet representable"),
-            "unexpected ownership error: {error:?}"
-        );
+        // Moving a local reference into a tuple tracks provenance in
+        // reference_slot_loans keyed by the tuple element.
+        verify_program(&program)
+            .expect("moving a local reference into a tuple should track provenance");
     }
 
     #[test]
@@ -3431,7 +3677,7 @@ mod tests {
     }
 
     #[test]
-    fn projected_reference_field_move_into_projected_storage_is_rejected() {
+    fn projected_reference_field_move_into_projected_storage_tracks_provenance() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
@@ -3472,13 +3718,10 @@ mod tests {
         )
         .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
 
-        let error = verify_program(&program)
-            .expect_err("projected reference moves need field-level provenance tracking");
-        assert!(
-            error.message.contains("reference operand")
-                && error.message.contains("no tracked provenance representation"),
-            "unexpected ownership error: {error:?}"
-        );
+        // Moving a reference from one projected place to another now tracks
+        // provenance in reference_slot_loans instead of being rejected.
+        verify_program(&program)
+            .expect("a projected reference move between aggregate fields should track provenance");
     }
 
     #[test]
@@ -3528,7 +3771,7 @@ mod tests {
     }
 
     #[test]
-    fn reference_move_into_projected_storage_is_rejected() {
+    fn reference_move_into_projected_storage_tracks_provenance() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let reference =
@@ -3571,10 +3814,68 @@ mod tests {
             }],
         );
 
+        // Storing a reference local into a projected place now tracks provenance
+        // in reference_slot_loans instead of being rejected.
+        verify_program(&program)
+            .expect("a reference stored in a projected place should track provenance");
+    }
+
+    #[test]
+    fn dereference_through_projected_place_resolves_slot_provenance() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let _reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
+        let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("holder".into()), ty: Some(holder_ty) });
+        locals.push(LocalDecl { name: Some("value".into()), ty: Some(int) });
+        let ret = Local::from_usize(0);
+        let holder = Local::from_usize(1);
+        let value = Local::from_usize(2);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let deref_slot = |local| Place {
+            local,
+            projections: vec![Projection::Field("slot".into()), Projection::Deref],
+        };
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(value), integer(1)),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Copy(deref_slot(holder))),
+                ),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let holder_def = omni_mir::ast::StructDef {
+            name: "Holder".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(true),
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "dereference_through_projected_place".into(),
+                params: vec![holder],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Holder".into(), holder_def)]));
+
+        // This should fail closed because holder.slot was never assigned a
+        // reference - there's no tracked provenance for the projected deref.
         let error = verify_program(&program)
-            .expect_err("a reference stored in a projected place needs provenance tracking");
+            .expect_err("dereferencing a projected place without tracked provenance should fail");
         assert!(
-            error.message.contains("has no tracked provenance representation"),
+            error.message.contains("without tracked loan provenance"),
             "unexpected ownership error: {error:?}"
         );
     }

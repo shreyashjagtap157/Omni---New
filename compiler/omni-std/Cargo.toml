@@ -1,0 +1,14 @@
+[package]
+name = "omni-std"
+version = "0.2.7"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+omni-runtime = { path = "../omni-runtime" }

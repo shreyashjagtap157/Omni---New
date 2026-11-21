@@ -243,6 +243,7 @@ fn transfer_order_rvalue(rvalue: &Rvalue, order: &mut Vec<Local>) {
             }
         }
         Rvalue::Reference { .. } => {}
+        Rvalue::FnRef(_) => {}
         Rvalue::Range { start, end, .. } => {
             transfer_order_operand(start, order);
             transfer_order_operand(end, order);
@@ -342,6 +343,7 @@ fn transfer_rvalue(rvalue: &Rvalue, state: &mut HashSet<Local>) {
             }
         }
         Rvalue::Reference { .. } => {}
+        Rvalue::FnRef(_) => {}
         Rvalue::Range { start, end, .. } => {
             transfer_operand(start, state);
             transfer_operand(end, state);

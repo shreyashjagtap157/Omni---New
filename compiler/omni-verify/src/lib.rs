@@ -542,6 +542,7 @@ fn record_rvalue_uses(
         Rvalue::Reference { place, .. } => {
             record_place_use(place, point, origin_by_local, facts, false);
         }
+        Rvalue::FnRef(_) => {}
         Rvalue::Range { start, end, .. } => {
             record_operand_use(start, point, origin_by_local, active_loans, facts);
             record_operand_use(end, point, origin_by_local, active_loans, facts);

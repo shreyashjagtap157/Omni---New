@@ -6,6 +6,8 @@
 //! minimal stdout, exit, and abort primitives. A later target ABI may replace
 //! the handle representation without changing the higher-level Runtime API.
 
+#![allow(unsafe_code)]
+
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, Write};
@@ -222,9 +224,9 @@ fn global_runtime() -> &'static Mutex<Runtime> {
 /// Allocate through the process-local runtime service.
 ///
 /// The handle 0 is reserved for failure. Successful handles are positive.
-/// The native ABI is intentionally not exported from this safe-Rust crate;
-/// backend/linker integration must establish its ABI boundary explicitly.
-pub fn omni_rt_alloc(size: i64, align: i64) -> i64 {
+/// Exported as a C ABI function via `#[no_mangle] extern "C"`.
+#[no_mangle]
+pub extern "C" fn omni_rt_alloc(size: i64, align: i64) -> i64 {
     let Ok(size) = usize::try_from(size) else {
         return INVALID_ALLOCATION_ID as i64;
     };
@@ -241,7 +243,8 @@ pub fn omni_rt_alloc(size: i64, align: i64) -> i64 {
 }
 
 /// Deallocate an opaque runtime allocation. Returns zero on success and -1 on failure.
-pub fn omni_rt_dealloc(id: i64) -> i32 {
+#[no_mangle]
+pub extern "C" fn omni_rt_dealloc(id: i64) -> i32 {
     let Ok(id) = u64::try_from(id) else {
         return -1;
     };
@@ -255,7 +258,8 @@ pub fn omni_rt_dealloc(id: i64) -> i32 {
 }
 
 /// Write one byte to stdout. Returns zero on success and -1 on host I/O failure.
-pub fn omni_rt_write_stdout_byte(byte: i64) -> i32 {
+#[no_mangle]
+pub extern "C" fn omni_rt_write_stdout_byte(byte: i64) -> i32 {
     let Ok(byte) = u8::try_from(byte) else {
         return -1;
     };
@@ -267,7 +271,8 @@ pub fn omni_rt_write_stdout_byte(byte: i64) -> i32 {
 }
 
 /// Flush stdout. Returns zero on success and -1 on host I/O failure.
-pub fn omni_rt_flush_stdout() -> i32 {
+#[no_mangle]
+pub extern "C" fn omni_rt_flush_stdout() -> i32 {
     match io::stdout().lock().flush() {
         Ok(()) => 0,
         Err(_) => -1,
@@ -275,12 +280,14 @@ pub fn omni_rt_flush_stdout() -> i32 {
 }
 
 /// Terminate with the supplied platform process exit status.
-pub fn omni_rt_exit(code: i32) -> ! {
+#[no_mangle]
+pub extern "C" fn omni_rt_exit(code: i32) -> ! {
     std::process::exit(code)
 }
 
 /// Terminate immediately under the runtime abort policy.
-pub fn omni_rt_abort() -> ! {
+#[no_mangle]
+pub extern "C" fn omni_rt_abort() -> ! {
     std::process::abort()
 }
 

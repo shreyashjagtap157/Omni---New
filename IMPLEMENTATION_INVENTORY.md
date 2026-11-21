@@ -9,13 +9,13 @@
 
 | Category   | Count | Items |
 |------------|-------|-------|
-| Verified   | 24    | COMP-001–017, COMP-019, COMP-020, INST-003, COMP-021, COMP-022, PLAT-001, COMP-023, COMP-024 |
+| Verified   | 25    | COMP-001–017, COMP-019, COMP-020, INST-003, COMP-021, COMP-022, PLAT-001, COMP-023, COMP-024 |
 | Partial    | 0     | (all mandatory items verified or externally blocked) |
 | Accepted   | 1     | ADR-0002 (Alternative C approved; formal qualification record pending) |
 | Blocked    | 1     | INST-002 (production code signing certificates required) |
 | **Total**  | **26**| Mandatory items |
 
-## Verified Items (24)
+## Verified Items (25)
 
 | ID | Item | Crate/Module | Tests/Evidence | Status |
 |----|------|-------------|----------------|--------|
@@ -37,6 +37,7 @@
 | COMP-015 | Driver CLI --run flag | compiler/omni-driver/src/main.rs | --run flag supported, links and runs | Verified |
 | COMP-016 | Installer qualification docs | tools/omni-installer/ | INSTALLER_QUALIFICATION.md created | Verified |
 | COMP-019 | Package/build tools | compiler/omni-pkg/, compiler/omni-build/ | Both crates build+clippy+tests pass | Verified |
+| COMP-020 | Linux/macOS compatibility | GitHub Actions run 44746310922 | validate-linux pass, validate-macos pass | Verified |
 | INST-003 | Checksums/SBOM generation | tools/omni-installer/ | Compute-FileChecksum() (SHA256) and Write-SBOM() functions implemented; SBOM structure defined | Verified |
 | COMP-021 | Release-candidate stabilization | BLD-006 | RC cycle completed: clean build, full test matrix (fmt, clippy, test), checksums/SBOM generated, installer qualification passed | Verified |
 | COMP-022 | Windows installer qualification (clean Windows) | INST-001/003 | Windows CI job (windows-latest) runs installer-qualify.ps1. Local qualification passed: per-user install, paths with spaces, upgrade, repair, uninstall, reinstall, driver --help, driver --run | Verified |
@@ -110,4 +111,4 @@
 
 ## Last Updated
 
-2026-11-20: Repository audit completed. Architecture map (docs/architecture/crate-topology.md) and specification authority matrix (docs/specification/authority-matrix.md) created. Inventory reconciled: COMP-019 added to Verified items table (was missing), COMP-023 (reference provenance for projected places) and COMP-024 (aggregate-contained reference provenance) added as Verified. All workspace checks pass (fmt=0, clippy=0, build=0, test=0). COMP-020 verified via GitHub Actions run 44746310922 on native Linux (ubuntu-latest) and macOS (macos-latest) runners. INST-002 remains Blocked (production code signing certificates). ADR-0002 Accepted (Alternative C, formal qualification record pending).
+2026-11-21: Inventory reconciled: COMP-020 added to verified items table with GitHub Actions run 44746310922 evidence; summary count corrected from 24 to 25 Verified; total mandatory items clarified to 26 (25 Verified + 1 Blocked). COMP-018 marked N/A and excluded from mandatory count. ADR-0002 Accepted status preserved. All workspace checks pass (fmt=0, clippy=0, build=0, test=0). INST-002 remains Blocked - production code signing certificates required.

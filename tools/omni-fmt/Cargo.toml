@@ -1,0 +1,16 @@
+[package]
+name = "omni-fmt"
+version = "0.2.7"
+edition = "2021"
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "omni-fmt"
+path = "src/main.rs"
+
+[dependencies]
+omni-parse = { path = "../../compiler/omni-parse" }
+omni-syntax = { path = "../../compiler/omni-syntax" }

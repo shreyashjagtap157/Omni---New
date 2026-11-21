@@ -497,6 +497,7 @@ impl Interpreter {
                 place: place.clone(),
                 mutable: *mutable,
             })),
+            Rvalue::FnRef(name) => Ok(Value::FunctionRef(name.clone())),
             Rvalue::Cast { operand, from, to } => {
                 let val = self.evaluate_operand(operand, function)?;
                 self.execute_cast(val, from, to)

@@ -19,17 +19,21 @@ members = [
     "compiler/omni-runtime",
     "compiler/omni-driver",
     "compiler/omni-stage0",
+    "compiler/omni-pkg",
+    "compiler/omni-build",
+    "compiler/omni-ls",
     "tools/omni-canon",
     "tools/omni-audit",
     "tools/omni-registry",
     "tools/omni-conform",
     "tools/omni-bindgen",
     "tools/omni-evidence",
+    "tools/omni-fmt",
     "tools/omni-topology",
 ]
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = "deny"

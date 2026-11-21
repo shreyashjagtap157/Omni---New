@@ -2,68 +2,201 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Omni Foundation Qualification Record",
   "type": "object",
-  "description": "Formal owner-attested qualification record for the Omni foundation gate (OMNI-IMP-0.0.0.13). Separates technical CI outcomes from governance approval.",
+  "description": "Formal owner-attested qualification record for the Omni foundation gate (OMNI-IMP-0.0.0.13). Separates technical CI outcomes from governance approval. Binds the record to the exact source commit and evidence set.",
+  "version": "1.1.0",
+  "record_version": "1.0.0",
+
+  "required": [
+    "commit_sha",
+    "technical_status",
+    "verified_item_count",
+    "total_mandatory_items",
+    "verified_gaps",
+    "formal_status",
+    "attester",
+    "attestation_date",
+    "spec_digest",
+    "blocked_reasons",
+    "adr_revision"
+  ],
+
   "properties": {
     "commit_sha": {
       "type": "string",
-      "description": "Exact Git commit SHA that was qualified.",
+      "description": "Exact 40-character lowercase Git commit SHA that was qualified.",
+      "pattern": "^[a-f0-9]{40}$",
       "example": "27c5565a1b3d8e8f9a0b1c2d3e4f5a6b7c8d9e0f"
     },
+
     "technical_status": {
       "type": "string",
       "enum": ["passed", "failed"],
-      "description": "Result of the full CI validation run (fmt, clippy, build, test)."
+      "description": "Result of the full CI validation run (fmt, clippy, build, test). Technical outcome, separate from formal qualification."
     },
+
     "verified_item_count": {
       "type": "integer",
-      "description": "Number of mandatory inventory items with Verified status at the time of qualification.",
-      "example": 23
+      "description": "Number of mandatory inventory items with Verified status at the time of qualification. Must be <= total_mandatory_items."
     },
+
     "total_mandatory_items": {
       "type": "integer",
-      "description": "Total count of mandatory inventory items.",
-      "example": 26
+      "description": "Total count of mandatory inventory items (those with COMP- or ADR- prefixes, excluding N/A items like COMP-018)."
     },
+
     "verified_gaps": {
       "type": "array",
       "items": {
         "type": "string",
         "enum": ["COMP-020", "INST-002", "ADR-0002"]
       },
-      "description": "List of mandatory items that are not yet Verified. Empty array means all mandatory items are Verified.",
-      "example": ["COMP-020", "INST-002"]
+      "description": "List of mandatory items that are not yet Verified. Empty array means all mandatory items are Verified. Must be consistent with verified_item_count and total_mandatory_items: verified_item_count + len(verified_gaps) <= total_mandatory_items.",
+      "uniqueItems": true
     },
+
     "formal_status": {
       "type": "string",
       "enum": ["approved", "pending", "rejected"],
-      "description": "Governance-level formal sign-off status. 'approved' means the project owner has attested the qualification record.",
-      "example": "pending"
+      "description": "Governance-level formal sign-off status. 'approved' means the project owner has attested the qualification record for the stated commit and scope. 'pending' means Alternative C decision is in effect but formal attestation is outstanding. 'rejected' means the qualification was not approved."
     },
+
     "attester": {
       "type": "string",
-      "description": "Identity of the person/body attesting formal qualification.",
-      "example": "project-owner@example.com"
+      "description": "Identity of the person/body attesting formal qualification (e.g., email address or username). Must not be empty when formal_status is 'approved'."
     },
+
     "attestation_date": {
       "type": "string",
       "format": "date-time",
-      "description": "ISO 8601 date-time when the formal attestation was recorded.",
-      "example": "2026-11-20T12:00:00Z"
+      "description": "ISO 8601 date-time when the formal attestation was recorded. Must be present when formal_status is 'approved'."
     },
+
     "blocked_reasons": {
       "type": "array",
       "items": {
         "type": "string",
-        "description": "Human-readable reason why each remaining item is blocked."
+        "description": "Human-readable reason why each remaining mandatory item is blocked. Corresponds to discrepancy entries (D-001, D-002, etc.). Provides transparency for why items are not Verified."
       },
-      "description": "Why mandatory items are not yet Verified. Corresponds to D-001 style discrepancies."
+      "description": "Why mandatory items are not yet Verified. Each entry should reference the relevant discrepancy resolution pattern."
     },
+
     "spec_digest": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$",
-      "description": "SHA-256 digest of the spec tree at qualification time, to prevent post-hoc changes."
+      "description": "SHA-256 digest of the spec tree at qualification time, to prevent post-hoc changes to the normative specification base."
+    },
+
+    "adr_revision": {
+      "type": "string",
+      "description": "The ADR revision number or commit reference that approved the Alternative C decision. Links the qualification record to the authoritative design decision.",
+      "example": "ADR-0002 as approved by commit 838179a"
+    },
+
+    "ci_evidence": {
+      "type": "object",
+      "description": "References to CI workflow runs that validated the technical status. Enables traceability from the qualification record to exact job outcomes.",
+      "properties": {
+        "linux_run_id": {
+          "type": "integer",
+          "description": "GitHub Actions run ID for the validate-linux job."
+        },
+        "macos_run_id": {
+          "type": "integer",
+          "description": "GitHub Actions run ID for the validate-macos job."
+        },
+        "windows_run_id": {
+          "type": "integer",
+          "description": "GitHub Actions run ID for the validate-windows job."
+        },
+        "technical_conclusion": {
+          "type": "string",
+          "enum": ["success", "failure"],
+          "description": "Overall conclusion of the technical CI validation run."
+        },
+        "artifact_urls": {
+          "type": "array",
+          "type": "string",
+          "format": "uri",
+          "description": "URLs to the CI job artifacts (logs, reports, SBOMs, checksums)."
+        }
+      },
+      "description": "Optional references to CI runs that supported the technical_status. At minimum, the run IDs and conclusions should be present when the technical_status is 'passed' or 'failed'."
     }
   },
-  "required": ["commit_sha", "technical_status", "verified_item_count", "total_mandatory_items", "verified_gaps", "formal_status"],
-  "additionalProperties": false
+
+  "additionalProperties": false,
+
+  "if": {
+    "properties": {
+      "formal_status": {
+        "enum": ["approved"]
+      }
+    },
+    "then": {
+      "required": [
+        "attester",
+        "attestation_date"
+      ],
+      "properties": {
+        "attester": {
+          "type": "string",
+          "pattern": "^[^@\\s]+@[^@\\s]+$",
+          "description": "Email-style identifier for the attester. Required when formal_status is 'approved'."
+        },
+        "attestation_date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 date-time when the formal attestation was recorded. Required when formal_status is 'approved'."
+        }
+      ]
+    }
+  },
+
+  "if": {
+    "properties": {
+      "formal_status": {
+        "enum": ["pending"]
+      }
+    },
+    "then": {
+      "properties": {
+        "attester": {
+          "type": "string",
+          "description": "Identity may be present but is not required when formal_status is 'pending' (Alternative C in effect)."
+        },
+        "attestation_date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "May be present but not required when formal_status is 'pending'."
+        }
+      }
+    }
+  },
+
+  "if": {
+    "properties": {
+      "formal_status": {
+        "enum": ["rejected"]
+      }
+    },
+    "then": {
+      "required": [
+        "blocked_reasons",
+        "attester"
+      ],
+      "properties": {
+        "blocked_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "Must explain why qualification was rejected. At minimum one entry required."
+          }
+        },
+        "attester": {
+          "type": "string",
+          "description": "Identity of person/body who rejected the qualification."
+        }
+      ]
+    }
+  }
 }

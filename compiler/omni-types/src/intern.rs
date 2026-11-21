@@ -21,6 +21,7 @@ pub enum TyKind {
     Range(Ty),
     Reference { lifetime: Option<String>, mutable: bool, inner: Ty },
     Fn(Vec<Ty>, Ty),
+    FnPtr(Vec<Ty>, Ty),
     Struct(String, Vec<Ty>),
     Enum(String, Vec<Ty>),
     TraitObject { trait_name: String, args: Vec<Ty> },
@@ -94,6 +95,10 @@ impl TyCtxt {
                 let p: Vec<String> = params.iter().map(|&t| self.mangle(t)).collect();
                 format!("fn_{}_{}_ret_{}_end", params.len(), p.join("_"), self.mangle(*ret))
             }
+            TyKind::FnPtr(params, ret) => {
+                let p: Vec<String> = params.iter().map(|&t| self.mangle(t)).collect();
+                format!("fnptr_{}_{}_ret_{}_end", params.len(), p.join("_"), self.mangle(*ret))
+            }
             TyKind::Struct(name, args) => {
                 let a: Vec<String> = args.iter().map(|&t| self.mangle(t)).collect();
                 format!("struct_{}_{name}_{}_{}_end", name.len(), args.len(), a.join("_"))
@@ -127,6 +132,9 @@ impl TyCtxt {
             TyKind::Array(elem, _) | TyKind::Range(elem) => self.is_concrete(*elem),
             TyKind::Reference { inner, .. } => self.is_concrete(*inner),
             TyKind::Fn(params, ret) => {
+                params.iter().all(|&t| self.is_concrete(t)) && self.is_concrete(*ret)
+            }
+            TyKind::FnPtr(params, ret) => {
                 params.iter().all(|&t| self.is_concrete(t)) && self.is_concrete(*ret)
             }
             TyKind::Struct(_, args) | TyKind::Enum(_, args) => {

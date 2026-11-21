@@ -373,6 +373,16 @@ name = "omni-bindgen"
 version = "0.0.0"
 
 [[package]]
+name = "omni-build"
+version = "0.1.0"
+dependencies = [
+ "omni-codegen",
+ "omni-hir",
+ "omni-mir",
+ "omni-types",
+]
+
+[[package]]
 name = "omni-canon"
 version = "0.0.0"
 dependencies = [
@@ -388,6 +398,7 @@ name = "omni-codegen"
 version = "0.2.7"
 dependencies = [
  "cranelift-codegen",
+ "cranelift-entity",
  "cranelift-frontend",
  "cranelift-module",
  "cranelift-object",
@@ -447,6 +458,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "omni-fmt"
+version = "0.2.7"
+dependencies = [
+ "omni-parse",
+ "omni-syntax",
+]
+
+[[package]]
 name = "omni-hir"
 version = "0.2.7"
 dependencies = [
@@ -462,6 +481,19 @@ dependencies = [
  "omni-source",
  "omni-unicode",
  "unicode-ident",
+]
+
+[[package]]
+name = "omni-ls"
+version = "0.1.0"
+dependencies = [
+ "cranelift-codegen",
+ "cranelift-frontend",
+ "cranelift-module",
+ "cranelift-object",
+ "omni-hir",
+ "omni-types",
+ "omni-verify",
 ]
 
 [[package]]
@@ -506,6 +538,15 @@ dependencies = [
  "omni-source",
  "omni-syntax",
  "rowan",
+]
+
+[[package]]
+name = "omni-pkg"
+version = "0.1.0"
+dependencies = [
+ "omni-hir",
+ "omni-mir",
+ "omni-types",
 ]
 
 [[package]]
