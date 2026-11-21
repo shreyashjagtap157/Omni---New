@@ -172,7 +172,7 @@ jobs:
               blocked = count_for("Blocked")
               total = count_for(
                   "Total",
-                  r"^\|\s*\*\*Total\*\*\s*\|\s*(\d+)\s*\|",
+                  r"^\|\s*\*\*Total\*\*\s*\|\s*\*\*(\d+)\*\*\s*\|",
               )
               if None in (verified, accepted, blocked, total):
                   blockers.append("Inventory summary could not be parsed from its declared table.")
