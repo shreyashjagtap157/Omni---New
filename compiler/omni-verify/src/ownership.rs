@@ -3280,7 +3280,7 @@ mod tests {
         // in reference_slot_loans keyed by the tuple element.
         let error = verify_program(&program)
             .expect_err("reference-valued storage without provenance must be rejected");
-        assert!(error.message.contains("no tracked loan provenance"), "{error}");
+        assert!(error.message.contains("no tracked loan provenance"), "{error:?}");
     }
 
     #[test]
@@ -3466,7 +3466,7 @@ mod tests {
         // provenance in reference_slot_loans keyed by the destination field.
         let error = verify_program(&program)
             .expect_err("reference-valued storage without provenance must be rejected");
-        assert!(error.message.contains("no tracked loan provenance"), "{error}");
+        assert!(error.message.contains("no tracked loan provenance"), "{error:?}");
     }
 
     #[test]
@@ -3569,7 +3569,7 @@ mod tests {
         // in reference_slot_loans keyed by the tuple element.
         let error = verify_program(&program)
             .expect_err("reference-valued storage without provenance must be rejected");
-        assert!(error.message.contains("no tracked loan provenance"), "{error}");
+        assert!(error.message.contains("no tracked loan provenance"), "{error:?}");
     }
 
     #[test]
@@ -3887,7 +3887,7 @@ mod tests {
         // reference_slot_loans keyed by the tuple element.
         let error = verify_program(&program)
             .expect_err("a reference to local storage must not escape in an aggregate return");
-        assert!(error.message.contains("may escape function-local"), "{error}");
+        assert!(error.message.contains("may escape function-local"), "{error:?}");
     }
 
     #[test]
@@ -4204,7 +4204,7 @@ mod tests {
         // provenance in reference_slot_loans instead of being rejected.
         let error = verify_program(&program)
             .expect_err("reference-valued storage without provenance must be rejected");
-        assert!(error.message.contains("no tracked loan provenance"), "{error}");
+        assert!(error.message.contains("no tracked loan provenance"), "{error:?}");
     }
 
     #[test]
