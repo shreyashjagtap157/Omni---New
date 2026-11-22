@@ -2527,9 +2527,11 @@ mod tests {
             "--native".to_string(),
             "program.omni".to_string(),
         ];
-        assert!(parse_args(&conflicting)
-            .expect_err("conflicting execution modes must fail")
-            .contains("mutually exclusive"));
+        let error = match parse_args(&conflicting) {
+            Err(error) => error,
+            Ok(_) => panic!("conflicting execution modes must fail"),
+        };
+        assert!(error.contains("mutually exclusive"));
     }
 
     #[test]
