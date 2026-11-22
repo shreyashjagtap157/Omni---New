@@ -197,10 +197,7 @@ impl EffectRow {
                 Ok(EffectRow::Open(a.union(b).cloned().collect(), left.clone()))
             }
             (EffectRow::Open(_, left), EffectRow::Open(_, right)) => {
-                Err(EffectRowError::IncompatibleTails {
-                    left: left.clone(),
-                    right: right.clone(),
-                })
+                Err(EffectRowError::IncompatibleTails { left: left.clone(), right: right.clone() })
             }
         }
     }

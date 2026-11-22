@@ -1353,7 +1353,10 @@ impl TypeChecker {
                 let receiver_eff = self.infer_expr_effects(receiver, env, local_vars)?;
                 let mut effects = receiver_eff;
                 for arg in args {
-                    effects = union_effect_rows(&effects, &self.infer_expr_effects(arg, env, local_vars)?)?;
+                    effects = union_effect_rows(
+                        &effects,
+                        &self.infer_expr_effects(arg, env, local_vars)?,
+                    )?;
                 }
                 let (_, _, _, callee_effects) =
                     self.infer_method_call(receiver, method, generic_args, args, env, local_vars)?;
@@ -1385,7 +1388,8 @@ impl TypeChecker {
             Expr::Struct { fields, .. } => {
                 let mut eff = EffectRow::pure();
                 for (_, value) in fields {
-                    eff = union_effect_rows(&eff, &self.infer_expr_effects(value, env, local_vars)?)?;
+                    eff =
+                        union_effect_rows(&eff, &self.infer_expr_effects(value, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
@@ -1397,7 +1401,8 @@ impl TypeChecker {
             Expr::Tuple(elems) | Expr::Array(elems) => {
                 let mut eff = EffectRow::pure();
                 for elem in elems {
-                    eff = union_effect_rows(&eff, &self.infer_expr_effects(elem, env, local_vars)?)?;
+                    eff =
+                        union_effect_rows(&eff, &self.infer_expr_effects(elem, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
@@ -1437,7 +1442,10 @@ impl TypeChecker {
             Expr::Continue { .. } => Ok(EffectRow::pure()),
             Expr::If { condition, then_branch, else_branch } => {
                 let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
-                eff = union_effect_rows(&eff, &self.infer_expr_effects(then_branch, env, local_vars)?)?;
+                eff = union_effect_rows(
+                    &eff,
+                    &self.infer_expr_effects(then_branch, env, local_vars)?,
+                )?;
                 if let Some(e) = else_branch {
                     eff = union_effect_rows(&eff, &self.infer_expr_effects(e, env, local_vars)?)?;
                 }
@@ -1451,7 +1459,10 @@ impl TypeChecker {
                     let mut arm_locals = local_vars.clone();
                     self.bind_pattern(&arm.pattern, scrutinee_ty, &mut arm_locals)?;
                     if let Some(g) = &arm.guard {
-                        eff = union_effect_rows(&eff, &self.infer_expr_effects(g, env, &arm_locals)?)?;
+                        eff = union_effect_rows(
+                            &eff,
+                            &self.infer_expr_effects(g, env, &arm_locals)?,
+                        )?;
                     }
                     eff = union_effect_rows(&eff, &self.infer_expr_effects(&arm.body, env, &arm_locals)?)?;
                 }
@@ -1485,7 +1496,8 @@ impl TypeChecker {
             Expr::Block(stmts) => {
                 let mut eff = EffectRow::pure();
                 for stmt in stmts {
-                    eff = union_effect_rows(&eff, &self.infer_expr_effects(stmt, env, local_vars)?)?;
+                    eff =
+                        union_effect_rows(&eff, &self.infer_expr_effects(stmt, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
@@ -1531,6 +1543,5 @@ impl TypeChecker {
 
 /// Combine inferred effect rows without losing incompatible unresolved tails.
 fn union_effect_rows(left: &EffectRow, right: &EffectRow) -> Result<EffectRow, TypeError> {
-    left.union(right)
-        .map_err(|error| TypeError::EffectViolation(error.to_string()))
+    left.union(right).map_err(|error| TypeError::EffectViolation(error.to_string()))
 }
