@@ -18,6 +18,16 @@ pub(crate) struct OwnershipVerificationError {
     pub(crate) message: String,
 }
 
+
+/// Shared source context for reference-provenance transfers during MIR ownership analysis.
+struct ReferenceProvenanceContext<'a> {
+    function: &'a MirFunction,
+    block: BasicBlock,
+    context: &'a str,
+    tcx: &'a omni_mir::TyCtxt,
+    struct_defs: &'a std::collections::HashMap<String, omni_mir::ast::StructDef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct FlowState {
     ownership: OwnershipState,
@@ -298,24 +308,23 @@ fn transfer_block(
                             }
                         }
                     } else {
-                        track_projected_reference_provenance(
+                        let provenance = ReferenceProvenanceContext {
                             function,
                             block,
-                            &context,
-                            destination,
-                            rvalue,
+                            context: &context,
                             tcx,
                             struct_defs,
+                        };
+                        track_projected_reference_provenance(
+                            &provenance,
+                            destination,
+                            rvalue,
                             &mut state,
                         )?;
                         track_aggregate_reference_provenance(
-                            function,
-                            block,
-                            &context,
+                            &provenance,
                             destination,
                             rvalue,
-                            tcx,
-                            struct_defs,
                             &mut state,
                         )?;
                         transfer_rvalue(function, block, &context, rvalue, &mut state)?;
@@ -713,11 +722,10 @@ fn collect_reference_return_paths(
                 return Err("invalid interned return type handle".into());
             }
             match tcx.get(*handle) {
-                omni_mir::TyKind::Reference { .. } => {
-                    if !output.contains(prefix) {
-                        output.push(prefix.clone());
-                    }
+                omni_mir::TyKind::Reference { .. } if !output.contains(prefix) => {
+                    output.push(prefix.clone());
                 }
+                omni_mir::TyKind::Reference { .. } => {}
                 omni_mir::TyKind::Tuple(fields) => {
                     for (index, field) in fields.iter().enumerate() {
                         prefix.push(MirProjection::ConstantIndex(index));
@@ -1351,13 +1359,9 @@ fn shorten_dead_reference_loans(
 /// Track a reference moved or copied directly into a projected destination.
 /// Run before `transfer_rvalue`, which consumes source loan associations on moves.
 fn track_projected_reference_provenance(
-    function: &MirFunction,
-    block: BasicBlock,
-    context: &str,
+    provenance: &ReferenceProvenanceContext<'_>,
     destination: &Place,
     rvalue: &Rvalue,
-    tcx: &omni_mir::TyCtxt,
-    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
     if destination.projections.is_empty() {
@@ -1367,7 +1371,16 @@ fn track_projected_reference_provenance(
     else {
         return Ok(());
     };
-    if reference_operand_source_name(function, block, context, tcx, struct_defs, operand)?.is_none()
+    let function = provenance.function;
+    if reference_operand_source_name(
+        function,
+        provenance.block,
+        provenance.context,
+        provenance.tcx,
+        provenance.struct_defs,
+        operand,
+    )?
+    .is_none()
     {
         return Ok(());
     }
@@ -1380,8 +1393,8 @@ fn track_projected_reference_provenance(
     if regions.is_empty() {
         return Err(OwnershipVerificationError {
             function: function.name.clone(),
-            block,
-            context: context.to_string(),
+            block: provenance.block,
+            context: provenance.context.to_string(),
             message: format!(
                 "reference-valued projected assignment from '{}' has no tracked loan provenance",
                 source_place
@@ -1394,8 +1407,9 @@ fn track_projected_reference_provenance(
         let source_key = ownership_place(function, source_place);
         if let Some(loans) = state.reference_slot_loans.remove(&source_key) {
             for region in loans {
-                end_tracked_loan_if_unreferenced(state, &region)
-                    .map_err(|error| violation(function, block, context, error))?;
+                end_tracked_loan_if_unreferenced(state, &region).map_err(|error| {
+                    violation(function, provenance.block, provenance.context, error)
+                })?;
             }
         }
     }
@@ -1413,52 +1427,39 @@ fn track_projected_reference_provenance(
 /// For `Operand::Move` from a projected place, the source's slot loan is ended
 /// so the moved reference cannot be used through both source and destination.
 fn track_aggregate_reference_provenance(
-    function: &MirFunction,
-    block: BasicBlock,
-    context: &str,
+    provenance: &ReferenceProvenanceContext<'_>,
     destination: &Place,
     rvalue: &Rvalue,
-    tcx: &omni_mir::TyCtxt,
-    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
-    /// Returns the provenance regions for a source place, checking both
-    /// `reference_loans` (for locals) and `reference_slot_loans` (for projected
-    /// places).
     fn source_regions(
         function: &MirFunction,
         state: &FlowState,
-        source_place: &omni_mir::ir::Place,
+        source_place: &Place,
     ) -> BTreeSet<String> {
         if source_place.projections.is_empty() {
             state.reference_loans.get(&source_place.local).cloned().unwrap_or_default()
         } else {
-            let ownership_place = ownership_place(function, source_place);
-            state.reference_slot_loans.get(&ownership_place).cloned().unwrap_or_default()
+            let key = ownership_place(function, source_place);
+            state.reference_slot_loans.get(&key).cloned().unwrap_or_default()
         }
     }
 
-    /// Records provenance for one operand and, on `Move`, ends the source's
-    /// slot loan so the moved reference is not usable through both paths.
-    #[allow(clippy::too_many_arguments)]
     fn record_reference_operand(
-        function: &MirFunction,
+        provenance: &ReferenceProvenanceContext<'_>,
         state: &mut FlowState,
         destination: &Place,
-        source_place: &omni_mir::ir::Place,
-        operand_kind: &omni_mir::ir::Operand,
-        tcx: &omni_mir::TyCtxt,
-        struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
-        projection: omni_mir::ir::Projection,
-        block: BasicBlock,
-        context: &str,
+        source_place: &Place,
+        operand_kind: &Operand,
+        projection: Projection,
     ) -> Result<(), OwnershipVerificationError> {
+        let function = provenance.function;
         let is_reference = reference_operand_source_name(
             function,
-            block,
-            context,
-            tcx,
-            struct_defs,
+            provenance.block,
+            provenance.context,
+            provenance.tcx,
+            provenance.struct_defs,
             operand_kind,
         )?
         .is_some();
@@ -1467,8 +1468,8 @@ fn track_aggregate_reference_provenance(
             if regions.is_empty() {
                 return Err(OwnershipVerificationError {
                     function: function.name.clone(),
-                    block,
-                    context: context.to_string(),
+                    block: provenance.block,
+                    context: provenance.context.to_string(),
                     message: format!(
                         "reference-valued aggregate operand '{}' has no tracked loan provenance",
                         source_place
@@ -1476,16 +1477,15 @@ fn track_aggregate_reference_provenance(
                 });
             }
             let field_place = destination.project(projection);
-            let field_gv = ownership_place(function, &field_place);
-            state.reference_slot_loans.entry(field_gv).or_default().extend(regions);
-            if matches!(operand_kind, omni_mir::ir::Operand::Move(_))
-                && !source_place.projections.is_empty()
-            {
-                let source_gv = ownership_place(function, source_place);
-                if let Some(loans) = state.reference_slot_loans.remove(&source_gv) {
+            let field_key = ownership_place(function, &field_place);
+            state.reference_slot_loans.entry(field_key).or_default().extend(regions);
+            if matches!(operand_kind, Operand::Move(_)) && !source_place.projections.is_empty() {
+                let source_key = ownership_place(function, source_place);
+                if let Some(loans) = state.reference_slot_loans.remove(&source_key) {
                     for region in loans {
-                        end_tracked_loan_if_unreferenced(state, &region)
-                            .map_err(|e| violation(function, block, context, e))?;
+                        end_tracked_loan_if_unreferenced(state, &region).map_err(|error| {
+                            violation(function, provenance.block, provenance.context, error)
+                        })?;
                     }
                 }
             }
@@ -1495,71 +1495,35 @@ fn track_aggregate_reference_provenance(
 
     match rvalue {
         Rvalue::Struct { fields, .. } => {
-            for (field_name, operand) in fields.iter() {
+            for (field_name, operand) in fields {
                 if let Operand::Copy(source_place) | Operand::Move(source_place) = operand {
                     record_reference_operand(
-                        function,
+                        provenance,
                         state,
                         destination,
                         source_place,
                         operand,
-                        tcx,
-                        struct_defs,
-                        omni_mir::ir::Projection::Field(field_name.clone()),
-                        block,
-                        context,
+                        Projection::Field(field_name.clone()),
                     )?;
                 }
             }
         }
-        Rvalue::Aggregate { kind, operands, .. } => {
+        Rvalue::Aggregate { operands, .. } | Rvalue::EnumVariant { operands, .. } => {
             for (index, operand) in operands.iter().enumerate() {
                 if let Operand::Copy(source_place) | Operand::Move(source_place) = operand {
-                    let projection = match kind {
-                        omni_mir::ir::AggregateKind::Tuple => {
-                            omni_mir::ir::Projection::ConstantIndex(index)
-                        }
-                        omni_mir::ir::AggregateKind::Array => {
-                            omni_mir::ir::Projection::ConstantIndex(index)
-                        }
-                    };
                     record_reference_operand(
-                        function,
+                        provenance,
                         state,
                         destination,
                         source_place,
                         operand,
-                        tcx,
-                        struct_defs,
-                        projection,
-                        block,
-                        context,
-                    )?;
-                }
-            }
-        }
-        Rvalue::EnumVariant { operands, .. } => {
-            for (index, operand) in operands.iter().enumerate() {
-                if let Operand::Copy(source_place) | Operand::Move(source_place) = operand {
-                    let projection = omni_mir::ir::Projection::ConstantIndex(index);
-                    record_reference_operand(
-                        function,
-                        state,
-                        destination,
-                        source_place,
-                        operand,
-                        tcx,
-                        struct_defs,
-                        projection,
-                        block,
-                        context,
+                        Projection::ConstantIndex(index),
                     )?;
                 }
             }
         }
         _ => {}
     }
-
     Ok(())
 }
 
