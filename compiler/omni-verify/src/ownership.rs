@@ -173,7 +173,8 @@ fn verify_function(
                 changed = true;
             }
 
-            let new_edges = transfer_block(function, block, entry, &live_after, tcx, struct_defs, enum_defs)?;
+            let new_edges =
+                transfer_block(function, block, entry, &live_after, tcx, struct_defs, enum_defs)?;
             if edge_states[block_index] != new_edges {
                 edge_states[block_index] = new_edges;
                 changed = true;
@@ -432,7 +433,14 @@ fn transfer_block(
         }
         Some(Terminator::Return) => {
             if !matches!(function.return_type, omni_mir::ast::TypeSpec::Unit) {
-                verify_reference_return_provenance(function, block, &state, tcx, struct_defs, enum_defs)?;
+                verify_reference_return_provenance(
+                    function,
+                    block,
+                    &state,
+                    tcx,
+                    struct_defs,
+                    enum_defs,
+                )?;
                 let return_place = Place::local(function.return_place);
                 transfer_place_access(
                     function,
@@ -508,8 +516,9 @@ fn verify_reference_return_provenance(
         .iter()
         .filter_map(|&param| {
             let ty = function.body.local_decls[param].ty?;
-            (tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
-                .then(|| format!("\\0external-reference-origin:{}:{}", function.name, param.index()))
+            (tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })).then(
+                || format!("\0external-reference-origin:{}:{}", function.name, param.index()),
+            )
         })
         .collect::<BTreeSet<_>>();
 
@@ -531,14 +540,15 @@ fn verify_reference_return_provenance(
         }
 
         for region in regions {
-            let loan = state.ownership.loans().find(|loan| loan.region == region).ok_or_else(|| {
-                violation(
-                    function,
-                    block,
-                    "function return",
-                    OwnershipError::UnknownLoan(region.clone()),
-                )
-            })?;
+            let loan =
+                state.ownership.loans().find(|loan| loan.region == region).ok_or_else(|| {
+                    violation(
+                        function,
+                        block,
+                        "function return",
+                        OwnershipError::UnknownLoan(region.clone()),
+                    )
+                })?;
             if !external_origins.contains(&loan.place.root) {
                 return Err(OwnershipVerificationError {
                     function: function.name.clone(),
@@ -555,7 +565,6 @@ fn verify_reference_return_provenance(
 
     Ok(())
 }
-
 
 /// Collect reference-bearing leaf projections for a function's return type.
 /// Generic/enum layouts that cannot be proven safe fail closed.
@@ -581,7 +590,13 @@ fn collect_reference_return_paths(
             for (index, field) in fields.iter().enumerate() {
                 prefix.push(MirProjection::ConstantIndex(index));
                 collect_reference_return_paths(
-                    field, tcx, struct_defs, enum_defs, prefix, output, visiting,
+                    field,
+                    tcx,
+                    struct_defs,
+                    enum_defs,
+                    prefix,
+                    output,
+                    visiting,
                 )?;
                 prefix.pop();
             }
@@ -590,14 +605,26 @@ fn collect_reference_return_paths(
             for index in 0..*length {
                 prefix.push(MirProjection::ConstantIndex(index));
                 collect_reference_return_paths(
-                    element, tcx, struct_defs, enum_defs, prefix, output, visiting,
+                    element,
+                    tcx,
+                    struct_defs,
+                    enum_defs,
+                    prefix,
+                    output,
+                    visiting,
                 )?;
                 prefix.pop();
             }
         }
         TypeSpec::Range(element) => {
             collect_reference_return_paths(
-                element, tcx, struct_defs, enum_defs, prefix, output, visiting,
+                element,
+                tcx,
+                struct_defs,
+                enum_defs,
+                prefix,
+                output,
+                visiting,
             )?;
         }
         TypeSpec::Struct(name, args) => {
@@ -605,7 +632,9 @@ fn collect_reference_return_paths(
                 .get(name)
                 .ok_or_else(|| format!("missing struct definition for return type '{name}'"))?;
             if definition.type_params.len() != args.len() {
-                return Err(format!("generic struct return '{name}' has unresolved type arguments"));
+                return Err(format!(
+                    "generic struct return '{name}' has unresolved type arguments"
+                ));
             }
             let key = format!("struct:{name}");
             if !visiting.insert(key.clone()) {
@@ -621,7 +650,13 @@ fn collect_reference_return_paths(
                 let field_ty = substitute_return_type_spec(&field.ty, &substitutions);
                 prefix.push(MirProjection::Field(field.name.clone()));
                 collect_reference_return_paths(
-                    &field_ty, tcx, struct_defs, enum_defs, prefix, output, visiting,
+                    &field_ty,
+                    tcx,
+                    struct_defs,
+                    enum_defs,
+                    prefix,
+                    output,
+                    visiting,
                 )?;
                 prefix.pop();
             }
@@ -777,14 +812,15 @@ fn substitute_return_type_spec(
 ) -> omni_mir::ast::TypeSpec {
     use omni_mir::ast::TypeSpec;
     match ty {
-        TypeSpec::GenericParam(name) => substitutions.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        TypeSpec::GenericParam(name) => {
+            substitutions.get(name).cloned().unwrap_or_else(|| ty.clone())
+        }
         TypeSpec::Tuple(fields) => TypeSpec::Tuple(
             fields.iter().map(|field| substitute_return_type_spec(field, substitutions)).collect(),
         ),
-        TypeSpec::Array(element, length) => TypeSpec::Array(
-            Box::new(substitute_return_type_spec(element, substitutions)),
-            *length,
-        ),
+        TypeSpec::Array(element, length) => {
+            TypeSpec::Array(Box::new(substitute_return_type_spec(element, substitutions)), *length)
+        }
         TypeSpec::Range(element) => {
             TypeSpec::Range(Box::new(substitute_return_type_spec(element, substitutions)))
         }
