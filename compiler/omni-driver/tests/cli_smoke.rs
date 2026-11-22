@@ -50,7 +50,11 @@ fn run_driver(args: &[&std::ffi::OsStr]) -> Output {
 #[test]
 fn test_driver_help_flag() {
     let output = run_driver(&[std::ffi::OsStr::new("--help")]);
-    assert!(output.status.success(), "driver --help failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "driver --help failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let help = String::from_utf8_lossy(&output.stdout);
     for expected in ["Usage:", "--output", "--opt-level", "--run", "--native", "--help"] {
         assert!(help.contains(expected), "driver help is missing {expected:?}: {help}");
@@ -84,10 +88,8 @@ fn test_driver_native_flag() {
 #[test]
 fn test_driver_run_flag() {
     let temp = TempTestDir::new("run");
-    let source = temp.source(
-        "run.omni",
-        "fn main() -> i64 { let answer = 40 + 2; return answer; }",
-    );
+    let source =
+        temp.source("run.omni", "fn main() -> i64 { let answer = 40 + 2; return answer; }");
     let output = Command::new(DRIVER)
         .arg("--run")
         .arg(&source)
@@ -134,10 +136,8 @@ fn test_basic_arithmetic() {
 #[test]
 fn test_variable_declaration() {
     let temp = TempTestDir::new("variable");
-    let source = temp.source(
-        "variable.omni",
-        "fn main() -> i64 { let answer = 40 + 2; return answer; }",
-    );
+    let source =
+        temp.source("variable.omni", "fn main() -> i64 { let answer = 40 + 2; return answer; }");
     let output = Command::new(DRIVER)
         .arg(&source)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
