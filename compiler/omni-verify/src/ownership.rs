@@ -83,7 +83,7 @@ impl FlowState {
 
 pub(crate) fn verify_program(program: &MirProgram) -> Result<(), OwnershipVerificationError> {
     for function in &program.functions {
-        verify_function(function, &program.tcx, &program.struct_defs)?;
+        verify_function(function, &program.tcx, &program.struct_defs, &program.enum_defs)?;
     }
     Ok(())
 }
@@ -92,6 +92,7 @@ fn verify_function(
     function: &MirFunction,
     tcx: &omni_mir::TyCtxt,
     struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+    enum_defs: &std::collections::HashMap<String, omni_mir::ast::EnumDef>,
 ) -> Result<(), OwnershipVerificationError> {
     if function.body.blocks.is_empty() {
         return Ok(());
@@ -172,7 +173,7 @@ fn verify_function(
                 changed = true;
             }
 
-            let new_edges = transfer_block(function, block, entry, &live_after, tcx, struct_defs)?;
+            let new_edges = transfer_block(function, block, entry, &live_after, tcx, struct_defs, enum_defs)?;
             if edge_states[block_index] != new_edges {
                 edge_states[block_index] = new_edges;
                 changed = true;
@@ -193,6 +194,7 @@ fn verify_function(
                 &live_after,
                 tcx,
                 struct_defs,
+                enum_defs,
             )?;
         }
     }
@@ -206,6 +208,7 @@ fn transfer_block(
     live_after: &[Vec<BTreeSet<Local>>],
     tcx: &omni_mir::TyCtxt,
     struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+    enum_defs: &std::collections::HashMap<String, omni_mir::ast::EnumDef>,
 ) -> Result<Vec<(BasicBlock, FlowState)>, OwnershipVerificationError> {
     let data = &function.body.blocks[block];
 
@@ -429,7 +432,7 @@ fn transfer_block(
         }
         Some(Terminator::Return) => {
             if !matches!(function.return_type, omni_mir::ast::TypeSpec::Unit) {
-                verify_reference_return_provenance(function, block, &state, tcx)?;
+                verify_reference_return_provenance(function, block, &state, tcx, struct_defs, enum_defs)?;
                 let return_place = Place::local(function.return_place);
                 transfer_place_access(
                     function,
@@ -455,6 +458,8 @@ fn verify_reference_return_provenance(
     block: BasicBlock,
     state: &FlowState,
     tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+    enum_defs: &std::collections::HashMap<String, omni_mir::ast::EnumDef>,
 ) -> Result<(), OwnershipVerificationError> {
     let declared_reference = match &function.return_type {
         omni_mir::ast::TypeSpec::Reference { .. } => true,
@@ -476,18 +481,26 @@ fn verify_reference_return_provenance(
             message: "reference return declaration and typed MIR return place disagree".into(),
         });
     }
-    if !declared_reference {
-        return Ok(());
-    }
 
-    let regions = state.reference_loans.get(&function.return_place).cloned().unwrap_or_default();
-    if regions.is_empty() {
-        return Err(OwnershipVerificationError {
-            function: function.name.clone(),
-            block,
-            context: "function return".into(),
-            message: "reference return has no tracked loan provenance".into(),
-        });
+    let mut reference_paths = Vec::new();
+    collect_reference_return_paths(
+        &function.return_type,
+        tcx,
+        struct_defs,
+        enum_defs,
+        &mut Vec::new(),
+        &mut reference_paths,
+        &mut BTreeSet::new(),
+    )
+    .map_err(|message| OwnershipVerificationError {
+        function: function.name.clone(),
+        block,
+        context: "function return".into(),
+        message: format!("cannot verify aggregate reference return provenance: {message}"),
+    })?;
+
+    if reference_paths.is_empty() {
+        return Ok(());
     }
 
     let external_origins = function
@@ -496,33 +509,308 @@ fn verify_reference_return_provenance(
         .filter_map(|&param| {
             let ty = function.body.local_decls[param].ty?;
             (tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
-                .then(|| format!("\0external-reference-origin:{}:{}", function.name, param.index()))
+                .then(|| format!("\\0external-reference-origin:{}:{}", function.name, param.index()))
         })
         .collect::<BTreeSet<_>>();
 
-    for region in regions {
-        let loan = state.ownership.loans().find(|loan| loan.region == region).ok_or_else(|| {
-            violation(
-                function,
-                block,
-                "function return",
-                OwnershipError::UnknownLoan(region.clone()),
-            )
-        })?;
-        if !external_origins.contains(&loan.place.root) {
+    for path in reference_paths {
+        let regions = if path.is_empty() {
+            state.reference_loans.get(&function.return_place).cloned().unwrap_or_default()
+        } else {
+            let place = Place { local: function.return_place, projections: path };
+            let key = ownership_place(function, &place);
+            state.reference_slot_loans.get(&key).cloned().unwrap_or_default()
+        };
+        if regions.is_empty() {
             return Err(OwnershipVerificationError {
                 function: function.name.clone(),
                 block,
                 context: "function return".into(),
-                message: format!(
-                    "reference return may escape function-local or untracked storage rooted at '{}'",
-                    loan.place.root
-                ),
+                message: "reference return field has no tracked loan provenance".into(),
             });
+        }
+
+        for region in regions {
+            let loan = state.ownership.loans().find(|loan| loan.region == region).ok_or_else(|| {
+                violation(
+                    function,
+                    block,
+                    "function return",
+                    OwnershipError::UnknownLoan(region.clone()),
+                )
+            })?;
+            if !external_origins.contains(&loan.place.root) {
+                return Err(OwnershipVerificationError {
+                    function: function.name.clone(),
+                    block,
+                    context: "function return".into(),
+                    message: format!(
+                        "reference return may escape function-local or untracked storage rooted at '{}'",
+                        loan.place.root
+                    ),
+                });
+            }
         }
     }
 
     Ok(())
+}
+
+
+/// Collect reference-bearing leaf projections for a function's return type.
+/// Generic/enum layouts that cannot be proven safe fail closed.
+fn collect_reference_return_paths(
+    ty: &omni_mir::ast::TypeSpec,
+    tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+    enum_defs: &std::collections::HashMap<String, omni_mir::ast::EnumDef>,
+    prefix: &mut Vec<Projection>,
+    output: &mut Vec<Vec<Projection>>,
+    visiting: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    use omni_mir::ast::TypeSpec;
+    use omni_mir::ir::Projection as MirProjection;
+
+    match ty {
+        TypeSpec::Reference { .. } => {
+            if !output.contains(prefix) {
+                output.push(prefix.clone());
+            }
+        }
+        TypeSpec::Tuple(fields) => {
+            for (index, field) in fields.iter().enumerate() {
+                prefix.push(MirProjection::ConstantIndex(index));
+                collect_reference_return_paths(
+                    field, tcx, struct_defs, enum_defs, prefix, output, visiting,
+                )?;
+                prefix.pop();
+            }
+        }
+        TypeSpec::Array(element, length) => {
+            for index in 0..*length {
+                prefix.push(MirProjection::ConstantIndex(index));
+                collect_reference_return_paths(
+                    element, tcx, struct_defs, enum_defs, prefix, output, visiting,
+                )?;
+                prefix.pop();
+            }
+        }
+        TypeSpec::Range(element) => {
+            collect_reference_return_paths(
+                element, tcx, struct_defs, enum_defs, prefix, output, visiting,
+            )?;
+        }
+        TypeSpec::Struct(name, args) => {
+            let definition = struct_defs
+                .get(name)
+                .ok_or_else(|| format!("missing struct definition for return type '{name}'"))?;
+            if definition.type_params.len() != args.len() {
+                return Err(format!("generic struct return '{name}' has unresolved type arguments"));
+            }
+            let key = format!("struct:{name}");
+            if !visiting.insert(key.clone()) {
+                return Err(format!("recursive aggregate return type '{name}' is unsupported"));
+            }
+            let substitutions = definition
+                .type_params
+                .iter()
+                .cloned()
+                .zip(args.iter().cloned())
+                .collect::<std::collections::HashMap<_, _>>();
+            for field in &definition.fields {
+                let field_ty = substitute_return_type_spec(&field.ty, &substitutions);
+                prefix.push(MirProjection::Field(field.name.clone()));
+                collect_reference_return_paths(
+                    &field_ty, tcx, struct_defs, enum_defs, prefix, output, visiting,
+                )?;
+                prefix.pop();
+            }
+            visiting.remove(&key);
+        }
+        TypeSpec::Enum(name, args) => {
+            let definition = enum_defs
+                .get(name)
+                .ok_or_else(|| format!("missing enum definition for return type '{name}'"))?;
+            if definition.type_params.len() != args.len() {
+                return Err(format!("generic enum return '{name}' has unresolved type arguments"));
+            }
+            let key = format!("enum:{name}");
+            if !visiting.insert(key.clone()) {
+                return Err(format!("recursive enum return type '{name}' is unsupported"));
+            }
+            let substitutions = definition
+                .type_params
+                .iter()
+                .cloned()
+                .zip(args.iter().cloned())
+                .collect::<std::collections::HashMap<_, _>>();
+            let mut has_reference_payload = false;
+            for variant in &definition.variants {
+                for (index, payload) in variant.payload.iter().enumerate() {
+                    let payload_ty = substitute_return_type_spec(payload, &substitutions);
+                    let mut variant_paths = Vec::new();
+                    prefix.push(MirProjection::ConstantIndex(index));
+                    collect_reference_return_paths(
+                        &payload_ty,
+                        tcx,
+                        struct_defs,
+                        enum_defs,
+                        prefix,
+                        &mut variant_paths,
+                        visiting,
+                    )?;
+                    prefix.pop();
+                    has_reference_payload |= !variant_paths.is_empty();
+                }
+            }
+            visiting.remove(&key);
+            if has_reference_payload {
+                return Err(format!(
+                    "enum '{name}' has reference payloads but active-variant provenance is not represented"
+                ));
+            }
+        }
+        TypeSpec::Known(handle) => {
+            if !tcx.contains(*handle) {
+                return Err("invalid interned return type handle".into());
+            }
+            match tcx.get(*handle) {
+                omni_mir::TyKind::Reference { .. } => {
+                    if !output.contains(prefix) {
+                        output.push(prefix.clone());
+                    }
+                }
+                omni_mir::TyKind::Tuple(fields) => {
+                    for (index, field) in fields.iter().enumerate() {
+                        prefix.push(MirProjection::ConstantIndex(index));
+                        collect_reference_return_paths(
+                            &TypeSpec::Known(*field),
+                            tcx,
+                            struct_defs,
+                            enum_defs,
+                            prefix,
+                            output,
+                            visiting,
+                        )?;
+                        prefix.pop();
+                    }
+                }
+                omni_mir::TyKind::Array(element, length) => {
+                    for index in 0..*length {
+                        prefix.push(MirProjection::ConstantIndex(index));
+                        collect_reference_return_paths(
+                            &TypeSpec::Known(*element),
+                            tcx,
+                            struct_defs,
+                            enum_defs,
+                            prefix,
+                            output,
+                            visiting,
+                        )?;
+                        prefix.pop();
+                    }
+                }
+                omni_mir::TyKind::Range(element) => {
+                    collect_reference_return_paths(
+                        &TypeSpec::Known(*element),
+                        tcx,
+                        struct_defs,
+                        enum_defs,
+                        prefix,
+                        output,
+                        visiting,
+                    )?;
+                }
+                omni_mir::TyKind::Struct(name, args) => {
+                    let args = args.iter().map(|ty| TypeSpec::Known(*ty)).collect();
+                    collect_reference_return_paths(
+                        &TypeSpec::Struct(name.clone(), args),
+                        tcx,
+                        struct_defs,
+                        enum_defs,
+                        prefix,
+                        output,
+                        visiting,
+                    )?;
+                }
+                omni_mir::TyKind::Enum(name, args) => {
+                    let args = args.iter().map(|ty| TypeSpec::Known(*ty)).collect();
+                    collect_reference_return_paths(
+                        &TypeSpec::Enum(name.clone(), args),
+                        tcx,
+                        struct_defs,
+                        enum_defs,
+                        prefix,
+                        output,
+                        visiting,
+                    )?;
+                }
+                omni_mir::TyKind::GenericParam(name) => {
+                    return Err(format!("unresolved generic return type '{name}'"));
+                }
+                omni_mir::TyKind::Infer(id) => {
+                    return Err(format!("unresolved inferred return type variable {id}"));
+                }
+                _ => {}
+            }
+        }
+        TypeSpec::GenericParam(name) => {
+            return Err(format!("unresolved generic return type '{name}'"));
+        }
+        TypeSpec::Int
+        | TypeSpec::Float
+        | TypeSpec::Bool
+        | TypeSpec::Char
+        | TypeSpec::Byte
+        | TypeSpec::String
+        | TypeSpec::Unit
+        | TypeSpec::Fn(_, _)
+        | TypeSpec::TraitObject { .. }
+        | TypeSpec::Never => {}
+    }
+    Ok(())
+}
+
+fn substitute_return_type_spec(
+    ty: &omni_mir::ast::TypeSpec,
+    substitutions: &std::collections::HashMap<String, omni_mir::ast::TypeSpec>,
+) -> omni_mir::ast::TypeSpec {
+    use omni_mir::ast::TypeSpec;
+    match ty {
+        TypeSpec::GenericParam(name) => substitutions.get(name).cloned().unwrap_or_else(|| ty.clone()),
+        TypeSpec::Tuple(fields) => TypeSpec::Tuple(
+            fields.iter().map(|field| substitute_return_type_spec(field, substitutions)).collect(),
+        ),
+        TypeSpec::Array(element, length) => TypeSpec::Array(
+            Box::new(substitute_return_type_spec(element, substitutions)),
+            *length,
+        ),
+        TypeSpec::Range(element) => {
+            TypeSpec::Range(Box::new(substitute_return_type_spec(element, substitutions)))
+        }
+        TypeSpec::Reference { lifetime, mutable, inner } => TypeSpec::Reference {
+            lifetime: lifetime.clone(),
+            mutable: *mutable,
+            inner: Box::new(substitute_return_type_spec(inner, substitutions)),
+        },
+        TypeSpec::Fn(params, result) => TypeSpec::Fn(
+            params.iter().map(|param| substitute_return_type_spec(param, substitutions)).collect(),
+            Box::new(substitute_return_type_spec(result, substitutions)),
+        ),
+        TypeSpec::Struct(name, args) => TypeSpec::Struct(
+            name.clone(),
+            args.iter().map(|arg| substitute_return_type_spec(arg, substitutions)).collect(),
+        ),
+        TypeSpec::Enum(name, args) => TypeSpec::Enum(
+            name.clone(),
+            args.iter().map(|arg| substitute_return_type_spec(arg, substitutions)).collect(),
+        ),
+        TypeSpec::TraitObject { trait_name, args } => TypeSpec::TraitObject {
+            trait_name: trait_name.clone(),
+            args: args.iter().map(|arg| substitute_return_type_spec(arg, substitutions)).collect(),
+        },
+        _ => ty.clone(),
+    }
 }
 
 /// Fail closed when a reference local crosses a storage boundary for which
