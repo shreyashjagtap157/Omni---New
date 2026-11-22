@@ -6,7 +6,6 @@
 //! minimal stdout, exit, and abort primitives. A later target ABI may replace
 //! the handle representation without changing the higher-level Runtime API.
 
-
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{self, Write};
