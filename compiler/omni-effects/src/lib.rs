@@ -102,6 +102,27 @@ pub enum EffectRow {
     Open(BTreeSet<Effect>, String),
 }
 
+/// Failure to combine effect rows while preserving the single-tail row invariant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EffectRowError {
+    /// The rows contain distinct unresolved variables. A single-tail row cannot
+    /// represent their union without solving an explicit row-unification constraint.
+    IncompatibleTails { left: String, right: String },
+}
+
+impl std::fmt::Display for EffectRowError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IncompatibleTails { left, right } => write!(
+                f,
+                "cannot union unresolved effect-row tails `{left}` and `{right}` without row unification"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for EffectRowError {}
+
 impl Default for EffectRow {
     fn default() -> Self {
         Self::pure()
@@ -148,35 +169,38 @@ impl EffectRow {
     /// when `ε1` is a subset of `ε2` after constraint solving.
     pub fn satisfies(&self, required: &EffectRow) -> bool {
         match (self, required) {
-            (EffectRow::Closed(provided), EffectRow::Closed(req)) => {
-                req.iter().all(|e| provided.contains(e))
+            (EffectRow::Closed(provided), EffectRow::Closed(allowed)) => {
+                provided.is_subset(allowed)
             }
-            (EffectRow::Open(provided, _), EffectRow::Closed(req)) => {
-                req.iter().all(|e| provided.contains(e))
+            (EffectRow::Open(provided, provided_tail), EffectRow::Open(allowed, allowed_tail))
+                if provided_tail == allowed_tail =>
+            {
+                provided.is_subset(allowed)
             }
-            (EffectRow::Closed(_), EffectRow::Open(_, _)) => {
-                // Closed cannot satisfy an open polymorphic requirement
-                // without instantiation of the tail variable.
-                false
-            }
-            (EffectRow::Open(p1, _), EffectRow::Open(p2, _)) => p2.iter().all(|e| p1.contains(e)),
+            // An unresolved or unrelated tail cannot be treated as a proven subset.
+            _ => false,
         }
     }
 
-    /// Computes the union of this effect row with another.
-    /// Used during compositional effect inference.
-    pub fn union(&self, other: &EffectRow) -> EffectRow {
+    /// Computes the union of this effect row with another without discarding
+    /// unresolved row-variable provenance.
+    pub fn union(&self, other: &EffectRow) -> Result<EffectRow, EffectRowError> {
         match (self, other) {
             (EffectRow::Closed(a), EffectRow::Closed(b)) => {
-                EffectRow::Closed(a.union(b).cloned().collect())
+                Ok(EffectRow::Closed(a.union(b).cloned().collect()))
             }
             (EffectRow::Open(a, tail), EffectRow::Closed(b))
             | (EffectRow::Closed(b), EffectRow::Open(a, tail)) => {
-                EffectRow::Open(a.union(b).cloned().collect(), tail.clone())
+                Ok(EffectRow::Open(a.union(b).cloned().collect(), tail.clone()))
             }
-            (EffectRow::Open(a, t1), EffectRow::Open(b, _t2)) => {
-                // Merge concrete effects, keep first tail variable
-                EffectRow::Open(a.union(b).cloned().collect(), t1.clone())
+            (EffectRow::Open(a, left), EffectRow::Open(b, right)) if left == right => {
+                Ok(EffectRow::Open(a.union(b).cloned().collect(), left.clone()))
+            }
+            (EffectRow::Open(_, left), EffectRow::Open(_, right)) => {
+                Err(EffectRowError::IncompatibleTails {
+                    left: left.clone(),
+                    right: right.clone(),
+                })
             }
         }
     }
@@ -400,7 +424,15 @@ pub fn check_effect_obligations(
     cap_context: &CapabilityContext,
     fn_name: &str,
 ) -> Result<(), EffectError> {
-    // 1. Check that body effects ⊆ declared effects (EFF-0003)
+    // Unresolved tails cannot cross the MIR boundary without row unification.
+    if let Some(var) = body_effects.tail_var().or_else(|| declared_effects.tail_var()) {
+        return Err(EffectError::UnresolvedEffectVariable {
+            variable: var.to_string(),
+            function: fn_name.to_string(),
+        });
+    }
+
+    // EFF-0003: every body effect must be included in the declared upper bound.
     for effect in body_effects.effects() {
         if !declared_effects.contains(effect) {
             return Err(EffectError::UnhandledEffect {
@@ -409,14 +441,6 @@ pub fn check_effect_obligations(
                 declared_effects: declared_effects.display(),
             });
         }
-    }
-
-    // 2. Check unresolved effect row variables (must be resolved before MIR)
-    if let Some(var) = body_effects.tail_var() {
-        return Err(EffectError::UnresolvedEffectVariable {
-            variable: var.to_string(),
-            function: fn_name.to_string(),
-        });
     }
 
     // 3. Check that all required capabilities are present
@@ -436,16 +460,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_effect_row_solving() {
-        let provided = EffectRow::closed(vec![Effect::IO, Effect::State]);
-        let required = EffectRow::closed(vec![Effect::IO]);
+    fn test_effect_row_solving_uses_subset_direction() {
+        let provided = EffectRow::closed(vec![Effect::IO]);
+        let required = EffectRow::closed(vec![Effect::IO, Effect::State]);
         assert!(provided.satisfies(&required));
 
+        let over_effectful = EffectRow::closed(vec![Effect::IO, Effect::State]);
+        let narrower_bound = EffectRow::closed(vec![Effect::IO]);
+        assert!(!over_effectful.satisfies(&narrower_bound));
+
         let unprovided = EffectRow::closed(vec![Effect::State]);
-        assert!(!unprovided.satisfies(&required));
+        assert!(!unprovided.satisfies(&narrower_bound));
 
         let open_provided = EffectRow::open(vec![Effect::IO], "rho");
-        assert!(open_provided.satisfies(&required));
+        assert!(!open_provided.satisfies(&narrower_bound));
+    }
+
+    #[test]
+    fn open_effect_rows_compare_only_after_sharing_the_same_tail() {
+        let provided = EffectRow::open(vec![Effect::IO], "E");
+        let allowed = EffectRow::open(vec![Effect::IO, Effect::State], "E");
+        assert!(provided.satisfies(&allowed));
+
+        let too_effectful = EffectRow::open(vec![Effect::IO, Effect::State], "E");
+        let narrow = EffectRow::open(vec![Effect::IO], "E");
+        assert!(!too_effectful.satisfies(&narrow));
+
+        let unrelated = EffectRow::open(vec![Effect::IO], "F");
+        assert!(!provided.satisfies(&unrelated));
     }
 
     #[test]
@@ -462,10 +504,27 @@ mod tests {
     fn test_effect_row_union() {
         let a = EffectRow::closed(vec![Effect::IO]);
         let b = EffectRow::closed(vec![Effect::State]);
-        let combined = a.union(&b);
+        let combined = a.union(&b).expect("closed effect rows always have a representable union");
         assert!(combined.contains(&Effect::IO));
         assert!(combined.contains(&Effect::State));
         assert!(!combined.contains(&Effect::Panic));
+    }
+
+    #[test]
+    fn effect_row_union_preserves_a_shared_tail_and_rejects_distinct_tails() {
+        let left = EffectRow::open(vec![Effect::IO], "E");
+        let right = EffectRow::open(vec![Effect::State], "E");
+        let combined = left.union(&right).expect("shared row tails can be combined");
+        assert!(combined.contains(&Effect::IO));
+        assert!(combined.contains(&Effect::State));
+        assert_eq!(combined.tail_var(), Some("E"));
+
+        let unrelated = EffectRow::open(vec![Effect::Panic], "F");
+        assert!(matches!(
+            left.union(&unrelated),
+            Err(EffectRowError::IncompatibleTails { left, right })
+                if left == "E" && right == "F"
+        ));
     }
 
     #[test]
@@ -579,6 +638,24 @@ mod tests {
             }
             other => panic!("Expected UnresolvedEffectVariable, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_check_effect_obligations_rejects_unresolved_declared_row() {
+        let body = EffectRow::pure();
+        let declared = EffectRow::open(vec![], "Declared");
+        let result = check_effect_obligations(
+            &body,
+            &declared,
+            &[],
+            &CapabilityContext::new(),
+            "generic_fn",
+        );
+        assert!(matches!(
+            result,
+            Err(EffectError::UnresolvedEffectVariable { variable, .. })
+                if variable == "Declared"
+        ));
     }
 
     #[test]

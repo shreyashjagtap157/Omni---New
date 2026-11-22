@@ -1339,11 +1339,11 @@ impl TypeChecker {
                 let mut effects = EffectRow::pure();
                 for arg in args {
                     let arg_eff = self.infer_expr_effects(arg, env, local_vars)?;
-                    effects = effects.union(&arg_eff);
+                    effects = union_effect_rows(&effects, &arg_eff)?;
                 }
                 let (_, _, _, callee_effects) =
                     self.infer_call(func, generic_args, args, env, local_vars)?;
-                Ok(effects.union(&callee_effects))
+                union_effect_rows(&effects, &callee_effects)
             }
             Expr::MethodCall { receiver, method, generic_args, args } => {
                 // A method call's effects are its receiver's plus its arguments'
@@ -1353,11 +1353,11 @@ impl TypeChecker {
                 let receiver_eff = self.infer_expr_effects(receiver, env, local_vars)?;
                 let mut effects = receiver_eff;
                 for arg in args {
-                    effects = effects.union(&self.infer_expr_effects(arg, env, local_vars)?);
+                    effects = union_effect_rows(&effects, &self.infer_expr_effects(arg, env, local_vars)?)?;
                 }
                 let (_, _, _, callee_effects) =
                     self.infer_method_call(receiver, method, generic_args, args, env, local_vars)?;
-                Ok(effects.union(&callee_effects))
+                union_effect_rows(&effects, &callee_effects)
             }
             Expr::Let { pattern, init, body, .. } => {
                 let init_eff = self.infer_expr_effects(init, env, local_vars)?;
@@ -1365,12 +1365,12 @@ impl TypeChecker {
                 let mut body_locals = local_vars.clone();
                 self.bind_pattern(pattern, init_ty, &mut body_locals)?;
                 let body_eff = self.infer_expr_effects(body, env, &body_locals)?;
-                Ok(init_eff.union(&body_eff))
+                union_effect_rows(&init_eff, &body_eff)
             }
             Expr::Binary { lhs, rhs, .. } => {
                 let l_eff = self.infer_expr_effects(lhs, env, local_vars)?;
                 let r_eff = self.infer_expr_effects(rhs, env, local_vars)?;
-                Ok(l_eff.union(&r_eff))
+                union_effect_rows(&l_eff, &r_eff)
             }
             Expr::Unary { expr, .. } | Expr::Field { expr, .. } => {
                 self.infer_expr_effects(expr, env, local_vars)
@@ -1378,33 +1378,33 @@ impl TypeChecker {
             Expr::EnumVariant { args, .. } => {
                 let mut eff = EffectRow::pure();
                 for arg in args {
-                    eff = eff.union(&self.infer_expr_effects(arg, env, local_vars)?);
+                    eff = union_effect_rows(&eff, &self.infer_expr_effects(arg, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
             Expr::Struct { fields, .. } => {
                 let mut eff = EffectRow::pure();
                 for (_, value) in fields {
-                    eff = eff.union(&self.infer_expr_effects(value, env, local_vars)?);
+                    eff = union_effect_rows(&eff, &self.infer_expr_effects(value, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
             Expr::Index { expr, index } => {
                 let e_eff = self.infer_expr_effects(expr, env, local_vars)?;
                 let i_eff = self.infer_expr_effects(index, env, local_vars)?;
-                Ok(e_eff.union(&i_eff))
+                union_effect_rows(&e_eff, &i_eff)
             }
             Expr::Tuple(elems) | Expr::Array(elems) => {
                 let mut eff = EffectRow::pure();
                 for elem in elems {
-                    eff = eff.union(&self.infer_expr_effects(elem, env, local_vars)?);
+                    eff = union_effect_rows(&eff, &self.infer_expr_effects(elem, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
             Expr::Range { start, end, .. } => {
                 let s_eff = self.infer_expr_effects(start, env, local_vars)?;
                 let e_eff = self.infer_expr_effects(end, env, local_vars)?;
-                Ok(s_eff.union(&e_eff))
+                union_effect_rows(&s_eff, &e_eff)
             }
             Expr::For { pattern, iterable, body, .. } => {
                 let mut eff = self.infer_expr_effects(iterable, env, local_vars)?;
@@ -1420,13 +1420,13 @@ impl TypeChecker {
                 };
                 let mut body_locals = local_vars.clone();
                 self.bind_pattern(pattern, element_ty, &mut body_locals)?;
-                eff = eff.union(&self.infer_expr_effects(body, env, &body_locals)?);
+                eff = union_effect_rows(&eff, &self.infer_expr_effects(body, env, &body_locals)?)?;
                 Ok(eff)
             }
             Expr::Loop { body, .. } => self.infer_expr_effects(body, env, local_vars),
             Expr::While { condition, body, .. } => {
                 let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
-                eff = eff.union(&self.infer_expr_effects(body, env, local_vars)?);
+                eff = union_effect_rows(&eff, &self.infer_expr_effects(body, env, local_vars)?)?;
                 Ok(eff)
             }
             Expr::Break { value, .. } => value
@@ -1437,9 +1437,9 @@ impl TypeChecker {
             Expr::Continue { .. } => Ok(EffectRow::pure()),
             Expr::If { condition, then_branch, else_branch } => {
                 let mut eff = self.infer_expr_effects(condition, env, local_vars)?;
-                eff = eff.union(&self.infer_expr_effects(then_branch, env, local_vars)?);
+                eff = union_effect_rows(&eff, &self.infer_expr_effects(then_branch, env, local_vars)?)?;
                 if let Some(e) = else_branch {
-                    eff = eff.union(&self.infer_expr_effects(e, env, local_vars)?);
+                    eff = union_effect_rows(&eff, &self.infer_expr_effects(e, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
@@ -1451,9 +1451,9 @@ impl TypeChecker {
                     let mut arm_locals = local_vars.clone();
                     self.bind_pattern(&arm.pattern, scrutinee_ty, &mut arm_locals)?;
                     if let Some(g) = &arm.guard {
-                        eff = eff.union(&self.infer_expr_effects(g, env, &arm_locals)?);
+                        eff = union_effect_rows(&eff, &self.infer_expr_effects(g, env, &arm_locals)?)?;
                     }
-                    eff = eff.union(&self.infer_expr_effects(&arm.body, env, &arm_locals)?);
+                    eff = union_effect_rows(&eff, &self.infer_expr_effects(&arm.body, env, &arm_locals)?)?;
                 }
                 Ok(eff)
             }
@@ -1468,24 +1468,24 @@ impl TypeChecker {
             Expr::Interpolation(parts) => {
                 let mut eff = EffectRow::pure();
                 for p in parts {
-                    eff = eff.union(&self.infer_expr_effects(p, env, local_vars)?);
+                    eff = union_effect_rows(&eff, &self.infer_expr_effects(p, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
             Expr::Assign { target, value } => {
                 let t_eff = self.infer_expr_effects(target, env, local_vars)?;
                 let v_eff = self.infer_expr_effects(value, env, local_vars)?;
-                Ok(t_eff.union(&v_eff))
+                union_effect_rows(&t_eff, &v_eff)
             }
             Expr::CompoundAssign { target, value, .. } => {
                 let t_eff = self.infer_expr_effects(target, env, local_vars)?;
                 let v_eff = self.infer_expr_effects(value, env, local_vars)?;
-                Ok(t_eff.union(&v_eff))
+                union_effect_rows(&t_eff, &v_eff)
             }
             Expr::Block(stmts) => {
                 let mut eff = EffectRow::pure();
                 for stmt in stmts {
-                    eff = eff.union(&self.infer_expr_effects(stmt, env, local_vars)?);
+                    eff = union_effect_rows(&eff, &self.infer_expr_effects(stmt, env, local_vars)?)?;
                 }
                 Ok(eff)
             }
@@ -1526,4 +1526,11 @@ impl TypeChecker {
 
         Ok(body_effects)
     }
+}
+
+
+/// Combine inferred effect rows without losing incompatible unresolved tails.
+fn union_effect_rows(left: &EffectRow, right: &EffectRow) -> Result<EffectRow, TypeError> {
+    left.union(right)
+        .map_err(|error| TypeError::EffectViolation(error.to_string()))
 }
