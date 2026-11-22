@@ -323,7 +323,6 @@ fn transfer_block(
                     state.reference_loans.insert(destination.local, loans);
                 }
                 assign_place(function, block, &context, destination, &mut state)?;
-
             }
             Statement::Drop(place) => {
                 // Drop a reference place - end any loans tracked for this place.
