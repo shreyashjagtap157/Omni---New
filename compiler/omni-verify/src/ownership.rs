@@ -18,7 +18,6 @@ pub(crate) struct OwnershipVerificationError {
     pub(crate) message: String,
 }
 
-
 /// Shared source context for reference-provenance transfers during MIR ownership analysis.
 struct ReferenceProvenanceContext<'a> {
     function: &'a MirFunction,
