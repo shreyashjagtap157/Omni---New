@@ -3298,7 +3298,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn struct_constructor_tracks_local_reference_before_move() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
@@ -3369,6 +3368,7 @@ mod tests {
             .expect("aggregate construction must retain a moved reference's loan provenance");
     }
 
+    #[test]
     fn struct_constructor_rejects_untracked_projected_reference_field() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
@@ -3767,7 +3767,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn returning_tuple_with_external_reference_parameter_preserves_provenance() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
@@ -3806,6 +3805,7 @@ mod tests {
             .expect("an aggregate may return a reference whose origin is an external parameter");
     }
 
+    #[test]
     fn returning_tuple_rejects_local_reference_escape() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
