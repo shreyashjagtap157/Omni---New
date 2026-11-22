@@ -3,6 +3,9 @@ name = "omni-pkg"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 omni-types = { path = "../omni-types" }
 omni-hir = { path = "../omni-hir" }

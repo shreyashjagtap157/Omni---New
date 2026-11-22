@@ -2,9 +2,9 @@
 
 **Repository:** C:\Users\siddh\Downloads\ABC\Omni---New  
 **Branch:** main  
-**HEAD:** 27c5565  
-**Generated:** 2026-11-20  
-**Source:** Live `Cargo.toml` manifests across 25 workspace members
+**Source baseline:** remote `main` at `0aa69a9` (2026-11-21)  
+**Updated:** 2026-11-22  
+**Source:** Cargo workspace manifests; 30 members after restoring `omni-std` as a member
 
 ---
 
@@ -18,7 +18,7 @@ or release gate.
 
 ---
 
-## Workspace Membership (25 crates)
+## Workspace Membership (30 crates)
 
 | Tier | Crate | Path | Role | Cargo.toml deps |
 |------|-------|------|------|-----------------|
@@ -225,17 +225,22 @@ bootstrap infrastructure. `tools/*` may use tools/externals but never
 | machine/codegen (10) | omni-machine, omni-codegen | May depend on same or earlier tier |
 | runtime (11) | omni-runtime | May depend on same or earlier tier |
 | driver (12) | omni-driver | May invoke any tier |
-| tooling | omni-pkg, omni-build, omni-ls, omni-stage0, omni-fmt, omni-bindgen | Tooling tier |
+| integration (12) | omni-pkg, omni-build, omni-ls, omni-fmt | Post-pipeline tools; consume lower compiler tiers only |
+| compiler infrastructure | omni-stage0 | Bootstrap predicates; no production dependency edges |
+| specification tooling | omni-canon, omni-registry, omni-evidence, omni-conform, omni-audit, omni-topology, omni-bindgen | Leaf-ward specification/repository tools |
 | spec-infra | omni-canon, omni-registry, omni-evidence, omni-conform, omni-audit, omni-topology | Leaf-ward; may never depend outward on compiler/* |
 
 ---
 
 ## Boundaries
 
-- **Tools → Compiler:** `tools/*` may NOT depend on `compiler/*`. The only
-  exception is `omni-driver` (compiler tier) which may depend on
-  `tools/omni-evidence` and `tools/omni-registry` (provenance edges only,
-  leaf-ward).
+- **Specification tools → Compiler:** `omni-canon`, `omni-registry`, `omni-evidence`,
+  `omni-conform`, `omni-audit`, `omni-topology` and `omni-bindgen` must not
+  depend on compiler crates. The compiler-facing formatter `omni-fmt` is an
+  explicit post-pipeline integration (tier 12) because it consumes `omni-parse`
+  and `omni-syntax`; it must not be treated as specification infrastructure.
+- **Driver/integrations:** `omni-driver`, `omni-pkg`, `omni-build`, `omni-ls` and
+  `omni-fmt` may consume lower compiler tiers but no lower tier may depend on them.
 - **Compiler → Tools:** `compiler/*` may NOT depend on `tools/*` except
   `omni-driver → omni-evidence` and `omni-driver → omni-registry` (provenance).
 - **Driver:** Orchestrates all compiler tiers but lower tiers never depend back
@@ -245,9 +250,10 @@ bootstrap infrastructure. `tools/*` may use tools/externals but never
 
 ---
 
-## Audit Evidence
+## Validation Evidence
 
-- All 25 Cargo.toml manifests read and verified against live filesystem
-- `cargo build --workspace --locked`: EXIT=0
-- `cargo clippy --workspace --all-targets --locked -- -D warnings`: EXIT=0
-- `cargo test --workspace --locked`: EXIT=0 (all tests pass)
+This document is an architecture map, not a qualification record. Build, lint, test,
+conformance and native-execution evidence must be tied to the exact Git commit and
+GitHub Actions run that produced it. The earlier 25-member workspace report is
+superseded by the 30-member manifest after restoring `omni-std`; consult the current
+workflow results rather than treating historical exit codes as evidence for later commits.

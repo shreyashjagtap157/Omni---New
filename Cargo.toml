@@ -17,6 +17,7 @@ members = [
     "compiler/omni-machine",
     "compiler/omni-codegen",
     "compiler/omni-runtime",
+    "compiler/omni-std",
     "compiler/omni-driver",
     "compiler/omni-stage0",
     "compiler/omni-pkg",
@@ -33,7 +34,7 @@ members = [
 ]
 
 [workspace.lints.rust]
-unsafe_code = "deny"
+unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = "deny"

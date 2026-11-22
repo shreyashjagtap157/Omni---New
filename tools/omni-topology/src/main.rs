@@ -37,7 +37,10 @@ fn tier(crate_name: &str) -> Option<u8> {
         "omni-mir" => 8,
         "omni-verify" => 9,
         "omni-machine" | "omni-codegen" => 10,
-        "omni-runtime" => 11,
+        "omni-runtime" | "omni-std" => 11,
+        // Package/build/IDE/formatting integrations consume compiler products;
+        // place them after code generation so core tiers cannot depend upward.
+        "omni-pkg" | "omni-build" | "omni-ls" | "omni-fmt" => 12,
         _ => return None,
     })
 }
@@ -415,6 +418,37 @@ mod topology_tests {
             edge("omni-audit", "omni-canon"),
         ];
         (members, edges)
+    }
+
+    #[test]
+    fn restored_toolchain_integrations_are_classified_and_tiered() {
+        let members = members(&[
+            "omni-runtime",
+            "omni-std",
+            "omni-pkg",
+            "omni-build",
+            "omni-ls",
+            "omni-fmt",
+            "omni-hir",
+            "omni-mir",
+            "omni-verify",
+            "omni-codegen",
+            "omni-parse",
+            "omni-driver",
+        ]);
+        let edges = vec![
+            edge("omni-std", "omni-runtime"),
+            edge("omni-pkg", "omni-hir"),
+            edge("omni-build", "omni-codegen"),
+            edge("omni-ls", "omni-verify"),
+            edge("omni-fmt", "omni-parse"),
+        ];
+        check_graph(&members, &edges)
+            .expect("restored toolchain crates must be classified with valid lower-tier feeds");
+
+        let upward = check_graph(&members, &[edge("omni-types", "omni-build")])
+            .expect_err("core compiler tiers must not depend on post-pipeline tooling");
+        assert!(upward.contains("upward edge"), "got: {upward}");
     }
 
     #[test]

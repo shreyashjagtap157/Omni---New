@@ -575,6 +575,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "omni-std"
+version = "0.2.7"
+dependencies = [
+ "omni-runtime",
+]
+
+[[package]]
 name = "omni-syntax"
 version = "0.2.7"
 dependencies = [

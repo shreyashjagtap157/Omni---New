@@ -20,7 +20,7 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
     let mut input_file = None;
     let mut output_file = None;
     let mut opt_level = 0;
-    let mut emit_native = false;
+    let mut selected_mode: Option<bool> = None;
 
     let mut iter = args.iter().skip(1);
     while let Some(arg) = iter.next() {
@@ -34,7 +34,8 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
                 println!("Options:");
                 println!("  -o, --output <FILE>   Set output artifact path");
                 println!("  -O, --opt-level <NUM> Set optimization level (0-3)");
-                println!("      --native          Emit native object / executable");
+                println!("      --run              Execute with the reference machine (default)");
+                println!("      --native           Emit a native object file");
                 println!("  -h, --help            Show this help message");
                 std::process::exit(0);
             }
@@ -53,8 +54,12 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
                     return Err("Missing value for optimization level".into());
                 }
             }
-            "--native" => {
-                emit_native = true;
+            "--native" | "--run" => {
+                let requested_native = arg == "--native";
+                if selected_mode.is_some_and(|previous| previous != requested_native) {
+                    return Err("--run and --native are mutually exclusive".into());
+                }
+                selected_mode = Some(requested_native);
             }
             _ if !arg.starts_with('-') => {
                 input_file = Some(PathBuf::from(arg));
@@ -65,7 +70,7 @@ pub fn parse_args(args: &[String]) -> Result<Args, String> {
         }
     }
 
-    Ok(Args { input_file, output_file, opt_level, emit_native })
+    Ok(Args { input_file, output_file, opt_level, emit_native: selected_mode.unwrap_or(false) })
 }
 
 /// Apply the Stage-0 feature profile to a successfully parsed program.
@@ -2505,6 +2510,34 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.contains("Invalid optimization level"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn run_and_native_modes_are_explicit_and_mutually_exclusive() {
+        let run = vec![
+            "omni-driver".to_string(),
+            "--run".to_string(),
+            "program.omni".to_string(),
+        ];
+        assert!(!parse_args(&run).expect("--run must select reference execution").emit_native);
+
+        let native = vec![
+            "omni-driver".to_string(),
+            "--native".to_string(),
+            "program.omni".to_string(),
+        ];
+        assert!(parse_args(&native).expect("--native must select object emission").emit_native);
+
+        let conflicting = vec![
+            "omni-driver".to_string(),
+            "--run".to_string(),
+            "--native".to_string(),
+            "program.omni".to_string(),
+        ];
+        assert!(
+            parse_args(&conflicting).expect_err("conflicting execution modes must fail")
+                .contains("mutually exclusive")
+        );
     }
 
     #[test]
