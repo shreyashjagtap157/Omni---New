@@ -294,6 +294,12 @@ fn transfer_block(
                             }
                         }
                     } else {
+                        track_projected_reference_provenance(
+                            function, block, &context, destination, rvalue, tcx, struct_defs, &mut state,
+                        )?;
+                        track_aggregate_reference_provenance(
+                            function, block, &context, destination, rvalue, tcx, struct_defs, &mut state,
+                        )?;
                         transfer_rvalue(function, block, &context, rvalue, &mut state)?;
                     }
                     None
@@ -304,51 +310,6 @@ fn transfer_block(
                 }
                 assign_place(function, block, &context, destination, &mut state)?;
 
-                // Track reference provenance for references stored in projected places.
-                // When a reference local is copied/moved into a projected destination,
-                // record its loans in reference_slot_loans keyed by the projected place
-                // so that later dereferences through that slot can resolve their origin.
-                if !destination.projections.is_empty() {
-                    if let Rvalue::Use(Operand::Copy(source_place) | Operand::Move(source_place)) =
-                        rvalue
-                    {
-                        let source_ty = function.body.local_decls[source_place.local].ty;
-                        let is_reference = source_ty.is_some_and(|ty| {
-                            tcx.contains(ty)
-                                && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })
-                        });
-                        if is_reference {
-                            let regions = state
-                                .reference_loans
-                                .get(&source_place.local)
-                                .cloned()
-                                .unwrap_or_default();
-                            if !regions.is_empty() {
-                                let ownership_place = ownership_place(function, destination);
-                                state
-                                    .reference_slot_loans
-                                    .entry(ownership_place)
-                                    .or_default()
-                                    .extend(regions);
-                            }
-                        }
-                    }
-                }
-
-                // Track reference provenance for references stored inside aggregate
-                // fields (e.g., `holder = Holder { slot: r1 }` where `slot` is a
-                // reference field). Provenance is recorded per-field in
-                // reference_slot_loans keyed by the projected place
-                // `destination.field_name`.
-                track_aggregate_reference_provenance(
-                    function,
-                    block,
-                    &context,
-                    destination,
-                    rvalue,
-                    tcx,
-                    &mut state,
-                )?;
             }
             Statement::Drop(place) => {
                 // Drop a reference place - end any loans tracked for this place.
@@ -558,7 +519,7 @@ fn verify_reference_return_provenance(
 /// References stored in projected places (e.g. struct fields) are tracked
 /// separately in `FlowState.reference_slot_loans`, keyed by the projected
 /// place that holds the reference. This function validates the type-level
-/// boundary; provenance recording happens in [`transfer_block`] after assignment.
+/// boundary; provenance is recorded before operand transfer in [`transfer_block`].
 fn verify_reference_storage_boundary(
     function: &MirFunction,
     block: BasicBlock,
@@ -1047,6 +1008,60 @@ fn shorten_dead_reference_loans(
     Ok(())
 }
 
+
+/// Track a reference moved or copied directly into a projected destination.
+/// Run before `transfer_rvalue`, which consumes source loan associations on moves.
+fn track_projected_reference_provenance(
+    function: &MirFunction,
+    block: BasicBlock,
+    context: &str,
+    destination: &Place,
+    rvalue: &Rvalue,
+    tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
+    state: &mut FlowState,
+) -> Result<(), OwnershipVerificationError> {
+    if destination.projections.is_empty() {
+        return Ok(());
+    }
+    let Rvalue::Use(operand @ (Operand::Copy(source_place) | Operand::Move(source_place))) = rvalue
+    else {
+        return Ok(());
+    };
+    if reference_operand_source_name(function, block, context, tcx, struct_defs, operand)?.is_none() {
+        return Ok(());
+    }
+    let regions = if source_place.projections.is_empty() {
+        state.reference_loans.get(&source_place.local).cloned().unwrap_or_default()
+    } else {
+        let key = ownership_place(function, source_place);
+        state.reference_slot_loans.get(&key).cloned().unwrap_or_default()
+    };
+    if regions.is_empty() {
+        return Err(OwnershipVerificationError {
+            function: function.name.clone(),
+            block,
+            context: context.to_string(),
+            message: format!(
+                "reference-valued projected assignment from '{}' has no tracked loan provenance",
+                source_place
+            ),
+        });
+    }
+    let destination_key = ownership_place(function, destination);
+    state.reference_slot_loans.entry(destination_key).or_default().extend(regions);
+    if matches!(operand, Operand::Move(_)) && !source_place.projections.is_empty() {
+        let source_key = ownership_place(function, source_place);
+        if let Some(loans) = state.reference_slot_loans.remove(&source_key) {
+            for region in loans {
+                end_tracked_loan_if_unreferenced(state, &region)
+                    .map_err(|error| violation(function, block, context, error))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Track reference provenance for references stored inside aggregate fields.
 ///
 /// When an aggregate (struct, tuple, array) containing reference operands is
@@ -1064,6 +1079,7 @@ fn track_aggregate_reference_provenance(
     destination: &Place,
     rvalue: &Rvalue,
     tcx: &omni_mir::TyCtxt,
+    struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
     state: &mut FlowState,
 ) -> Result<(), OwnershipVerificationError> {
     /// Returns the provenance regions for a source place, checking both
@@ -1092,31 +1108,39 @@ fn track_aggregate_reference_provenance(
         source_place: &omni_mir::ir::Place,
         operand_kind: &omni_mir::ir::Operand,
         tcx: &omni_mir::TyCtxt,
+        struct_defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
         projection: omni_mir::ir::Projection,
         block: BasicBlock,
         context: &str,
     ) -> Result<(), OwnershipVerificationError> {
-        let source_ty = function.body.local_decls[source_place.local].ty;
-        let is_reference = source_ty.is_some_and(|ty| {
-            tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })
-        });
+        let is_reference = reference_operand_source_name(
+            function, block, context, tcx, struct_defs, operand_kind,
+        )?
+        .is_some();
         if is_reference {
             let regions = source_regions(function, state, source_place);
-            if !regions.is_empty() {
-                let field_place = destination.project(projection);
-                let field_gv = ownership_place(function, &field_place);
-                state.reference_slot_loans.entry(field_gv).or_default().extend(regions);
-                // On a move, end the source's slot loan so the reference
-                // cannot be accessed through both source and destination.
-                if matches!(operand_kind, omni_mir::ir::Operand::Move(_))
-                    && !source_place.projections.is_empty()
-                {
-                    let source_gv = ownership_place(function, source_place);
-                    if let Some(loans) = state.reference_slot_loans.remove(&source_gv) {
-                        for region in loans {
-                            end_tracked_loan_if_unreferenced(state, &region)
-                                .map_err(|e| violation(function, block, context, e))?;
-                        }
+            if regions.is_empty() {
+                return Err(OwnershipVerificationError {
+                    function: function.name.clone(),
+                    block,
+                    context: context.to_string(),
+                    message: format!(
+                        "reference-valued aggregate operand '{}' has no tracked loan provenance",
+                        source_place
+                    ),
+                });
+            }
+            let field_place = destination.project(projection);
+            let field_gv = ownership_place(function, &field_place);
+            state.reference_slot_loans.entry(field_gv).or_default().extend(regions);
+            if matches!(operand_kind, omni_mir::ir::Operand::Move(_))
+                && !source_place.projections.is_empty()
+            {
+                let source_gv = ownership_place(function, source_place);
+                if let Some(loans) = state.reference_slot_loans.remove(&source_gv) {
+                    for region in loans {
+                        end_tracked_loan_if_unreferenced(state, &region)
+                            .map_err(|e| violation(function, block, context, e))?;
                     }
                 }
             }
@@ -1135,6 +1159,7 @@ fn track_aggregate_reference_provenance(
                         source_place,
                         operand,
                         tcx,
+                        struct_defs,
                         omni_mir::ir::Projection::Field(field_name.clone()),
                         block,
                         context,
@@ -1160,6 +1185,7 @@ fn track_aggregate_reference_provenance(
                         source_place,
                         operand,
                         tcx,
+                        struct_defs,
                         projection,
                         block,
                         context,
@@ -1178,6 +1204,7 @@ fn track_aggregate_reference_provenance(
                         source_place,
                         operand,
                         tcx,
+                        struct_defs,
                         projection,
                         block,
                         context,
