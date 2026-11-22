@@ -372,7 +372,7 @@ fn transfer_block(
             Statement::Assume(_) => {}
         }
 
-        shorten_dead_reference_loans(&mut state, &live_after[block.index()][statement_index])
+        shorten_dead_reference_loans(function, &mut state, &live_after[block.index()][statement_index])
             .map_err(|error| violation(function, block, &context, error))?;
     }
 
@@ -1289,6 +1289,7 @@ fn end_tracked_loan_if_unreferenced(
 }
 
 fn shorten_dead_reference_loans(
+    function: &MirFunction,
     state: &mut FlowState,
     live_after: &BTreeSet<Local>,
 ) -> Result<(), OwnershipError> {
@@ -1316,25 +1317,26 @@ fn shorten_dead_reference_loans(
             }
         }
 
-        // Clean up slot loans whose regions are no longer referenced by any
-        // live local or any other slot. This handles the case where the only
-        // reference to a loan was through a projected place whose owning
-        // local has gone dead.
+        // A projected reference remains live while its owning local is live.
+        // Do not count the slot itself as an independent reference: doing so
+        // makes every slot appear permanently live and leaks its loan.
+        let live_roots = live_after
+            .iter()
+            .map(|local| local_name(function, *local))
+            .collect::<BTreeSet<_>>();
         let dead_slots: Vec<OwnershipPlace> = state
             .reference_slot_loans
             .keys()
-            .filter(|place| {
-                let regions = state.reference_slot_loans.get(*place).cloned().unwrap_or_default();
-                regions.iter().all(|region| {
-                    !state.reference_loans.values().any(|loans| loans.contains(region))
-                        && !state.reference_slot_loans.values().any(|loans| loans.contains(region))
-                })
-            })
+            .filter(|place| !live_roots.contains(&place.root))
             .cloned()
             .collect();
         for slot in dead_slots {
-            state.reference_slot_loans.remove(&slot);
-            changed = true;
+            if let Some(loans) = state.reference_slot_loans.remove(&slot) {
+                changed = true;
+                for region in loans {
+                    end_tracked_loan_if_unreferenced(state, &region)?;
+                }
+            }
         }
 
         if !changed {
