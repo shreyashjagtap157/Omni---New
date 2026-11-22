@@ -516,9 +516,8 @@ fn verify_reference_return_provenance(
         .iter()
         .filter_map(|&param| {
             let ty = function.body.local_decls[param].ty?;
-            (tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. })).then(
-                || format!("\0external-reference-origin:{}:{}", function.name, param.index()),
-            )
+            (tcx.contains(ty) && matches!(tcx.get(ty), omni_mir::TyKind::Reference { .. }))
+                .then(|| format!("\0external-reference-origin:{}:{}", function.name, param.index()))
         })
         .collect::<BTreeSet<_>>();
 
@@ -3281,10 +3280,7 @@ mod tests {
         // in reference_slot_loans keyed by the tuple element.
         let error = verify_program(&program)
             .expect_err("reference-valued storage without provenance must be rejected");
-        assert!(
-            error.message.contains("no tracked loan provenance"),
-            "{error}"
-        );
+        assert!(error.message.contains("no tracked loan provenance"), "{error}");
     }
 
     #[test]
@@ -3375,7 +3371,10 @@ mod tests {
                 ),
                 Statement::Assign(Place::local(ret), Rvalue::Use(Operand::Copy(deref_slot))),
                 Statement::Assign(Place::local(value), integer(2)),
-                Statement::Assign(Place::local(ret), Rvalue::Use(Operand::Copy(Place::local(value)))),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Copy(Place::local(value))),
+                ),
             ],
             terminator: Some(Terminator::Return),
         });
@@ -3467,10 +3466,7 @@ mod tests {
         // provenance in reference_slot_loans keyed by the destination field.
         let error = verify_program(&program)
             .expect_err("reference-valued storage without provenance must be rejected");
-        assert!(
-            error.message.contains("no tracked loan provenance"),
-            "{error}"
-        );
+        assert!(error.message.contains("no tracked loan provenance"), "{error}");
     }
 
     #[test]
@@ -3573,10 +3569,7 @@ mod tests {
         // in reference_slot_loans keyed by the tuple element.
         let error = verify_program(&program)
             .expect_err("reference-valued storage without provenance must be rejected");
-        assert!(
-            error.message.contains("no tracked loan provenance"),
-            "{error}"
-        );
+        assert!(error.message.contains("no tracked loan provenance"), "{error}");
     }
 
     #[test]
@@ -3894,10 +3887,7 @@ mod tests {
         // reference_slot_loans keyed by the tuple element.
         let error = verify_program(&program)
             .expect_err("a reference to local storage must not escape in an aggregate return");
-        assert!(
-            error.message.contains("may escape function-local"),
-            "{error}"
-        );
+        assert!(error.message.contains("may escape function-local"), "{error}");
     }
 
     #[test]
@@ -4214,10 +4204,7 @@ mod tests {
         // provenance in reference_slot_loans instead of being rejected.
         let error = verify_program(&program)
             .expect_err("reference-valued storage without provenance must be rejected");
-        assert!(
-            error.message.contains("no tracked loan provenance"),
-            "{error}"
-        );
+        assert!(error.message.contains("no tracked loan provenance"), "{error}");
     }
 
     #[test]
@@ -4304,7 +4291,10 @@ mod tests {
                     })),
                 ),
                 Statement::Assign(Place::local(value), integer(2)),
-                Statement::Assign(Place::local(ret), Rvalue::Use(Operand::Copy(Place::local(value)))),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Copy(Place::local(value))),
+                ),
             ],
             terminator: Some(Terminator::Return),
         });
