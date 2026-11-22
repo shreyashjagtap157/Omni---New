@@ -2514,18 +2514,11 @@ mod tests {
 
     #[test]
     fn run_and_native_modes_are_explicit_and_mutually_exclusive() {
-        let run = vec![
-            "omni-driver".to_string(),
-            "--run".to_string(),
-            "program.omni".to_string(),
-        ];
+        let run = vec!["omni-driver".to_string(), "--run".to_string(), "program.omni".to_string()];
         assert!(!parse_args(&run).expect("--run must select reference execution").emit_native);
 
-        let native = vec![
-            "omni-driver".to_string(),
-            "--native".to_string(),
-            "program.omni".to_string(),
-        ];
+        let native =
+            vec!["omni-driver".to_string(), "--native".to_string(), "program.omni".to_string()];
         assert!(parse_args(&native).expect("--native must select object emission").emit_native);
 
         let conflicting = vec![
@@ -2534,10 +2527,9 @@ mod tests {
             "--native".to_string(),
             "program.omni".to_string(),
         ];
-        assert!(
-            parse_args(&conflicting).expect_err("conflicting execution modes must fail")
-                .contains("mutually exclusive")
-        );
+        assert!(parse_args(&conflicting)
+            .expect_err("conflicting execution modes must fail")
+            .contains("mutually exclusive"));
     }
 
     #[test]

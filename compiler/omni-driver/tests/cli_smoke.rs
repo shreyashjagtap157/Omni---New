@@ -11,12 +11,11 @@ struct TempTestDir {
 
 impl TempTestDir {
     fn new(label: &str) -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "omni-driver-cli-smoke-{}-{label}",
-            std::process::id()
-        ));
+        let path = std::env::temp_dir()
+            .join(format!("omni-driver-cli-smoke-{}-{label}", std::process::id()));
         if path.exists() {
-            std::fs::remove_dir_all(&path).expect("remove stale test directory owned by this process");
+            std::fs::remove_dir_all(&path)
+                .expect("remove stale test directory owned by this process");
         }
         std::fs::create_dir(&path).expect("create isolated CLI test directory");
         Self { path }
