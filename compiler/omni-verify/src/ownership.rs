@@ -372,8 +372,12 @@ fn transfer_block(
             Statement::Assume(_) => {}
         }
 
-        shorten_dead_reference_loans(function, &mut state, &live_after[block.index()][statement_index])
-            .map_err(|error| violation(function, block, &context, error))?;
+        shorten_dead_reference_loans(
+            function,
+            &mut state,
+            &live_after[block.index()][statement_index],
+        )
+        .map_err(|error| violation(function, block, &context, error))?;
     }
 
     match data.terminator.as_ref() {
@@ -1320,10 +1324,8 @@ fn shorten_dead_reference_loans(
         // A projected reference remains live while its owning local is live.
         // Do not count the slot itself as an independent reference: doing so
         // makes every slot appear permanently live and leaks its loan.
-        let live_roots = live_after
-            .iter()
-            .map(|local| local_name(function, *local))
-            .collect::<BTreeSet<_>>();
+        let live_roots =
+            live_after.iter().map(|local| local_name(function, *local)).collect::<BTreeSet<_>>();
         let dead_slots: Vec<OwnershipPlace> = state
             .reference_slot_loans
             .keys()
