@@ -3231,7 +3231,7 @@ mod tests {
     }
 
     #[test]
-    fn returning_tuple_with_projected_reference_field_tracks_provenance() {
+    fn returning_tuple_rejects_untracked_projected_reference_field() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let reference =
@@ -3279,8 +3279,12 @@ mod tests {
 
         // Copying a projected reference field into a tuple tracks provenance
         // in reference_slot_loans keyed by the tuple element.
-        verify_program(&program)
-            .expect("a projected reference field copied into a tuple should track provenance");
+        let error = verify_program(&program)
+            .expect_err("reference-valued storage without provenance must be rejected");
+        assert!(
+            error.message.contains("no tracked loan provenance"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -3331,7 +3335,75 @@ mod tests {
     }
 
     #[test]
-    fn struct_constructor_tracks_projected_reference_field_operand() {
+    #[test]
+    fn struct_constructor_tracks_local_reference_before_move() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: true, inner: int });
+        let wrapper_ty = tcx.intern(omni_mir::TyKind::Struct("Wrapper".into(), vec![]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("value".into()), ty: Some(int) });
+        locals.push(LocalDecl { name: Some("borrowed".into()), ty: Some(reference) });
+        locals.push(LocalDecl { name: Some("wrapper".into()), ty: Some(wrapper_ty) });
+        let ret = Local::from_usize(0);
+        let value = Local::from_usize(1);
+        let borrowed = Local::from_usize(2);
+        let wrapper = Local::from_usize(3);
+        let integer = |n| Rvalue::Use(Operand::Constant(Constant::Lit(omni_mir::ast::Lit::Int(n))));
+        let deref_slot = Place {
+            local: wrapper,
+            projections: vec![Projection::Field("slot".into()), Projection::Deref],
+        };
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![
+                Statement::Assign(Place::local(value), integer(1)),
+                Statement::Assign(
+                    Place::local(borrowed),
+                    Rvalue::Reference { place: Place::local(value), mutable: true, ty: reference },
+                ),
+                Statement::Assign(Place::local(ret), integer(0)),
+                Statement::Assign(
+                    Place::local(wrapper),
+                    Rvalue::Struct {
+                        name: "Wrapper".into(),
+                        fields: vec![("slot".into(), Operand::Move(Place::local(borrowed)))],
+                        ty: wrapper_ty,
+                    },
+                ),
+                Statement::Assign(Place::local(ret), Rvalue::Use(Operand::Copy(deref_slot))),
+                Statement::Assign(Place::local(value), integer(2)),
+                Statement::Assign(Place::local(ret), Rvalue::Use(Operand::Copy(Place::local(value)))),
+            ],
+            terminator: Some(Terminator::Return),
+        });
+        let wrapper_def = omni_mir::ast::StructDef {
+            name: "Wrapper".into(),
+            type_params: Vec::new(),
+            fields: vec![omni_mir::ast::StructFieldDef {
+                name: "slot".into(),
+                ty: reference_return_type(true),
+            }],
+        };
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "construct_wrapper_from_local_reference".into(),
+                params: vec![],
+                return_place: ret,
+                return_type: TypeSpec::Int,
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        )
+        .with_struct_defs(std::collections::HashMap::from([("Wrapper".into(), wrapper_def)]));
+
+        verify_program(&program)
+            .expect("aggregate construction must retain a moved reference's loan provenance");
+    }
+
+    fn struct_constructor_rejects_untracked_projected_reference_field() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
@@ -3393,8 +3465,12 @@ mod tests {
 
         // Moving a projected reference field into a struct field tracks
         // provenance in reference_slot_loans keyed by the destination field.
-        verify_program(&program)
-            .expect("moving a projected reference field into a struct should track provenance");
+        let error = verify_program(&program)
+            .expect_err("reference-valued storage without provenance must be rejected");
+        assert!(
+            error.message.contains("no tracked loan provenance"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -3457,7 +3533,7 @@ mod tests {
     }
 
     #[test]
-    fn array_constructor_tracks_projected_reference_element_operand() {
+    fn array_constructor_rejects_untracked_projected_reference_element() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let reference =
@@ -3495,8 +3571,12 @@ mod tests {
 
         // Copying a projected array element into a tuple tracks provenance
         // in reference_slot_loans keyed by the tuple element.
-        verify_program(&program)
-            .expect("copying a projected reference element into a tuple should track provenance");
+        let error = verify_program(&program)
+            .expect_err("reference-valued storage without provenance must be rejected");
+        assert!(
+            error.message.contains("no tracked loan provenance"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -3727,7 +3807,46 @@ mod tests {
     }
 
     #[test]
-    fn returning_tuple_with_local_reference_tracks_provenance() {
+    #[test]
+    fn returning_tuple_with_external_reference_parameter_preserves_provenance() {
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let reference =
+            tcx.intern(omni_mir::TyKind::Reference { lifetime: None, mutable: false, inner: int });
+        let tuple_ty = tcx.intern(omni_mir::TyKind::Tuple(vec![reference]));
+        let mut locals = IndexVec::new();
+        locals.push(LocalDecl { name: Some("ret".into()), ty: Some(tuple_ty) });
+        locals.push(LocalDecl { name: Some("source".into()), ty: Some(reference) });
+        let ret = Local::from_usize(0);
+        let source = Local::from_usize(1);
+        let mut blocks = IndexVec::new();
+        blocks.push(omni_mir::ir::BlockData {
+            statements: vec![Statement::Assign(
+                Place::local(ret),
+                Rvalue::Aggregate {
+                    kind: omni_mir::ir::AggregateKind::Tuple,
+                    operands: vec![Operand::Move(Place::local(source))],
+                    ty: tuple_ty,
+                },
+            )],
+            terminator: Some(Terminator::Return),
+        });
+        let program = MirProgram::new(
+            tcx,
+            vec![MirFunction {
+                name: "return_tuple_with_external_reference".into(),
+                params: vec![source],
+                return_place: ret,
+                return_type: TypeSpec::Tuple(vec![reference_return_type(false)]),
+                body: omni_mir::ir::Body { blocks, local_decls: locals, unsafe_blocks: Vec::new() },
+            }],
+        );
+
+        verify_program(&program)
+            .expect("an aggregate may return a reference whose origin is an external parameter");
+    }
+
+    fn returning_tuple_rejects_local_reference_escape() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let reference =
@@ -3773,8 +3892,12 @@ mod tests {
 
         // Moving a local reference into a tuple tracks provenance in
         // reference_slot_loans keyed by the tuple element.
-        verify_program(&program)
-            .expect("moving a local reference into a tuple should track provenance");
+        let error = verify_program(&program)
+            .expect_err("a reference to local storage must not escape in an aggregate return");
+        assert!(
+            error.message.contains("may escape function-local"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -4046,7 +4169,7 @@ mod tests {
     }
 
     #[test]
-    fn projected_reference_field_move_into_projected_storage_tracks_provenance() {
+    fn projected_reference_field_move_rejects_untracked_source() {
         let mut tcx = omni_mir::TyCtxt::new();
         let int = tcx.intern(omni_mir::TyKind::Int);
         let holder_ty = tcx.intern(omni_mir::TyKind::Struct("Holder".into(), vec![]));
@@ -4089,8 +4212,12 @@ mod tests {
 
         // Moving a reference from one projected place to another now tracks
         // provenance in reference_slot_loans instead of being rejected.
-        verify_program(&program)
-            .expect("a projected reference move between aggregate fields should track provenance");
+        let error = verify_program(&program)
+            .expect_err("reference-valued storage without provenance must be rejected");
+        assert!(
+            error.message.contains("no tracked loan provenance"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -4169,6 +4296,15 @@ mod tests {
                     Place { local: holder, projections: vec![Projection::Field("slot".into())] },
                     Rvalue::Use(Operand::Move(Place::local(borrowed))),
                 ),
+                Statement::Assign(
+                    Place::local(ret),
+                    Rvalue::Use(Operand::Copy(Place {
+                        local: holder,
+                        projections: vec![Projection::Field("slot".into()), Projection::Deref],
+                    })),
+                ),
+                Statement::Assign(Place::local(value), integer(2)),
+                Statement::Assign(Place::local(ret), Rvalue::Use(Operand::Copy(Place::local(value)))),
             ],
             terminator: Some(Terminator::Return),
         });
