@@ -295,10 +295,24 @@ fn transfer_block(
                         }
                     } else {
                         track_projected_reference_provenance(
-                            function, block, &context, destination, rvalue, tcx, struct_defs, &mut state,
+                            function,
+                            block,
+                            &context,
+                            destination,
+                            rvalue,
+                            tcx,
+                            struct_defs,
+                            &mut state,
                         )?;
                         track_aggregate_reference_provenance(
-                            function, block, &context, destination, rvalue, tcx, struct_defs, &mut state,
+                            function,
+                            block,
+                            &context,
+                            destination,
+                            rvalue,
+                            tcx,
+                            struct_defs,
+                            &mut state,
                         )?;
                         transfer_rvalue(function, block, &context, rvalue, &mut state)?;
                     }
@@ -1008,7 +1022,6 @@ fn shorten_dead_reference_loans(
     Ok(())
 }
 
-
 /// Track a reference moved or copied directly into a projected destination.
 /// Run before `transfer_rvalue`, which consumes source loan associations on moves.
 fn track_projected_reference_provenance(
@@ -1028,7 +1041,8 @@ fn track_projected_reference_provenance(
     else {
         return Ok(());
     };
-    if reference_operand_source_name(function, block, context, tcx, struct_defs, operand)?.is_none() {
+    if reference_operand_source_name(function, block, context, tcx, struct_defs, operand)?.is_none()
+    {
         return Ok(());
     }
     let regions = if source_place.projections.is_empty() {
@@ -1114,7 +1128,12 @@ fn track_aggregate_reference_provenance(
         context: &str,
     ) -> Result<(), OwnershipVerificationError> {
         let is_reference = reference_operand_source_name(
-            function, block, context, tcx, struct_defs, operand_kind,
+            function,
+            block,
+            context,
+            tcx,
+            struct_defs,
+            operand_kind,
         )?
         .is_some();
         if is_reference {
