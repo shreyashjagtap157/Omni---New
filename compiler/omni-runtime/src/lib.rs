@@ -222,9 +222,8 @@ fn global_runtime() -> &'static Mutex<Runtime> {
 /// Allocate through the process-local runtime service.
 ///
 /// The handle 0 is reserved for failure. Successful handles are positive.
-/// Exported as a C ABI function via `#[no_mangle] extern "C"`.
-#[no_mangle]
-pub extern "C" fn omni_rt_alloc(size: i64, align: i64) -> i64 {
+/// Safe Rust backing service called by the dedicated C ABI boundary crate.
+pub fn omni_rt_alloc(size: i64, align: i64) -> i64 {
     let Ok(size) = usize::try_from(size) else {
         return INVALID_ALLOCATION_ID as i64;
     };
@@ -241,8 +240,7 @@ pub extern "C" fn omni_rt_alloc(size: i64, align: i64) -> i64 {
 }
 
 /// Deallocate an opaque runtime allocation. Returns zero on success and -1 on failure.
-#[no_mangle]
-pub extern "C" fn omni_rt_dealloc(id: i64) -> i32 {
+pub fn omni_rt_dealloc(id: i64) -> i32 {
     let Ok(id) = u64::try_from(id) else {
         return -1;
     };
@@ -256,8 +254,7 @@ pub extern "C" fn omni_rt_dealloc(id: i64) -> i32 {
 }
 
 /// Write one byte to stdout. Returns zero on success and -1 on host I/O failure.
-#[no_mangle]
-pub extern "C" fn omni_rt_write_stdout_byte(byte: i64) -> i32 {
+pub fn omni_rt_write_stdout_byte(byte: i64) -> i32 {
     let Ok(byte) = u8::try_from(byte) else {
         return -1;
     };
@@ -269,8 +266,7 @@ pub extern "C" fn omni_rt_write_stdout_byte(byte: i64) -> i32 {
 }
 
 /// Flush stdout. Returns zero on success and -1 on host I/O failure.
-#[no_mangle]
-pub extern "C" fn omni_rt_flush_stdout() -> i32 {
+pub fn omni_rt_flush_stdout() -> i32 {
     match io::stdout().lock().flush() {
         Ok(()) => 0,
         Err(_) => -1,
@@ -278,14 +274,12 @@ pub extern "C" fn omni_rt_flush_stdout() -> i32 {
 }
 
 /// Terminate with the supplied platform process exit status.
-#[no_mangle]
-pub extern "C" fn omni_rt_exit(code: i32) -> ! {
+pub fn omni_rt_exit(code: i32) -> ! {
     std::process::exit(code)
 }
 
 /// Terminate immediately under the runtime abort policy.
-#[no_mangle]
-pub extern "C" fn omni_rt_abort() -> ! {
+pub fn omni_rt_abort() -> ! {
     std::process::abort()
 }
 
@@ -383,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn c_abi_allocation_round_trip_is_real() {
+    fn runtime_service_allocation_round_trip_is_real() {
         let id = omni_rt_alloc(16, 8);
         assert!(id > 0);
         assert_eq!(omni_rt_dealloc(id), 0);

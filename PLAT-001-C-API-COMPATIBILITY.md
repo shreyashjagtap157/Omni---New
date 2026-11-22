@@ -1,8 +1,8 @@
 # PLAT-001: C API Compatibility Evaluation
 
-## Status: Evaluated (locally, not platform-qualified)
+## Status: Export boundary implemented; C-toolchain qualification pending
 
-## C ABI Surface (from `compiler/omni-runtime/src/lib.rs`)
+## C ABI Surface (from `compiler/omni-runtime-ffi/src/lib.rs`)
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
@@ -38,12 +38,15 @@
 - Write/flush return -1 on host I/O failure
 - `exit`/`abort` are noreturn, no error return possible
 
-### Missing for Full C API Compatibility
+### Qualification gaps
 
 | Item | Status | Required For |
 |------|--------|--------------|
-| C header file (`omni-rt.h`) | Missing | Installer SDK directory already creates placeholder |
-| Symbol exports documented | Missing | Linker integration guidance |
+| C header file (`compiler/omni-runtime/include/omni-rt.h`) | Present | Keep signatures synchronized with exported symbols |
+| Rust-side exported-symbol tests | Present in `omni-runtime-ffi` | Compile and execute from the C toolchain on Windows |
+| C source integration tests | Present under `compiler/omni-runtime/tests/` | Wire both C programs into required Windows CI |
+| Calling convention formally specified | Partial | Cross-compiler compatibility |
+| Aggregate/reference/pointer ABI | Not specified | Target-specific downstream ABI work |
 | Calling convention formally specified | Missing | Cross-compiler compatibility |
 | Aggregate/struct ABI layout | Missing | Target-specific, not yet defined |
 | Reference/pointer ABI | Missing | Pointer/lifetime representation not defined |
@@ -55,5 +58,5 @@
 
 The C ABI surface is minimal and intentionally limited. All functions use C-compatible calling convention with integer parameters/returns. No external dependencies are needed for the core C API. The remaining items (aggregate ABI, reference/pointer representation, enum layout) are downstream target-specific decisions, not blockers for the current scope.
 
-**Platform qualification**: Not yet performed (requires target platform testing).
+**Platform qualification**: Pending. The C programs are present but are not yet executed by the required Windows CI workflow.
 **Local evaluation**: Complete.

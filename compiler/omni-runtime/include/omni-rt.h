@@ -9,10 +9,10 @@ extern "C" {
 #define OMNI_RT_ABI_VERSION 1u
 
 /* Invalid allocation handle (never returned as a live handle) */
-#define OMNI_RT_INVALID_ALLOCATION_ID 0ull
+#define OMNI_RT_INVALID_ALLOCATION_ID 0ll
 
 /* Opaque allocation handle type */
-typedef unsigned long long omni_rt_handle_t;
+typedef long long omni_rt_handle_t;
 
 /* Allocate memory through the Omni runtime.
  * size: allocation size in bytes

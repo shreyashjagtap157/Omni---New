@@ -158,6 +158,8 @@ jobs:
 
           required_paths = [
               "compiler/omni-std",
+              "compiler/omni-runtime-ffi",
+              "compiler/omni-runtime/include/omni-rt.h",
               "tools/omni-fmt",
               "compiler/omni-pkg",
               "compiler/omni-build",
@@ -166,7 +168,6 @@ jobs:
               "tools/omni-installer/installer-qualify.ps1",
               "tools/omni-driver/completion.ps1",
               "tools/omni-driver/completion.cmd",
-              "include/omni-rt.h",
           ]
           for relative in required_paths:
               if not (root / relative).exists():
@@ -275,13 +276,13 @@ jobs:
           if not any("call_indirect" in path.read_text(encoding="utf-8") for path in codegen_sources):
               blockers.append("COMP-011/COMP-017 claim is not verified: no call_indirect emission found in codegen sources.")
 
-          runtime_dir = root / "compiler/omni-runtime/src"
-          runtime_sources = list(runtime_dir.rglob("*.rs")) if runtime_dir.is_dir() else []
+          ffi_dir = root / "compiler/omni-runtime-ffi/src"
+          ffi_sources = list(ffi_dir.rglob("*.rs")) if ffi_dir.is_dir() else []
           has_c_abi = any(
               re.search(r'extern\s+"C"', path.read_text(encoding="utf-8"))
-              for path in runtime_sources
+              for path in ffi_sources
           )
-          if not has_c_abi or not (root / "include/omni-rt.h").is_file():
+          if not has_c_abi or not (root / "compiler/omni-runtime/include/omni-rt.h").is_file():
               blockers.append("PLAT-001 claim is not verified: exported C ABI functions and omni-rt.h are not both present.")
 
           blockers.append(

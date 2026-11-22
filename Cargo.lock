@@ -564,6 +564,13 @@ name = "omni-runtime"
 version = "0.2.7"
 
 [[package]]
+name = "omni-runtime-ffi"
+version = "0.2.7"
+dependencies = [
+ "omni-runtime",
+]
+
+[[package]]
 name = "omni-source"
 version = "0.0.0"
 

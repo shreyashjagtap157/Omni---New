@@ -40,7 +40,7 @@ fn tier(crate_name: &str) -> Option<u8> {
         "omni-runtime" | "omni-std" => 11,
         // Package/build/IDE/formatting integrations consume compiler products;
         // place them after code generation so core tiers cannot depend upward.
-        "omni-pkg" | "omni-build" | "omni-ls" | "omni-fmt" => 12,
+        "omni-pkg" | "omni-build" | "omni-ls" | "omni-fmt" | "omni-runtime-ffi" => 12,
         _ => return None,
     })
 }
@@ -424,6 +424,7 @@ mod topology_tests {
     fn restored_toolchain_integrations_are_classified_and_tiered() {
         let members = members(&[
             "omni-runtime",
+            "omni-runtime-ffi",
             "omni-std",
             "omni-pkg",
             "omni-build",
@@ -438,6 +439,7 @@ mod topology_tests {
         ]);
         let edges = vec![
             edge("omni-std", "omni-runtime"),
+            edge("omni-runtime-ffi", "omni-runtime"),
             edge("omni-pkg", "omni-hir"),
             edge("omni-build", "omni-codegen"),
             edge("omni-ls", "omni-verify"),

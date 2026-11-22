@@ -1,10 +1,10 @@
 //! The Omni standard library — core primitives.
 //!
 //! This crate provides the runtime foundation for Omni's standard library.
-//! It is built on top of the Omni runtime C ABI (`omni_rt_*` entry points)
-//! exposed by `omni-runtime`. As the Omni codegen gains support for external
-//! function calls and the self-hosting compiler matures, this crate will be
-//! populated with Omni source modules (.omni) compiled alongside user programs.
+//! It calls the safe Rust runtime services in `omni-runtime`; the separately
+//! built `omni-runtime-ffi` crate exports the narrow C ABI symbols. As Omni
+//! codegen gains support for external function calls and the self-hosting
+//! compiler matures, this crate will be populated with Omni source modules.
 
 #![forbid(unsafe_code)]
 

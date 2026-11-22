@@ -2,9 +2,9 @@
 
 **Repository:** C:\Users\siddh\Downloads\ABC\Omni---New  
 **Branch:** main  
-**Source baseline:** remote `main` at `0aa69a9` (2026-11-21)  
+**Source baseline:** remote `main` at `d076b3d` (2026-11-22)  
 **Updated:** 2026-11-22  
-**Source:** Cargo workspace manifests; 30 members after restoring `omni-std` as a member
+**Source:** Cargo workspace manifests; 31 members after isolating C ABI symbol exports from the safe runtime
 
 ---
 
@@ -18,7 +18,7 @@ or release gate.
 
 ---
 
-## Workspace Membership (30 crates)
+## Workspace Membership (31 crates)
 
 | Tier | Crate | Path | Role | Cargo.toml deps |
 |------|-------|------|------|-----------------|
@@ -37,8 +37,9 @@ or release gate.
 | **verify** | omni-verify | `compiler/omni-verify/` | MIR structural verification, ownership/borrow checking | index_vec, polonius-engine, omni-mir, omni-own |
 | **machine** | omni-machine | `compiler/omni-machine/` | Reference abstract machine interpreter | omni-mir |
 | **codegen** | omni-codegen | `compiler/omni-codegen/` | Cranelift native codegen, indirect call emission | omni-mir, omni-verify, cranelift-* |
-| **runtime** | omni-runtime | `compiler/omni-runtime/` | C ABI runtime, allocation, FFI boundary | (none) |
-| **std** | omni-std | `compiler/omni-std/` | Standard library foundation on omni-runtime C ABI | omni-runtime |
+| **runtime** | omni-runtime | `compiler/omni-runtime/` | Safe Rust runtime services, allocation and process-local state | (none) |
+| **runtime integration** | omni-runtime-ffi | `compiler/omni-runtime-ffi/` | Narrow C ABI symbol-export boundary; unsafe attributes isolated here | omni-runtime |
+| **std** | omni-std | `compiler/omni-std/` | Standard library foundation on runtime services | omni-runtime |
 | **driver** | omni-driver | `compiler/omni-driver/` | CLI orchestrator, source-to-execute pipeline | omni-parse, omni-syntax, omni-names, omni-types, omni-hir, omni-traits, omni-effects, omni-mir, omni-verify, omni-machine, omni-codegen, omni-evidence, omni-registry, omni-stage0 |
 | **pkg** | omni-pkg | `compiler/omni-pkg/` | Package management | omni-types, omni-hir, omni-mir |
 | **build** | omni-build | `compiler/omni-build/` | Build orchestration | omni-types, omni-hir, omni-mir, omni-codegen |
@@ -116,7 +117,8 @@ omni-codegen ───────┬▶ cranelift-object (external)
 omni-codegen ───────┬▶ target-lexicon (external)
 omni-codegen ──dev▶ omni-effects (dev-only)
 
-omni-runtime ──────▶ (leaf)  [crate-type: rlib, staticlib, cdylib]
+omni-runtime ──────▶ (leaf)  [crate-type: rlib]
+omni-runtime-ffi ──▶ omni-runtime  [crate-type: rlib, staticlib, cdylib]
 
 omni-std ──────────▶ omni-runtime  [crate-type: rlib, staticlib]
 
@@ -239,8 +241,13 @@ bootstrap infrastructure. `tools/*` may use tools/externals but never
   depend on compiler crates. The compiler-facing formatter `omni-fmt` is an
   explicit post-pipeline integration (tier 12) because it consumes `omni-parse`
   and `omni-syntax`; it must not be treated as specification infrastructure.
-- **Driver/integrations:** `omni-driver`, `omni-pkg`, `omni-build`, `omni-ls` and
-  `omni-fmt` may consume lower compiler tiers but no lower tier may depend on them.
+- **Driver/integrations:** `omni-driver`, `omni-pkg`, `omni-build`, `omni-ls`,
+  `omni-fmt` and `omni-runtime-ffi` may consume lower compiler tiers but no lower
+  tier may depend on them.
+- **Runtime safety boundary:** `omni-runtime` inherits workspace `unsafe_code = "forbid"`.
+  The dedicated `omni-runtime-ffi` crate keeps `unsafe_code = "deny"` and permits
+  only item-scoped lint exceptions for the `#[unsafe(no_mangle)]` exports; it
+  contains no unsafe blocks or unsafe functions.
 - **Compiler → Tools:** `compiler/*` may NOT depend on `tools/*` except
   `omni-driver → omni-evidence` and `omni-driver → omni-registry` (provenance).
 - **Driver:** Orchestrates all compiler tiers but lower tiers never depend back

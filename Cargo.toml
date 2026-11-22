@@ -17,6 +17,7 @@ members = [
     "compiler/omni-machine",
     "compiler/omni-codegen",
     "compiler/omni-runtime",
+    "compiler/omni-runtime-ffi",
     "compiler/omni-std",
     "compiler/omni-driver",
     "compiler/omni-stage0",

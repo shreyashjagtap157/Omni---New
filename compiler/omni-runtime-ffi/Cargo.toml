@@ -1,0 +1,17 @@
+[package]
+name = "omni-runtime-ffi"
+version = "0.2.7"
+edition = "2021"
+publish = false
+
+[dependencies]
+omni-runtime = { path = "../omni-runtime" }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "deny"
+
+[lib]
+crate-type = ["rlib", "staticlib", "cdylib"]
