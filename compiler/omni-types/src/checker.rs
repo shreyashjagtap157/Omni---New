@@ -1464,7 +1464,10 @@ impl TypeChecker {
                             &self.infer_expr_effects(g, env, &arm_locals)?,
                         )?;
                     }
-                    eff = union_effect_rows(&eff, &self.infer_expr_effects(&arm.body, env, &arm_locals)?)?;
+                    eff = union_effect_rows(
+                        &eff,
+                        &self.infer_expr_effects(&arm.body, env, &arm_locals)?,
+                    )?;
                 }
                 Ok(eff)
             }
@@ -1539,7 +1542,6 @@ impl TypeChecker {
         Ok(body_effects)
     }
 }
-
 
 /// Combine inferred effect rows without losing incompatible unresolved tails.
 fn union_effect_rows(left: &EffectRow, right: &EffectRow) -> Result<EffectRow, TypeError> {
