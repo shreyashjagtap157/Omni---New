@@ -124,6 +124,7 @@ class StrictInventoryTests(unittest.TestCase):
     def test_live_inventory_baseline_22_verified_two_partial_one_accepted_one_blocked_fails(self) -> None:
         _, path = self.write_inventory(make_inventory({
             "COMP-019": "Partial",
+            "COMP-020": "Partial",
             "ADR-0002": "Accepted",
             "INST-002": "Blocked",
         }))
