@@ -1259,7 +1259,9 @@ fn loan_has_active_children(state: &FlowState, region: &str) -> bool {
             if child == &parent || !parents.contains(&parent) {
                 continue;
             }
-            if state.reference_loans.values().any(|loans| loans.contains(child)) {
+            let child_is_live = state.reference_loans.values().any(|loans| loans.contains(child))
+                || state.reference_slot_loans.values().any(|loans| loans.contains(child));
+            if child_is_live {
                 return true;
             }
             pending.push(child.clone());
@@ -2312,6 +2314,53 @@ mod tests {
         assert!(
             state.ownership.loans().any(|loan| loan.region == "parent"),
             "parent loan must not be ended while a grandchild remains live"
+        );
+    }
+
+    #[test]
+    fn ancestor_loan_stays_live_for_projected_grandchild_reference() {
+        let mut state = FlowState::new();
+        let origin = OwnershipPlace::root("origin");
+        state.ownership.initialize(origin.clone());
+
+        state.ownership.borrow_shared(origin.clone(), "parent").expect("parent loan");
+        state.loan_parents.insert("parent".into(), BTreeSet::new());
+
+        let parent_authority = BTreeSet::from(["parent".to_string()]);
+        state
+            .ownership
+            .borrow_shared_with_parents(origin.clone(), "child", &parent_authority)
+            .expect("child reborrow");
+        state.loan_parents.insert("child".into(), parent_authority.clone());
+
+        let grandchild_authority =
+            BTreeSet::from(["parent".to_string(), "child".to_string()]);
+        state
+            .ownership
+            .borrow_shared_with_parents(origin, "grandchild", &grandchild_authority)
+            .expect("grandchild reborrow");
+        state
+            .loan_parents
+            .insert("grandchild".into(), BTreeSet::from(["child".into()]));
+
+        let projected_slot = OwnershipPlace::root("holder")
+            .project(OwnershipProjection::Field("slot".into()));
+        state
+            .reference_slot_loans
+            .insert(projected_slot, BTreeSet::from(["grandchild".to_string()]));
+
+        end_tracked_loan_if_unreferenced(&mut state, "child")
+            .expect("the child and its parent must remain live through a projected grandchild");
+        let live_regions = state
+            .ownership
+            .loans()
+            .map(|loan| loan.region.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(
+            live_regions.contains("parent")
+                && live_regions.contains("child")
+                && live_regions.contains("grandchild"),
+            "a projected grandchild must retain the complete reborrow ancestry: {live_regions:?}"
         );
     }
 
