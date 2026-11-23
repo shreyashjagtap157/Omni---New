@@ -40,13 +40,19 @@ Omni should maximize expressive power without accumulating unstructured features
 
 ## 2. Programmer experience and language surface
 
-### OMNI-UR-VIBE — Vibe-first programming through actual Omni syntax
+### OMNI-UR-VIBE — Staged syntax strategy: conventional first, optional Vibe-first evolution later
 
-The source language itself should make expressing programmer intent natural, concise, intuitive, discoverable and readable. “Vibe-first” means reducing unnecessary mechanical ceremony in Omni source code. It does **not** mean that AI must generate the program, that natural-language prompts become mandatory source code, or that probabilistic language-model interpretation determines program meaning.
+The 20 November 2026 long-horizon mandate explicitly resolves the syntax sequence:
 
-Programmers should express what should happen, what data is involved, what transformation and result are intended, what constraints must hold, how components interact, and what resource or authority is required. The compiler should infer implementation details when the interpretation is unique, deterministic, sound and statically checkable.
+1. **Initial production language (Stage 1): conventional, explicit and developer-familiar.** Complete the conventional language surface first. It should be modern, professional, concise, readable, consistent, learnable and pleasant to write and review. Study established language conventions and evidence about familiarity, comprehension, ambiguity, expressiveness, tooling and error prevention, but do not clone another language. Do not make the initial implementation conversational, sentence-like, arbitrary-natural-language-based or dependent on an AI prompt.
+2. **Later optional syntax evolution:** only after the first-stage language and its agreed ecosystem pass their required qualification gates, research and design an optional, distinctly Vibe-first surface syntax. This later surface may express programmer intent with lower ceremony and more natural forms, but it is a separate governed language evolution, not a reason to delay the conventional production compiler.
+3. **One semantic core:** both surfaces, if the later one is approved, must lower into the same established semantic core and preserve type, ownership, lifetime, effect, capability, safety, diagnostics and verification guarantees. Preserve the conventional surface as a supported stable surface unless a separately approved compatibility/migration decision says otherwise.
 
-Reduce avoidable repetition such as unnecessary type/generic annotations, boilerplate, casts, intermediate variables, manual cleanup, repetitive iteration, ownership syntax, error propagation and concurrency setup. Do not remove explicit syntax where ambiguity, safety, ownership, privilege, resource use or ABI behavior requires it.
+The long-term Vibe-first ambition is preserved, but it does **not** redefine the initial production syntax or authorize Candidate 2/3. A desirable user experience does not ratify a specific grammar.
+
+For both current and future syntax, parsing, name binding, typing, lowering, diagnostics and compile-time behavior must remain deterministic. Do not use probabilistic NLP, fuzzy interpretation, LLM-dependent semantics, hidden conversational context or guesswork. Every accepted form needs formal grammar, unambiguous binding, exact desugaring and conformance tests. Ambiguity must be rejected.
+
+Reduce avoidable ceremony when it is justified and unambiguous; do not remove explicit syntax where ownership, authority, safety, resource use, ABI or semantic clarity requires it.
 
 ### OMNI-UR-LEVELS — Three compatible programming levels
 
@@ -333,9 +339,9 @@ Every claim must point to the exact source revision, specification/manifest iden
 
 ### OMNI-UR-VERSION — Four-component project release version
 
-The project product release uses `X.Y.Z.W`. The components have defined generational/major/minor/patch significance in the master charter. Keep this product release identity separate from:
+The current 20 November engineering mandate spells the product format as `major.minor.patch.revision` (also written `X.Y.Z.W`). This product release identity is separate from:
 - language edition and specification candidate/version;
-- engineering milestone and foundation gate;
+- engineering milestone and foundation-gate identifiers such as `OMNI-IMP-0.0.0.13`;
 - Rust crate/package versions;
 - compiler build/toolchain identity;
 - runtime and standard-library version;
@@ -343,7 +349,7 @@ The project product release uses `X.Y.Z.W`. The components have defined generati
 - installer/package/artifact format;
 - documentation revision and research-record revision.
 
-Do not use a milestone ID as a product version or treat a crate version as a complete product release. No silent reuse/overwrite of a release version. Released artifacts and their evidence are immutable; breaking changes require explicit specification/version/migration handling.
+The master charter records that the relationship between this product-release format and the older `R.M.m.P` project-generation/milestone scheme requires a dedicated versioning ADR. Preserve historical `OMNI-IMP-0.0.0.13` and other engineering references until that governed migration is resolved; do not silently reinterpret them as product releases. Technical gate passage is not formal owner sign-off, a product tag or a published release. Do not silently reuse/overwrite a released version. Released artifacts and their evidence are immutable; breaking changes require explicit specification/version/migration handling.
 
 ### OMNI-UR-RELEASE — No release by label alone
 

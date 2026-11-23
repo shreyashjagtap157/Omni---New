@@ -12,6 +12,8 @@ This repository contains the Rust implementation of the Omni Edition 1 programmi
 
 These are roadmap targets, not claims that all stages have been completed.
 
+**Project product version:** `major.minor.patch.revision` (`X.Y.Z.W`). It is separate from language edition, specification candidate, engineering milestone/foundation gate (`OMNI-IMP-*`), Rust crate version, ABI, runtime and artifact version. The master charter leaves the older `R.M.m.P` milestone scheme's relationship to product versioning for a dedicated ADR.
+
 ## Repository map
 
 - `compiler/` — compiler implementation.

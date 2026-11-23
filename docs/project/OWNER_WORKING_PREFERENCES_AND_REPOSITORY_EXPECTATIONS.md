@@ -39,9 +39,9 @@ All capabilities must trace from owner intent through approved specification and
 
 ## 3. Long-term product expectations
 
-- Preserve the multi-paradigm, multi-level, general-purpose and vibe-first programmer experience.
+- Preserve the multi-paradigm, multi-level, general-purpose ambition. Stage 1 must first deliver conventional, explicit, developer-familiar syntax; the optional Vibe-first surface evolution comes only after first-stage qualification and must share the same semantic core.
 - Keep the high-level, intermediate and low-level programming tiers coherent.
-- Maximize expressiveness and reduce unnecessary ceremony without sacrificing deterministic grammar, static verifiability, security or predictable resource behavior.
+- Maximize expressiveness and reduce unnecessary ceremony without sacrificing deterministic grammar, static verifiability, security or predictable resource behavior. Follow the conventional-first, optional-Vibe-later sequence in the 20-Nov mandate; do not promote Candidate 2/3 prematurely.
 - Preserve the broad intended application domain: systems, operating systems, compilers, embedded/bare-metal, real-time, desktop, distributed, scientific/high-performance and high-assurance development as the language and target evidence mature.
 - Keep the memory-model tension (historical managed-memory ambition versus current Edition 1 affine ownership) visible for research and governance; never silently change the active Edition 1 rules.
 - Treat Approach C as the implementation strategy: Rust production compiler first, self-hosting experiments in parallel, then controlled migration only after independent qualification.

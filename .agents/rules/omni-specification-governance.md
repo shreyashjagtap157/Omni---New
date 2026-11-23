@@ -16,11 +16,19 @@ The normative specifications under `spec/` constitute the absolute authority for
   4. **Compiler Implementation & Test Suites**: Downstream verification instruments, not sources of normative authority.
 - **The No-Override Principle**: Compiler source code, unit tests, code comments, example code, and unratified grammar fragments cannot silently override normative language authority.
 
-## 2. Candidate 1, Candidate 2, and Candidate 3 Governance
+## 2. Staged Syntax Strategy — Conventional Edition 1 First
+
+The 20 November 2026 long-horizon mandate requires the initial production language to complete a conventional, explicit, developer-familiar syntax first. The long-term Vibe-first ambition is preserved as an optional later syntax-evolution phase, considered only after the first-stage language and its agreed ecosystem pass their qualification gates.
+
+Any later Vibe-first surface must have its own formal deterministic grammar, diagnostics, lowering, compatibility analysis and explicit approval. It must lower into the established semantic core and must not bypass type, ownership, lifetime, effect, capability, safety or verification rules. The conventional surface remains supported unless a separate compatibility/migration decision approves otherwise.
+
+Do not make the initial production language sentence-like, conversational, arbitrary-natural-language-based or dependent on AI prompting. No fuzzy NLP, hidden context, LLM-dependent interpretation or guessing may determine program meaning.
+
+## 3. Candidate 1, Candidate 2, and Candidate 3 Governance
 
 The workspace contains multi-candidate artifacts that must be handled with strict precision:
 - **Candidate 1 (Edition 1 Active Baseline: `1.0.0-candidate.1`)**: The active normative foundation declared by `spec/manifest/omni-edition1.manifest.json` and `spec/release/foundation-gate.json`. Maintain its candidate lifecycle status; do not describe it as definitively ratified or production-released without completed qualification gates.
-- **Candidate 2 ("Vibe-First" Syntax Erratum)**:
+- **Candidate 2 (pre-release optional Vibe-first Syntax Erratum)**:
   - Formally recorded in `spec/grammar/candidate2-erratum.md` as `status: pre-release`, `signature_state: pending`, and `implementation_impact: "none"`.
   - Documented in `docs/grammar-reconciliation.md` and `compiler/omni-parse/src/grammar_contract.rs` as **not in force**.
   - Appended productions labeled `(* VIBE-GRAM extensions *)` in `omni-edition1.ebnf` (pipeline `|>`, newline termination, projection shorthand) reflect this pre-release erratum and are not active in the baseline grammar contract without an explicit feature gate.

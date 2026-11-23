@@ -27,7 +27,7 @@ The requirements and preferences documents express project intent and operating 
 ## 1. Project Mission & Foundational Product Vision
 
 Omni is not merely a conventional systems programming language with a Rust-implemented compiler. It is an expressive, general-purpose, multi-paradigm programming language and computational platform designed for:
-- **Exceptional Developer Ergonomics & Vibe-First Programming**: Natural, intuitive, low-ceremony programming allowing developers to express computational intent without mechanical boilerplate, while maintaining 100% deterministic, statically verifiable semantics (never heuristics or NLP interpretation).
+- **Exceptional Developer Ergonomics and staged Vibe-first evolution**: Stage 1 first completes a conventional, explicit, developer-familiar production syntax. Only after first-stage qualification may an optional Vibe-first surface be researched and approved as a later evolution. Both remain deterministic, formally specified and statically verifiable; never use heuristics or NLP to determine semantics.
 - **Strong Static Typing & Deep Inference**: Rigorous type safety with advanced bidirectional inference to eliminate redundant type and generic parameter annotations.
 - **Reliable Memory & Ownership**: Fine-grained ownership, affine/linear typing, and memory models spanning systems-level deterministic destruction to high-level managed facilities.
 - **Algebraic Effects & Capabilities**: Principled effect tracking, fine-grained capability security, and structured resource handling.
@@ -46,7 +46,11 @@ Omni has **no predetermined final limit** on research, capability, optimization,
 
 ---
 
-## 2. Vibe-First Programming Philosophy
+## 2. Staged Syntax Strategy — Conventional Production Surface First
+
+The 20 November 2026 long-horizon mandate is explicit: complete the conventional, explicit, developer-familiar language surface first. An optional Vibe-first syntax evolution may be considered only after first-stage qualification. The long-term Vibe-first ambition must not be misread as a requirement to make the initial production language conversational or sentence-like.
+
+The optional later surface must have a formal deterministic grammar and lower into the same semantic core. It must not depend on fuzzy NLP, LLM output, hidden context or guessing. It must preserve types, ownership, lifetimes, effects, capabilities, safety, diagnostics and verification. Candidate 2 and Candidate 3 remain unratified unless their explicit governance gates are met.
 
 Omni is fundamentally designed to minimize unnecessary boilerplate:
 - Minimize repetitive type annotations, generic parameters, ownership boilerplate, explicit casts, iteration mechanics, intermediate scratch variables, and error-handling ceremony.
@@ -55,7 +59,7 @@ Omni is fundamentally designed to minimize unnecessary boilerplate:
   2. *Intermediate explicitly controlled tier* (application logic, effect handling).
   3. *Low-level systems tier* (fine-grained ownership, memory regions, hardware control).
 - **Inviolable Determinism**: Natural syntax must be fully deterministic and parseable via standard formal grammar. Natural language heuristics, fuzzy parsing, or non-deterministic recovery must never dictate language semantics.
-- **Distinction**: The permanent vibe-first product mission must never be confused with the ratification status of specific syntax proposals (e.g. Candidate 2 or Candidate 3).
+- **Distinction**: The long-term Vibe-first ambition, the Stage 1 conventional production syntax and the ratification status of Candidate 2/3 are separate facts. The later syntax is optional and post-gate; no proposal becomes normative merely because it is discussed or parsed.
 
 ---
 

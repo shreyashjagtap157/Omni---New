@@ -21,7 +21,7 @@ The older `Omni` repository is historical and is not the canonical implementatio
 
 - Root master charter — durable product ambition, Rust-first development, four-component versioning, research, release and engineering policy.
 - Root 20 November continuous-engineering mandate — current long-horizon implementation, qualification, security, handoff and continuity obligations.
-- Root OpenCode master-goal prompts, gate-closure notes and handoffs — dated operational snapshots; historical machine/commit/worktree claims must be revalidated.
+- The 18-Nov first-iteration OpenCode master-goal prompt, 18-Nov v2 prompt, 20-Nov continuous-engineering mandate, 21-Nov local continuation mandate, gate-closure notes and handoffs — dated operational snapshots. The early prompt's Stage-1-conventional/Stage-2-optional-Vibe sequence is explicitly reaffirmed by the 20-Nov mandate; historical machine/commit/worktree claims must be revalidated.
 - `.agents/rules/` and `.agents/skills/` — durable agent and repository workflows.
 - `spec/manifest/omni-edition1.manifest.json`, `spec/grammar/omni-edition1.ebnf`, `spec/registry/rules.json`, `spec/reference/` — domain-specific language specification authority; inspect each artifact's actual status and hash binding.
 - `docs/adr/`, `docs/foundation-gates.md`, `spec/release/` — decisions and qualification gates.
@@ -41,7 +41,7 @@ The older `Omni` repository is historical and is not the canonical implementatio
 ## 4. Recovered durable owner decisions
 
 - One general-purpose, multi-paradigm, multi-level language and complete development platform; not a narrow compiler demo or AI-dependent language.
-- Vibe-first is a permanent programmer-experience goal; syntax and semantics remain deterministic, formally specified and statically verifiable.
+- The 19-Nov master charter preserves the long-term Vibe-first ambition; the newer 20-Nov long-horizon mandate stages it after the initial conventional, explicit, developer-familiar production syntax passes first-stage qualification. The later Vibe-first surface is optional and separately governed. Both remain deterministic, formally specified and statically verifiable.
 - Coherent high-level, intermediate and low-level programming tiers.
 - Rich type inference, abstraction, memory/ownership, effect/capability, concurrency, numerics, modules, runtime, libraries, compiler, package/build and developer tooling ambitions.
 - Preserve the managed-memory versus Edition 1 affine-ownership tension as an explicit research/open decision; the active Edition 1 rules remain in force.
@@ -49,13 +49,14 @@ The older `Omni` repository is historical and is not the canonical implementatio
 - Continuous research and reassessment without a fixed project endpoint.
 - Separate specification, formalization, implementation, test, proof, review, qualification and release evidence.
 - Four-component `X.Y.Z.W` project release identity, distinct from editions, specification candidates, engineering gates, crate versions, ABIs, runtimes and artifact versions.
+- The 20-Nov mandate spells the product format as `major.minor.patch.revision`; the master charter also records `X.Y.Z.W` and leaves its relationship to the older `R.M.m.P` milestone scheme for a dedicated versioning ADR. Preserve historical `OMNI-IMP-0.0.0.13` engineering references until that governance decision; do not confuse technical gate passage with owner sign-off or a published product release.
 - Immutable releases, compatibility/migration discipline, provenance and complete product-release gates.
 - Omni uses canonical `main` only; no feature branches; no destructive Git operations or history rewriting.
 - Durable handoffs, autonomous dependency-ready execution, clear specialist ownership and independent verification.
 
 ## 5. Candidate syntax and memory-model boundaries
 
-Candidate 2 remains pending/unratified in the recorded baseline; Candidate 3 parser tests remain research probes. Pipeline `|>`, historical projection shorthand and other inactive surface constructs are not normative Edition 1 merely because an older compendium or appended EBNF section mentions them.
+Candidate 2 remains pending/unratified in the recorded baseline; Candidate 3 parser tests remain research probes. The later optional Vibe-first phase is not permission to activate either candidate or appended EBNF. Pipeline `|>`, historical projection shorthand, `?.`, prefix-dot projection shorthand, placeholder expressions, command-call syntax and other inactive constructs are not normative Edition 1 merely because older prompts, compendia or grammar sections mention them. Stage 1 remains conventional and explicit; any later Vibe-first surface requires its own formal grammar, lowering, diagnostics, compatibility and approval.
 
 Historical managed-memory-by-default statements and the current Edition 1 affine-ownership model form a real design tension. Keep it visible for research and governed decision; this project-requirements document introduces no new language semantics.
 

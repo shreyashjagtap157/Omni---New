@@ -29,6 +29,7 @@ Omni recognizes **no predetermined final limit** on research, capability, optimi
 
 - The normative files in `spec/` (specifically `spec/manifest/omni-edition1.manifest.json` and `spec/release/foundation-gate.json`) govern the Edition 1 Candidate 1 baseline.
 - **The No-Override Principle**: Compiler source code, unit tests, code comments, and appended EBNF fragments cannot silently override normative specifications.
+- Stage 1 production syntax is conventional, explicit and developer-familiar. Any optional later Vibe-first surface is post-first-stage qualification and requires explicit governed design/approval.
 - Candidate 2 errata remain unratified (`status: pre-release`), and Candidate 3 tests represent experimental prototypes. Semantics must not be invented locally.
 - The sibling `Omni-Research` initiative (in `../Ideas/Omni-Research`) explores idealized models; its hypotheses must not be treated as compiler ground truth until formally ratified in `spec/`.
 
