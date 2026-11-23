@@ -205,18 +205,20 @@ jobs:
                   return (int(match.group(1)), match.group(2)) if match else (None, None)
 
               verified, verified_listing = summary_row("Verified")
+              partial, _ = summary_row("Partial")
               accepted, _ = summary_row("Accepted")
               blocked, _ = summary_row("Blocked")
               total, _ = summary_row(r"\*\*Total\*\*", r"\*\*(\d+)\*\*")
-              if None in (verified, accepted, blocked, total) or verified_listing is None:
+              if None in (verified, partial, accepted, blocked, total) or verified_listing is None:
                   blockers.append("Inventory summary could not be parsed from its declared table.")
               else:
                   if total != 26:
                       blockers.append(f"Inventory declares {total} mandatory items, expected 26.")
-                  if (verified, accepted, blocked) != (26, 0, 0):
+                  if (verified, partial, accepted, blocked) != (26, 0, 0, 0):
                       blockers.append(
-                          f"Inventory is {verified} Verified / {accepted} Accepted / "
-                          f"{blocked} Blocked / {total} Total; gate requires 26/0/0."
+                          f"Inventory is {verified} Verified / {partial} Partial / "
+                          f"{accepted} Accepted / {blocked} Blocked / {total} Total; "
+                          "gate requires 26/0/0/0."
                       )
 
                   # Expand the summary IDs (including ranges such as COMP-001–017)
@@ -239,9 +241,9 @@ jobs:
                           blockers.append(f"Unparseable Verified inventory token: {item!r}")
 
                   details = re.search(
-                      r"## Verified Items \(\d+\)(.*?)## Accepted Items",
+                      r"## Verified Items \(\d+\)(.*?)(?=^## )",
                       inventory,
-                      re.S,
+                      re.S | re.M,
                   )
                   detailed_ids = (
                       re.findall(

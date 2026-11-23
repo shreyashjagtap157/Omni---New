@@ -44,6 +44,7 @@ def make_inventory(status_overrides: dict[str, str] | None = None) -> str:
         )
 
     verified_rows = rows_for("Verified", "Verified")
+    partial_rows = rows_for("Partial", "Partial")
     accepted_rows = rows_for("Accepted", "Accepted")
     blocked_rows = rows_for("Blocked", "Blocked")
     excluded_rows = "\n".join(
@@ -71,6 +72,12 @@ def make_inventory(status_overrides: dict[str, str] | None = None) -> str:
 | ID | Item | Path | Evidence | Status |
 |---|---|---|---|---|
 {verified_rows}
+
+## Partial Items
+
+| ID | Item | Path | Evidence | Status |
+|---|---|---|---|---|
+{partial_rows}
 
 ## Accepted Items
 
@@ -114,14 +121,16 @@ class StrictInventoryTests(unittest.TestCase):
         self.assertEqual(result["accepted_ids"], [])
         self.assertEqual(result["blocked_ids"], [])
 
-    def test_owner_baseline_24_1_1_is_not_a_gate_pass(self) -> None:
+    def test_live_inventory_baseline_23_verified_one_partial_one_accepted_one_blocked_fails(self) -> None:
         _, path = self.write_inventory(make_inventory({
+            "COMP-019": "Partial",
             "ADR-0002": "Accepted",
             "INST-002": "Blocked",
         }))
         result = VALIDATOR.validate_inventory(path)
         self.assertFalse(result["all_verified"])
-        self.assertEqual(result["verified_count"], 24)
+        self.assertEqual(result["verified_count"], 23)
+        self.assertEqual(result["partial_ids"], ["COMP-019"])
         self.assertEqual(result["accepted_ids"], ["ADR-0002"])
         self.assertEqual(result["blocked_ids"], ["INST-002"])
 
@@ -148,6 +157,16 @@ class StrictInventoryTests(unittest.TestCase):
         result = VALIDATOR.validate_inventory(path)
         self.assertFalse(result["all_verified"])
         self.assertTrue(any("Summary Verified count" in error for error in result["errors"]))
+
+    def test_live_repository_inventory_matches_current_evidence_classification(self) -> None:
+        result = VALIDATOR.validate_inventory(ROOT / "IMPLEMENTATION_INVENTORY.md", ROOT)
+        self.assertFalse(result["all_verified"])
+        self.assertEqual(result["mandatory_total"], 26)
+        self.assertEqual(result["verified_count"], 23)
+        self.assertEqual(result["partial_ids"], ["COMP-019"])
+        self.assertEqual(result["accepted_ids"], ["ADR-0002"])
+        self.assertEqual(result["blocked_ids"], ["INST-002"])
+        self.assertTrue(any("COMP-019 source evidence is not substantiated" in error for error in result["errors"]))
 
     def test_comp019_placeholder_sources_are_not_substantiated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

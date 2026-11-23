@@ -207,6 +207,7 @@ def validate_inventory(inventory_path: Path, repository_root: Path | None = None
 
     detail_sections = (
         ("Verified", "## Verified Items"),
+        ("Partial", "## Partial Items"),
         ("Accepted", "## Accepted Items"),
         ("Blocked", "## Blocked Items"),
         ("N/A", "## Excluded Identifiers"),

@@ -1,9 +1,9 @@
 # Omni Crate Architecture Map
 
-**Repository:** C:\Users\siddh\Downloads\ABC\Omni---New  
+**Repository:** `Omni---New`  
 **Branch:** main  
-**Source baseline:** remote `main` at `d076b3d` (2026-11-22)  
-**Updated:** 2026-11-22  
+**Source baseline:** remote `main` at `82c756801c8112a13493ff3231f571db4ea9c17c` (2026-11-23)  
+**Updated:** 2026-11-23  
 **Source:** Cargo workspace manifests; 31 members after isolating C ABI symbol exports from the safe runtime
 
 ---

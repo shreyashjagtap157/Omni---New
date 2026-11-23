@@ -1,9 +1,9 @@
 # Omni Implementation Inventory
 
 
-> **Gate inventory reconciliation — 2026-11-23:** The agreed first-stage denominator remains 26: 24 owner-baseline Verified items, ADR-0002 Accepted, and INST-002 Blocked. COMP-017 is excluded as a duplicate of COMP-011's full indirect-call emission scope; COMP-018 remains excluded because no such requirement is registered. Neither exclusion is counted toward the 26 mandatory items. This inventory is not a gate pass.
+> **Gate inventory reconciliation — 2026-11-23:** The fixed first-stage denominator is 26 unique requirements. The current evidence-backed inventory is **23 Verified / 1 Partial / 1 Accepted / 1 Blocked**. COMP-017 is excluded as a duplicate of COMP-011's full indirect-call emission scope; COMP-018 is excluded because no such requirement is registered. Neither exclusion is counted toward the 26 mandatory requirements.
 >
-> **Live evidence discrepancy — COMP-019:** The current `omni-pkg` and `omni-build` executable entry points are TODO-only scaffolds. A successful Cargo build does not demonstrate package management or build orchestration. The owner-baseline 24/1/1 classification is retained for reconciliation, but COMP-019's source-backed verification claim is not substantiated by the current main tree and must be resolved before qualification.
+> **COMP-019 is Partial:** `compiler/omni-pkg/src/main.rs` and `compiler/omni-build/src/main.rs` remain placeholder entry points. Their successful compilation only proves that the placeholder crates compile; it does not prove package management, dependency resolution, build orchestration or artifact management. The inventory therefore does not claim COMP-019 as Verified.
 
 ## Status Tracking for Mandatory Inventory Items
 
@@ -11,13 +11,13 @@
 
 | Category   | Count | Items |
 |------------|-------|-------|
-| Verified   | 24    | COMP-001–016, COMP-019–024, INST-003, PLAT-001 |
-| Partial    | 0     | (all mandatory items verified or externally blocked) |
+| Verified   | 23    | COMP-001–016, COMP-020–024, INST-003, PLAT-001 |
+| Partial    | 1     | COMP-019 (package/build tools remain placeholder entry points) |
 | Accepted   | 1     | ADR-0002 (Alternative C approved; formal qualification record pending) |
 | Blocked    | 1     | INST-002 (production code signing certificates required) |
 | **Total**  | **26**| Mandatory items |
 
-## Verified Items (24)
+## Verified Items (23)
 
 | ID | Item | Crate/Module | Tests/Evidence | Status |
 |----|------|-------------|----------------|--------|
@@ -37,7 +37,6 @@
 | COMP-014 | Conformance test suite | compiler/omni-driver/tests/ | 70 tests passing (65 original + 5 new) | Verified |
 | COMP-015 | Driver CLI --run flag | compiler/omni-driver/src/main.rs | --run flag supported, links and runs | Verified |
 | COMP-016 | Installer qualification docs | tools/omni-installer/ | INSTALLER_QUALIFICATION.md created | Verified |
-| COMP-019 | Package/build tools | compiler/omni-pkg/, compiler/omni-build/ | Both crates build+clippy+tests pass | Verified |
 | COMP-020 | Linux/macOS compatibility | GitHub Actions run 44746310922 | validate-linux pass, validate-macos pass | Verified |
 | INST-003 | Checksums/SBOM generation | tools/omni-installer/ | Compute-FileChecksum() (SHA256) and Write-SBOM() functions implemented; SBOM structure defined | Verified |
 | COMP-021 | Release-candidate stabilization | BLD-006 | RC cycle completed: clean build, full test matrix (fmt, clippy, test), checksums/SBOM generated, installer qualification passed | Verified |
@@ -45,6 +44,12 @@
 | PLAT-001 | C API compatibility | compiler/omni-runtime/ | C ABI surface documented and tested with actual C programs on Windows. omni_rt_alloc/dealloc/write_stdout_byte/flush_stdout/exit/abort all callable from C. C header (omni-rt.h) created. RUNTIME_ABI_VERSION=1, INVALID_ALLOCATION_ID=0. Two C test programs (c_api_basic.c, c_api_write.c) compiled and executed successfully | Verified |
 | COMP-023 | Reference provenance for projected places | compiler/omni-verify/src/ownership.rs | reference_slot_loans map; dereference through projected place resolves slot provenance; 74 ownership tests pass | Verified |
 | COMP-024 | Aggregate-contained reference provenance | compiler/omni-verify/src/ownership.rs | track_aggregate_reference_provenance() records provenance for references stored in struct fields, tuple elements, array elements; move ends source slot loan; 74 ownership tests pass | Verified |
+
+## Partial Items (1)
+
+| ID | Item | Crate/Module | Tests/Evidence | Status |
+|----|------|-------------|----------------|--------|
+| COMP-019 | Package/build tools | compiler/omni-pkg/, compiler/omni-build/ | Both entry points remain TODO-only placeholders; workspace compilation is not behavioral evidence | Partial |
 
 ## Accepted Items (1)
 
@@ -69,7 +74,7 @@
 
 | ID | Evidence conflict | Gate treatment |
 |----|-------------------|----------------|
-| COMP-019 | `compiler/omni-pkg/src/main.rs` and `compiler/omni-build/src/main.rs` contain TODO-only placeholder entry points. Cargo build/test success with no meaningful subsystem tests does not substantiate package management or build orchestration. | Preserve the owner-baseline count while recording the discrepancy; do not claim first-stage gate passage until the requirement is implemented and evidence is complete. |
+| COMP-019 | `compiler/omni-pkg/src/main.rs` and `compiler/omni-build/src/main.rs` contain TODO-only placeholder entry points. Cargo build/test success with no meaningful subsystem tests does not substantiate package management or build orchestration. | Classified Partial. Implement the specified behavior and acceptance evidence before claiming Verified. |
 
 ## Requirement Identifier Status Summary
 
@@ -93,7 +98,7 @@
 | COMP-016 | Verified |
 | COMP-017 | N/A (duplicate of COMP-011; not a separate mandatory requirement) |
 | COMP-018 | N/A (identifier does not exist) |
-| COMP-019 | Verified |
+| COMP-019 | Partial |
 | COMP-020 | Verified |
 | COMP-021 | Verified |
 | COMP-022 | Verified |
@@ -125,4 +130,4 @@
 
 ## Last Updated
 
-2026-11-23: Reconciled the mandatory denominator to the owner-supplied 26-item gate: 24 Verified / ADR-0002 Accepted / INST-002 Blocked. COMP-017 is an exclusion duplicating COMP-011; COMP-018 is unregistered and excluded. COMP-019 has a live source evidence discrepancy because the package/build entry points are TODO-only scaffolds.
+2026-11-23: Reconciled all 26 mandatory IDs and corrected source-backed status: 23 Verified, COMP-019 Partial, ADR-0002 Accepted, and INST-002 Blocked. COMP-017 is a duplicate of COMP-011 and COMP-018 is unregistered; both are excluded from the denominator.
