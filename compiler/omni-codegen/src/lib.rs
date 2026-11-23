@@ -153,13 +153,11 @@ fn native_function_abi(
         | omni_mir::TyKind::Byte
         | omni_mir::TyKind::Char
         | omni_mir::TyKind::Float
-        | omni_mir::TyKind::FnPtr(_, _) => {
-            NativeReturnAbi::Direct(
-                native_abi_type_from_ty(tcx, return_ty, pointer_type)?.ok_or_else(|| {
-                    format!("Codegen error: scalar return type for '{}' has no ABI type", mir_func.name)
-                })?,
-            )
-        }
+        | omni_mir::TyKind::FnPtr(_, _) => NativeReturnAbi::Direct(
+            native_abi_type_from_ty(tcx, return_ty, pointer_type)?.ok_or_else(|| {
+                format!("Codegen error: scalar return type for '{}' has no ABI type", mir_func.name)
+            })?,
+        ),
         omni_mir::TyKind::Tuple(_) | omni_mir::TyKind::Array(..) | omni_mir::TyKind::Struct(..) => {
             layout.aggregate_layout(layout_workspace, return_ty).map_err(|e| {
                 format!(
@@ -212,16 +210,14 @@ fn native_function_abi(
             | omni_mir::TyKind::Byte
             | omni_mir::TyKind::Char
             | omni_mir::TyKind::Float
-            | omni_mir::TyKind::FnPtr(_, _) => {
-                NativeParamAbi::Direct(
-                    native_abi_type_from_ty(tcx, mir_ty, pointer_type)?.ok_or_else(|| {
-                        format!(
-                            "Codegen error: scalar parameter {} of '{}' has no ABI type",
-                            param_index, mir_func.name
-                        )
-                    })?,
-                )
-            }
+            | omni_mir::TyKind::FnPtr(_, _) => NativeParamAbi::Direct(
+                native_abi_type_from_ty(tcx, mir_ty, pointer_type)?.ok_or_else(|| {
+                    format!(
+                        "Codegen error: scalar parameter {} of '{}' has no ABI type",
+                        param_index, mir_func.name
+                    )
+                })?,
+            ),
             omni_mir::TyKind::Tuple(_)
             | omni_mir::TyKind::Array(..)
             | omni_mir::TyKind::Struct(..) => {
