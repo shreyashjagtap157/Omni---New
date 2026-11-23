@@ -18,6 +18,7 @@ use target_lexicon::Triple;
 fn native_abi_type_from_ty(
     tcx: &omni_mir::TyCtxt,
     ty: omni_mir::Ty,
+    pointer_type: cranelift_codegen::ir::Type,
 ) -> Result<Option<cranelift_codegen::ir::Type>, String> {
     match tcx.get(ty) {
         omni_mir::TyKind::Unit => Ok(None),
@@ -26,6 +27,7 @@ fn native_abi_type_from_ty(
         | omni_mir::TyKind::Byte
         | omni_mir::TyKind::Char => Ok(Some(types::I64)),
         omni_mir::TyKind::Float => Ok(Some(types::F64)),
+        omni_mir::TyKind::FnPtr(_, _) => Ok(Some(pointer_type)),
         omni_mir::TyKind::Reference { .. } => {
             Err("Codegen error: reference ABI requires pointer storage and ownership lowering"
                 .into())
@@ -79,7 +81,8 @@ fn classify_local_storage(
         | omni_mir::TyKind::Bool
         | omni_mir::TyKind::Byte
         | omni_mir::TyKind::Char
-        | omni_mir::TyKind::Float => Ok(Some(StorageClass::Scalar)),
+        | omni_mir::TyKind::Float
+        | omni_mir::TyKind::FnPtr(_, _) => Ok(Some(StorageClass::Scalar)),
         omni_mir::TyKind::Tuple(_) | omni_mir::TyKind::Array(..) | omni_mir::TyKind::Struct(..) => {
             Ok(Some(StorageClass::Aggregate))
         }
@@ -121,6 +124,7 @@ fn native_function_abi(
     tcx: &omni_mir::TyCtxt,
     layout: &TargetLayout<'_>,
     layout_workspace: &mut omni_mir::TyCtxt,
+    pointer_type: cranelift_codegen::ir::Type,
 ) -> Result<NativeFunctionAbi, String> {
     if mir_func.params.len() != source_def.params.len() {
         return Err(format!(
@@ -148,8 +152,9 @@ fn native_function_abi(
         | omni_mir::TyKind::Bool
         | omni_mir::TyKind::Byte
         | omni_mir::TyKind::Char
-        | omni_mir::TyKind::Float => {
-            NativeReturnAbi::Direct(native_abi_type_from_ty(tcx, return_ty)?.ok_or_else(|| {
+        | omni_mir::TyKind::Float
+        | omni_mir::TyKind::FnPtr(_, _) => {
+            NativeReturnAbi::Direct(native_abi_type_from_ty(tcx, return_ty, pointer_type)?.ok_or_else(|| {
                 format!("Codegen error: scalar return type for '{}' has no ABI type", mir_func.name)
             })?)
         }
@@ -204,8 +209,9 @@ fn native_function_abi(
             | omni_mir::TyKind::Bool
             | omni_mir::TyKind::Byte
             | omni_mir::TyKind::Char
-            | omni_mir::TyKind::Float => {
-                NativeParamAbi::Direct(native_abi_type_from_ty(tcx, mir_ty)?.ok_or_else(|| {
+            | omni_mir::TyKind::Float
+            | omni_mir::TyKind::FnPtr(_, _) => {
+                NativeParamAbi::Direct(native_abi_type_from_ty(tcx, mir_ty, pointer_type)?.ok_or_else(|| {
                     format!(
                         "Codegen error: scalar parameter {} of '{}' has no ABI type",
                         param_index, mir_func.name
@@ -400,6 +406,7 @@ fn compile_mir_program(
             &mir_prog.tcx,
             &layout_engine,
             &mut layout_tcx,
+            pointer_type,
         )?;
         let sig = signature_for_native_abi(&module, &abi);
         let func_id = module
@@ -447,7 +454,7 @@ fn compile_mir_program(
                 None => {}
                 Some(StorageClass::Scalar) => {
                     let native_ty =
-                        native_abi_type_from_ty(&mir_prog.tcx, ty)?.ok_or_else(|| {
+                        native_abi_type_from_ty(&mir_prog.tcx, ty, pointer_type)?.ok_or_else(|| {
                             format!(
                                 "Codegen error: scalar local {:?} has no native value type",
                                 local
@@ -751,7 +758,7 @@ fn compile_mir_program(
                             for pt in &param_types {
                                 param_abis.push(
                                         NativeParamAbi::Direct(
-                                            native_abi_type_from_ty(&mir_prog.tcx, *pt)?
+                                            native_abi_type_from_ty(&mir_prog.tcx, *pt, pointer_type)?
                                                 .ok_or_else(|| {
                                                     format!(
                                                         "Codegen error: indirect call parameter type {:?} has no ABI type",
@@ -767,7 +774,7 @@ fn compile_mir_program(
                                         omni_mir::TyKind::Unit => NativeReturnAbi::Unit,
                                         omni_mir::TyKind::Reference { .. } => {
                                             NativeReturnAbi::Direct(
-                                                native_abi_type_from_ty(&mir_prog.tcx, return_type)?
+                                                native_abi_type_from_ty(&mir_prog.tcx, return_type, pointer_type)?
                                                     .ok_or_else(|| {
                                                         format!(
                                                             "Codegen error: indirect call return type {:?} has no ABI type",
@@ -778,7 +785,7 @@ fn compile_mir_program(
                                         }
                                         omni_mir::TyKind::FnPtr(_, _) => {
                                             NativeReturnAbi::Direct(
-                                                native_abi_type_from_ty(&mir_prog.tcx, return_type)?
+                                                native_abi_type_from_ty(&mir_prog.tcx, return_type, pointer_type)?
                                                     .ok_or_else(|| {
                                                         format!(
                                                             "Codegen error: indirect call return type {:?} has no ABI type",
@@ -2375,7 +2382,7 @@ fn lower_operand_to_cl(
                 let sig = signature_for_native_abi(module, callee_abi);
                 let _sig_id = builder.func.dfg.signatures.push(sig.clone());
                 let func_id = module
-                    .declare_function(name, Linkage::Import, &sig)
+                    .declare_function(name, Linkage::Export, &sig)
                     .map_err(|e| format!("Codegen error: failed to declare '{}': {}", name, e))?;
                 let func_ref = UserExternalNameRef::from_u32(func_id.index() as u32);
                 let gv = builder.func.create_global_value(GlobalValueData::Symbol {
@@ -2537,7 +2544,7 @@ fn lower_rvalue_to_cl(
             let sig = signature_for_native_abi(module, callee_abi);
             let _sig_id = builder.func.dfg.signatures.push(sig.clone());
             let func_id = module
-                .declare_function(name, Linkage::Import, &sig)
+                .declare_function(name, Linkage::Export, &sig)
                 .map_err(|e| format!("Codegen error: failed to declare '{}': {}", name, e))?;
             let func_ref = UserExternalNameRef::from_u32(func_id.index() as u32);
             let gv = builder.func.create_global_value(GlobalValueData::Symbol {
@@ -2937,6 +2944,172 @@ mod tests {
         let err = compile_mir_program(&MonomorphizedProgram { functions: vec![touch, main] }, &mir)
             .expect_err("native backend must not erase a MIR cleanup edge");
         assert!(err.contains("unsupported cleanup/unwind edge"));
+    }
+
+
+    #[test]
+    fn test_indirect_function_pointer_call_verifies_emits_and_executes() {
+        use std::fs;
+        use std::process::Command;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let callee_source = ast::GenericFnDef {
+            name: "inc".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![("value".to_string(), ast::TypeSpec::Int)],
+            return_type: ast::TypeSpec::Int,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Binary {
+                op: ast::BinOp::Add,
+                lhs: Box::new(ast::Expr::Var("value".to_string())),
+                rhs: Box::new(ast::Expr::Literal(ast::Lit::Int(1))),
+            },
+        };
+        let caller_source = ast::GenericFnDef {
+            name: "omni_main".to_string(),
+            type_params: vec![],
+            bounds: vec![],
+            params: vec![],
+            return_type: ast::TypeSpec::Int,
+            effects: Default::default(),
+            capabilities: vec![],
+            body: ast::Expr::Call {
+                func: "inc".to_string(),
+                generic_args: vec![],
+                args: vec![ast::Expr::Literal(ast::Lit::Int(41))],
+            },
+        };
+
+        let mut tcx = omni_mir::TyCtxt::new();
+        let int = tcx.intern(omni_mir::TyKind::Int);
+        let fn_ptr = tcx.intern(omni_mir::TyKind::FnPtr(vec![int], int));
+
+        let mut callee_locals = index_vec::IndexVec::new();
+        let callee_return = callee_locals.push(omni_mir::ir::LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
+        let callee_arg = callee_locals.push(omni_mir::ir::LocalDecl {
+            name: Some("value".to_string()),
+            ty: Some(int),
+        });
+        let mut callee_blocks = index_vec::IndexVec::new();
+        callee_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![omni_mir::ir::Statement::Assign(
+                omni_mir::ir::Place::local(callee_return),
+                omni_mir::ir::Rvalue::BinaryOp(
+                    ast::BinOp::Add,
+                    omni_mir::ir::Operand::Copy(omni_mir::ir::Place::local(callee_arg)),
+                    omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(ast::Lit::Int(1))),
+                ),
+            )],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mut caller_locals = index_vec::IndexVec::new();
+        let caller_return = caller_locals.push(omni_mir::ir::LocalDecl {
+            name: Some("_return".to_string()),
+            ty: Some(int),
+        });
+        let function_pointer = caller_locals.push(omni_mir::ir::LocalDecl {
+            name: Some("inc_pointer".to_string()),
+            ty: Some(fn_ptr),
+        });
+        let mut caller_blocks = index_vec::IndexVec::new();
+        caller_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![omni_mir::ir::Statement::Assign(
+                omni_mir::ir::Place::local(function_pointer),
+                omni_mir::ir::Rvalue::FnRef("inc".to_string()),
+            )],
+            terminator: Some(omni_mir::ir::Terminator::Call {
+                func: omni_mir::ir::Operand::Copy(omni_mir::ir::Place::local(function_pointer)),
+                args: vec![omni_mir::ir::Operand::Constant(
+                    omni_mir::ir::Constant::Lit(ast::Lit::Int(41)),
+                )],
+                destination: Some(omni_mir::ir::Place::local(caller_return)),
+                target: omni_mir::ir::BasicBlock::from_usize(1),
+                cleanup: None,
+            }),
+        });
+        caller_blocks.push(omni_mir::ir::BlockData {
+            statements: vec![],
+            terminator: Some(omni_mir::ir::Terminator::Return),
+        });
+
+        let mir = omni_mir::ir::MirProgram {
+            tcx,
+            functions: vec![
+                omni_mir::ir::MirFunction {
+                    name: "inc".to_string(),
+                    params: vec![callee_arg],
+                    return_place: callee_return,
+                    return_type: ast::TypeSpec::Int,
+                    body: omni_mir::ir::Body {
+                        blocks: callee_blocks,
+                        local_decls: callee_locals,
+                        ..Default::default()
+                    },
+                },
+                omni_mir::ir::MirFunction {
+                    name: "omni_main".to_string(),
+                    params: vec![],
+                    return_place: caller_return,
+                    return_type: ast::TypeSpec::Int,
+                    body: omni_mir::ir::Body {
+                        blocks: caller_blocks,
+                        local_decls: caller_locals,
+                        ..Default::default()
+                    },
+                },
+            ],
+            struct_defs: std::collections::HashMap::new(),
+            enum_defs: std::collections::HashMap::new(),
+        };
+        let source = MonomorphizedProgram { functions: vec![callee_source, caller_source] };
+        let object = compile_verified_mir_program(&source, &mir)
+            .expect("typed FnPtr call must pass verification and native emission");
+
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let stem = format!(
+            "omni-indirect-call-e2e-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::SeqCst)
+        );
+        let dir = std::env::temp_dir();
+        let object_path = dir.join(format!("{stem}.o"));
+        let shim_path = dir.join(format!("{stem}_shim.rs"));
+        let exe_path = dir.join(format!("{stem}.exe"));
+        fs::write(&object_path, object).expect("object write");
+        fs::write(
+            &shim_path,
+            "unsafe extern \"C\" { fn omni_main() -> i64; }\nfn main() { std::process::exit(unsafe { omni_main() } as i32); }\n",
+        )
+        .expect("shim write");
+
+        let link = Command::new("rustc")
+            .arg("--edition=2021")
+            .arg(&shim_path)
+            .arg("-o")
+            .arg(&exe_path)
+            .arg("-C")
+            .arg(format!("link-arg={}", object_path.display()))
+            .output()
+            .expect("rustc must be available for the native link test");
+        assert!(
+            link.status.success(),
+            "rustc link failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&link.stdout),
+            String::from_utf8_lossy(&link.stderr)
+        );
+
+        let run = Command::new(&exe_path).status().expect("indirect-call executable must run");
+        assert_eq!(run.code(), Some(42));
+
+        fs::remove_file(object_path).ok();
+        fs::remove_file(shim_path).ok();
+        fs::remove_file(exe_path).ok();
     }
 
     #[test]

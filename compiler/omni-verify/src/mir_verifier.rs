@@ -246,7 +246,7 @@ impl std::fmt::Display for MirVerificationError {
             ),
             Self::InvalidCallCallee { func } => write!(
                 f,
-                "MIR Verification Failure in '{}': call callee is not a direct function reference",
+                "MIR Verification Failure in '{}': call callee is neither a direct function reference nor a typed function pointer",
                 func
             ),
             Self::UnknownFunction { func, callee } => write!(
@@ -1482,7 +1482,14 @@ impl MirVerifier {
         rvalue: &Rvalue,
     ) -> Result<(), MirVerificationError> {
         let mut tcx = prog.tcx.clone();
-        let actual = Self::rvalue_type(&mut tcx, &prog.struct_defs, &prog.enum_defs, func, rvalue)?;
+        let actual = Self::rvalue_type(
+            &mut tcx,
+            &prog.struct_defs,
+            &prog.enum_defs,
+            &prog.functions,
+            func,
+            rvalue,
+        )?;
         // The expected type is the type of the *whole* place, projection chain
         // included. Using the root local's type would reject every projected
         // assignment, because `x.y = 1` writes an int into a slot of a tuple or
@@ -1508,6 +1515,7 @@ impl MirVerifier {
         tcx: &mut TyCtxt,
         defs: &std::collections::HashMap<String, omni_mir::ast::StructDef>,
         enum_defs: &std::collections::HashMap<String, omni_mir::ast::EnumDef>,
+        functions: &[omni_mir::ir::MirFunction],
         func: &MirFunction,
         rvalue: &Rvalue,
     ) -> Result<Ty, MirVerificationError> {
@@ -1659,13 +1667,25 @@ impl MirVerifier {
                 }
                 Ok(*ty)
             }
-            Rvalue::FnRef(_) => {
-                // Indirect call target - type is FnPtr(params, return_type).
-                // The actual parameter types are checked at codegen time against
-                // the function's declared ABI. Here we use a placeholder FnPtr
-                // with the function's declared return type.
-                let return_ty = tcx.intern(TyKind::Unit);
-                Ok(tcx.intern(TyKind::FnPtr(vec![], return_ty)))
+            Rvalue::FnRef(name) => {
+                // A function reference carries the exact callable signature.
+                // Do not substitute a placeholder FnPtr: the MIR assignment
+                // destination and every later indirect call must agree on the
+                // complete parameter and return types before code generation.
+                let target = functions
+                    .iter()
+                    .find(|candidate| candidate.name == *name)
+                    .ok_or_else(|| MirVerificationError::UnknownFunction {
+                        func: func.name.clone(),
+                        callee: name.clone(),
+                    })?;
+                let params = target
+                    .params
+                    .iter()
+                    .map(|param| Self::local_ty(target, *param, &target.name))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let return_ty = Self::local_ty(target, target.return_place, &target.name)?;
+                Ok(tcx.intern(TyKind::FnPtr(params, return_ty)))
             }
             Rvalue::Range { start, end, inclusive: _, ty } => {
                 let start_ty = Self::operand_type(tcx, defs, func, start)?;
@@ -2115,46 +2135,65 @@ impl MirVerifier {
                 continue;
             };
 
-            let callee_name = match callee {
-                Operand::Constant(Constant::FnRef(name)) => name,
-                _ => {
-                    return Err(MirVerificationError::InvalidCallCallee { func: func.name.clone() })
+            let mut tcx = prog.tcx.clone();
+            let (callee_name, param_types, return_ty) = match callee {
+                Operand::Constant(Constant::FnRef(name)) => {
+                    let target = prog
+                        .functions
+                        .iter()
+                        .find(|candidate| candidate.name == *name)
+                        .ok_or_else(|| MirVerificationError::UnknownFunction {
+                            func: func.name.clone(),
+                            callee: name.clone(),
+                        })?;
+                    let params = target
+                        .params
+                        .iter()
+                        .map(|param| Self::local_ty(target, *param, &target.name))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let return_ty =
+                        Self::local_ty(target, target.return_place, &target.name)?;
+                    (name.clone(), params, return_ty)
+                }
+                Operand::Copy(place) | Operand::Move(place) => {
+                    let callee_ty =
+                        Self::operand_type(&mut tcx, &prog.struct_defs, func, callee)?;
+                    let TyKind::FnPtr(params, return_ty) = tcx.get(callee_ty) else {
+                        return Err(MirVerificationError::InvalidCallCallee {
+                            func: func.name.clone(),
+                        });
+                    };
+                    (format!("function pointer at {:?}", place), params.clone(), *return_ty)
+                }
+                Operand::Constant(Constant::Lit(_)) => {
+                    return Err(MirVerificationError::InvalidCallCallee {
+                        func: func.name.clone(),
+                    });
                 }
             };
 
-            let target =
-                prog.functions.iter().find(|candidate| candidate.name == *callee_name).ok_or_else(
-                    || MirVerificationError::UnknownFunction {
-                        func: func.name.clone(),
-                        callee: callee_name.clone(),
-                    },
-                )?;
-
-            if args.len() != target.params.len() {
+            if args.len() != param_types.len() {
                 return Err(MirVerificationError::CallArityMismatch {
                     func: func.name.clone(),
                     callee: callee_name.clone(),
-                    expected: target.params.len(),
+                    expected: param_types.len(),
                     actual: args.len(),
                 });
             }
 
-            let mut tcx = prog.tcx.clone();
-            for (arg_index, (arg, param)) in args.iter().zip(&target.params).enumerate() {
+            for (arg_index, (arg, expected)) in args.iter().zip(&param_types).enumerate() {
                 let actual = Self::operand_type(&mut tcx, &prog.struct_defs, func, arg)?;
-                let expected = Self::local_ty(target, *param, &target.name)?;
-                if actual != expected {
+                if actual != *expected {
                     return Err(MirVerificationError::CallArgumentTypeMismatch {
                         func: func.name.clone(),
                         callee: callee_name.clone(),
                         arg_index,
-                        expected,
+                        expected: *expected,
                         actual,
                     });
                 }
             }
 
-            let return_ty = Self::local_ty(target, target.return_place, &target.name)?;
             let unit_ty = tcx.intern(TyKind::Unit);
             match (return_ty == unit_ty, destination) {
                 (true, None) => {}
