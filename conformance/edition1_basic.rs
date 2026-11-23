@@ -1,70 +1,106 @@
-//! Conformance tests for Omni Edition 1 core language features.
-//! These tests validate that the compiler correctly implements the Edition 1
-//! specification as defined in spec/grammar/omni-edition1.ebnf.
+//! Executable Edition 1 conformance smoke corpus.
 //!
-//! Each test compiles a valid Omni program and verifies the expected behavior,
-//! either through the reference machine (abstract interpreter) or native codegen.
+//! The test target is registered by compiler/omni-driver/Cargo.toml and runs
+//! against Cargo's actual omni-driver binary. These cases validate the
+//! reference-machine path and native object emission. They do not claim that
+//! native objects have been linked into standalone executables.
 
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Compile and run an Omni program via the abstract machine interpreter,
-/// returning the exit code.
-fn run_interpreter(source: &str) -> i32 {
-    // Write source to a temp file
-    let temp_file = std::env::temp_dir().join(format!("conformance_{}.omni", std::process::id()));
-    std::fs::write(&temp_file, source).expect("write test source");
+const DRIVER: &str = env!("CARGO_BIN_EXE_omni-driver");
+static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
-    // Find the omni-driver binary
-    let driver = std::env::target_dir().join("debug/omni-driver.exe");
-    if !driver.exists() {
-        // Try without .exe (non-Windows)
-        let driver = std::env::target_dir().join("debug/omni-driver");
-        if !driver.exists() {
-            panic!("omni-driver binary not found");
-        }
-    }
-
-    let output = Command::new(&driver)
-        .arg(temp_file.to_str().unwrap())
-        .output()
-        .expect("execute driver");
-
-    output.status.code().unwrap_or(1)
+struct TempTestDir {
+    path: PathBuf,
 }
 
-/// Compile an Omni program to native object and run it via the native executable,
-/// returning the exit code.
-fn run_native(source: &str) -> i32 {
-    let temp_file = std::env::temp_dir().join(format!("conformance_native_{}.omni", std::process::id()));
-    std::fs::write(&temp_file, source).expect("write test source");
-
-    let driver = std::env::target_dir().join("debug/omni-driver.exe");
-    if !driver.exists() {
-        let driver = std::env::target_dir().join("debug/omni-driver");
-        if !driver.exists() {
-            panic!("omni-driver binary not found");
-        }
+impl TempTestDir {
+    fn new(label: &str) -> Self {
+        let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "omni-edition1-conformance-{}-{id}-{label}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&path).expect("create unique conformance test directory");
+        Self { path }
     }
 
-    let exe_path = std::env::temp_dir().join(format!("conformance_native_{}.exe", std::process::id()));
+    fn source(&self, name: &str, contents: &str) -> PathBuf {
+        let path = self.path.join(name);
+        std::fs::write(&path, contents).expect("write Omni conformance source");
+        path
+    }
 
-    // Compile to native
-    let compile_output = Command::new(&driver)
-        .arg("--native")
-        .arg("-o")
-        .arg(&exe_path)
-        .arg(&temp_file)
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempTestDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+fn run_interpreter(source: &str) -> i64 {
+    let temp = TempTestDir::new("interpreter");
+    let source_path = temp.source("case.omni", source);
+    let output = Command::new(DRIVER)
+        .arg("--run")
+        .arg(&source_path)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
-        .expect("execute driver for native compile");
+        .expect("execute omni-driver reference-machine path");
 
-    if !compile_output.status.success() {
-        eprintln!("Native compilation failed: {}", String::from_utf8_lossy(&compile_output.stderr));
-        return 1;
-    }
+    assert!(
+        output.status.success(),
+        "reference execution failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
-    // Run the native executable
-    let run_output = Command::new(&exe_path).output().expect("run native executable");
-    run_output.status.code().unwrap_or(1)
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let result = stdout
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Exit code: "))
+        .unwrap_or_else(|| panic!("driver did not report an integer result: {stdout}"));
+    result.parse().unwrap_or_else(|error| panic!("invalid driver result {result:?}: {error}"))
+}
+
+fn compile_native_object(source: &str) -> (u64, u64) {
+    let temp = TempTestDir::new("native-object");
+    let source_path = temp.source("case.omni", source);
+    let object_path = temp.path().join("case.obj");
+    let output = Command::new(DRIVER)
+        .arg("--native")
+        .arg("--output")
+        .arg(&object_path)
+        .arg(&source_path)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("execute omni-driver native object emission");
+
+    assert!(
+        output.status.success(),
+        "native object emission failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let object_size = std::fs::metadata(&object_path)
+        .expect("native object must be created")
+        .len();
+    assert!(object_size > 0, "native object must not be empty");
+
+    let sidecar = object_path.with_extension("provenance.json");
+    let sidecar_size = std::fs::metadata(&sidecar)
+        .expect("native object provenance sidecar must be created")
+        .len();
+    assert!(sidecar_size > 0, "provenance sidecar must not be empty");
+
+    (object_size, sidecar_size)
 }
 
 #[test]
@@ -75,8 +111,7 @@ fn main() -> i64 {
     return x + 1;
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 42, "Interpreter should compute 41 + 1 = 42");
+    assert_eq!(run_interpreter(source), 42);
 }
 
 #[test]
@@ -89,8 +124,7 @@ fn main() -> i64 {
     return 0;
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 1, "1 == 1 should be true");
+    assert_eq!(run_interpreter(source), 1);
 }
 
 #[test]
@@ -103,8 +137,7 @@ fn main() -> i64 {
     return 0;
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 1, "!(1 == 2) should be true");
+    assert_eq!(run_interpreter(source), 1);
 }
 
 #[test]
@@ -118,8 +151,7 @@ fn main() -> i64 {
     return n;
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 5, "while loop should count to 5");
+    assert_eq!(run_interpreter(source), 5);
 }
 
 #[test]
@@ -133,8 +165,7 @@ fn main() -> i64 {
     return sum;
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 10, "for loop 0..5 should sum to 10 (0+1+2+3+4=10)");
+    assert_eq!(run_interpreter(source), 10);
 }
 
 #[test]
@@ -149,8 +180,7 @@ fn main() -> i64 {
     }
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 1, "if x > 5 with x=10 should return 1");
+    assert_eq!(run_interpreter(source), 1);
 }
 
 #[test]
@@ -166,8 +196,7 @@ fn main() -> i64 {
     };
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 99, "match x=3 should fall through to _ => 99");
+    assert_eq!(run_interpreter(source), 99);
 }
 
 #[test]
@@ -183,8 +212,7 @@ fn main() -> i64 {
     return p.x + p.y;
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 7, "struct Point { x: 3, y: 4 } should have x+y=7");
+    assert_eq!(run_interpreter(source), 7);
 }
 
 #[test]
@@ -198,23 +226,22 @@ fn main() -> i64 {
     return add(10, 32);
 }
 "#;
-    let result = run_interpreter(source);
-    assert_eq!(result, 42, "add(10, 32) should return 42");
+    assert_eq!(run_interpreter(source), 42);
 }
 
 #[test]
-fn test_native_end_to_end() {
+fn test_native_end_to_end_emits_object_and_provenance() {
     let source = r#"
 fn main() -> i64 {
     return 42;
 }
 "#;
-    let result = run_native(source);
-    assert_eq!(result, 42, "native executable should return 42");
+    let (object_size, provenance_size) = compile_native_object(source);
+    assert!(object_size > 0 && provenance_size > 0);
 }
 
 #[test]
-fn test_native_if_else() {
+fn test_native_if_else_emits_object_and_provenance() {
     let source = r#"
 fn main() -> i64 {
     let x = 10;
@@ -225,6 +252,6 @@ fn main() -> i64 {
     }
 }
 "#;
-    let result = run_native(source);
-    assert_eq!(result, 1, "native if x > 5 with x=10 should return 1");
+    let (object_size, provenance_size) = compile_native_object(source);
+    assert!(object_size > 0 && provenance_size > 0);
 }

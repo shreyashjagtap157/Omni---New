@@ -31,3 +31,8 @@ omni-stage0 = { path = "../omni-stage0" }
 [dev-dependencies]
 omni-canon = { path = "../../tools/omni-canon" }
 serde_json = "1.0"
+
+# Keep the Edition 1 conformance corpus executable by the pinned workspace CI.
+[[test]]
+name = "edition1_basic"
+path = "../../conformance/edition1_basic.rs"
