@@ -1,7 +1,12 @@
 #!/usr/bin/env pwsh
 # Windows installer qualification. Every assertion affects the process result.
 [CmdletBinding()]
-param()
+param(
+    [ValidateSet("Debug", "Release")]
+    [string] $Configuration = "Release",
+
+    [switch] $SkipBuild
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -12,6 +17,7 @@ $script:INSTALLER = Join-Path $PSScriptRoot "omni-installer.ps1"
 $script:ORIGINAL_USER_PATH = [Environment]::GetEnvironmentVariable("PATH", "User")
 $script:ORIGINAL_USER_SPEC_ROOT = [Environment]::GetEnvironmentVariable("OMNI_SPEC_ROOT", "User")
 $script:ORIGINAL_PROCESS_SPEC_ROOT = $env:OMNI_SPEC_ROOT
+$script:BUILD_CONFIGURATION = $Configuration
 
 function Write-TestResult {
     param([string] $Name, [bool] $Passed, [string] $Notes = "")
@@ -33,7 +39,7 @@ function Invoke-Installer {
     )
 
     $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
-    $output = & $pwsh -NoProfile -File $script:INSTALLER -Mode $Mode -Scope PerUser -Root $Root -Quiet -AcceptLicense 2>&1
+    $output = & $pwsh -NoProfile -File $script:INSTALLER -Mode $Mode -Scope PerUser -Root $Root -Quiet -AcceptLicense -BuildConfiguration $script:BUILD_CONFIGURATION 2>&1
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) { Write-Host $line }
     if ($exitCode -ne 0) {
@@ -186,17 +192,28 @@ $overall = $true
 try {
     New-Item -ItemType Directory -Path $script:TEST_ROOT -Force | Out-Null
 
-    Write-Host "Building locked release binaries..." -ForegroundColor Cyan
-    $build = & cargo build --workspace --locked --release 2>&1
-    $buildCode = $LASTEXITCODE
-    foreach ($line in $build) { Write-Host $line }
-    Write-TestResult "Locked release build" ($buildCode -eq 0)
-    if ($buildCode -ne 0) { throw "Release build failed." }
+    $buildDir = Join-Path "target" $Configuration.ToLowerInvariant()
+    if (-not $SkipBuild) {
+        $buildArguments = @("build", "--workspace", "--locked")
+        if ($Configuration -eq "Release") { $buildArguments += "--release" }
+
+        Write-Host "Building locked $Configuration workspace binaries..." -ForegroundColor Cyan
+        $build = & cargo @buildArguments 2>&1
+        $buildCode = $LASTEXITCODE
+        foreach ($line in $build) { Write-Host $line }
+        Write-TestResult "Locked $Configuration workspace build" ($buildCode -eq 0)
+        if ($buildCode -ne 0) { throw "Workspace build failed." }
+    } else {
+        Write-Host "Reusing the $Configuration workspace artifacts produced by the preceding CI build." -ForegroundColor Cyan
+    }
 
     $requiredBinaries = @("omni-driver.exe", "omni-fmt.exe", "omni-canon.exe", "omni-registry.exe", "omni_runtime_ffi.dll")
-    $missingBinaries = @($requiredBinaries | Where-Object { -not (Test-Path (Join-Path "target\release" $_) -PathType Leaf) })
-    Write-TestResult "Required product binaries are present" ($missingBinaries.Count -eq 0) ($missingBinaries -join ", ")
-    if ($missingBinaries.Count -gt 0) { throw "Required release payload is incomplete." }
+    if (-not (Test-Path -LiteralPath $buildDir -PathType Container)) {
+        throw "Selected build directory is missing: $buildDir"
+    }
+    $missingBinaries = @($requiredBinaries | Where-Object { -not (Test-Path (Join-Path $buildDir $_) -PathType Leaf) })
+    Write-TestResult "Required $Configuration product binaries are present" ($missingBinaries.Count -eq 0) ($missingBinaries -join ", ")
+    if ($missingBinaries.Count -gt 0) { throw "Required $Configuration product payload is incomplete." }
 
     if (Invoke-Installer -Mode Install -Root $rootOne) {
         $overall = (Test-PathPreservation -Root $rootOne -BaselineUserPath $baselinePath) -and $overall
@@ -238,7 +255,7 @@ try {
     foreach ($root in @($rootOne, $rootTwo)) {
         if (Test-Path $root) {
             try {
-                & (Get-Command pwsh).Source -NoProfile -File $script:INSTALLER -Mode Uninstall -Scope PerUser -Root $root -Quiet -AcceptLicense *> $null
+                & (Get-Command pwsh).Source -NoProfile -File $script:INSTALLER -Mode Uninstall -Scope PerUser -Root $root -Quiet -AcceptLicense -BuildConfiguration $script:BUILD_CONFIGURATION *> $null
             } catch {}
         }
     }

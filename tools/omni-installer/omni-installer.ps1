@@ -29,7 +29,11 @@ param(
     [switch] $Quiet,
 
     [Parameter(Mandatory = $false)]
-    [switch] $AcceptLicense
+    [switch] $AcceptLicense,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("Auto", "Debug", "Release")]
+    [string] $BuildConfiguration = "Auto"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -481,12 +485,16 @@ function Install-Omni {
     }
     $repoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDir "..\..") -ErrorAction Stop).Path
 
-    $buildDir = Join-Path $repoRoot "target\release"
-    if (-not (Test-Path -LiteralPath $buildDir -PathType Container)) {
-        $buildDir = Join-Path $repoRoot "target\debug"
+    if ($BuildConfiguration -eq "Auto") {
+        $buildDir = Join-Path $repoRoot "target\release"
+        if (-not (Test-Path -LiteralPath $buildDir -PathType Container)) {
+            $buildDir = Join-Path $repoRoot "target\debug"
+        }
+    } else {
+        $buildDir = Join-Path $repoRoot ("target\" + $BuildConfiguration.ToLowerInvariant())
     }
     if (-not (Test-Path -LiteralPath $buildDir -PathType Container)) {
-        throw "Build output directory not found: $buildDir. Build Omni first with cargo build --workspace --locked."
+        throw "Build output directory not found for configuration '$BuildConfiguration': $buildDir. Build Omni first with cargo build --workspace --locked."
     }
 
     $executables = @("omni-driver.exe", "omni-fmt.exe", "omni-canon.exe", "omni-registry.exe")

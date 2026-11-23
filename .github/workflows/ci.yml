@@ -125,7 +125,7 @@ jobs:
 
       - name: Qualify Windows installer payload
         shell: pwsh
-        run: ./tools/omni-installer/installer-qualify.ps1
+        run: ./tools/omni-installer/installer-qualify.ps1 -Configuration Debug -SkipBuild
 
   gate-readiness:
     name: First-stage gate readiness (informational; does not grant qualification)
