@@ -3063,6 +3063,7 @@ mod tests {
         let object = compile_verified_mir_program(&source, &mir)
             .expect("typed FnPtr call must pass verification and native emission");
 
+        use object::{Object, ObjectSymbol};
         let object_file =
             object::File::parse(object.as_slice()).expect("native object must be parseable");
         let defined_symbols: Vec<String> = object_file
