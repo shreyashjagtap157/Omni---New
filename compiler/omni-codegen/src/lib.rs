@@ -2995,7 +2995,7 @@ mod tests {
             statements: vec![omni_mir::ir::Statement::Assign(
                 omni_mir::ir::Place::local(callee_return),
                 omni_mir::ir::Rvalue::BinaryOp(
-                    ast::BinOp::Add,
+                    omni_mir::ir::BinOp::Add,
                     omni_mir::ir::Operand::Copy(omni_mir::ir::Place::local(callee_arg)),
                     omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(ast::Lit::Int(1))),
                 ),
