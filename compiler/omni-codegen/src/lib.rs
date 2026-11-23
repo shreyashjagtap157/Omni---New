@@ -3064,8 +3064,18 @@ mod tests {
             .expect("typed FnPtr call must pass verification and native emission");
 
         use object::{Object, ObjectSymbol};
-        let object_file =
-            object::File::parse(object.as_slice()).expect("native object must be parseable");
+        let object_prefix = object
+            .iter()
+            .take(16)
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let object_file = object::File::parse(object.as_slice()).unwrap_or_else(|error| {
+            panic!(
+                "native object must be parseable ({} bytes, prefix [{object_prefix}]): {error}",
+                object.len()
+            )
+        });
         let defined_symbols: Vec<String> = object_file
             .symbols()
             .filter(|symbol| symbol.is_definition())
