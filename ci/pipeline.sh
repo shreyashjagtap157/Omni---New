@@ -21,6 +21,7 @@ echo "CI mode=$MODE ceiling=${MAX_TIME}s fuzz_budget=${FUZZ_BUDGET}s/target"
 export CARGO_BUILD_JOBS=1
 export CARGO_BUILD_CODEGEN_UNITS=1
 ./ci/assert-toolchain.sh
+./ci/test-memory-models.sh
 
 test "$(umask)" = "0022" || { echo "FATAL: umask must be 0022." >&2; exit 106; }
 

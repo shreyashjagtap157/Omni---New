@@ -16,6 +16,10 @@ $env:CARGO_BUILD_CODEGEN_UNITS = 1
 & ./ci/assert-toolchain.ps1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Isolated research models are compiled and tested outside the production workspace.
+& ./ci/test-memory-models.ps1
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # Umask equivalent (Windows ACLs are not POSIX; skip the 0022 check).
 
 # Formatting check.

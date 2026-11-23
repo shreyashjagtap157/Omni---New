@@ -81,6 +81,10 @@ jobs:
         shell: pwsh
         run: ./ci/assert-toolchain.ps1
 
+      - name: Test isolated memory-model research
+        shell: pwsh
+        run: ./ci/test-memory-models.ps1
+
       - name: Check formatting
         shell: pwsh
         run: cargo fmt --all -- --check
