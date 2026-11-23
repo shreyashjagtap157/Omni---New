@@ -3063,6 +3063,20 @@ mod tests {
         let object = compile_verified_mir_program(&source, &mir)
             .expect("typed FnPtr call must pass verification and native emission");
 
+        let object_file =
+            object::File::parse(object.as_slice()).expect("native object must be parseable");
+        let defined_symbols: Vec<String> = object_file
+            .symbols()
+            .filter(|symbol| symbol.is_definition())
+            .filter_map(|symbol| symbol.name().ok().map(str::to_owned))
+            .collect();
+        assert!(
+            defined_symbols
+                .iter()
+                .any(|name| name == "omni_main" || name == "_omni_main"),
+            "emitted object does not define the expected entry symbol; defined symbols: {defined_symbols:?}"
+        );
+
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let stem = format!(
             "omni-indirect-call-e2e-{}-{}",
