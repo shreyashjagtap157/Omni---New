@@ -2333,29 +2333,23 @@ mod tests {
             .expect("child reborrow");
         state.loan_parents.insert("child".into(), parent_authority.clone());
 
-        let grandchild_authority =
-            BTreeSet::from(["parent".to_string(), "child".to_string()]);
+        let grandchild_authority = BTreeSet::from(["parent".to_string(), "child".to_string()]);
         state
             .ownership
             .borrow_shared_with_parents(origin, "grandchild", &grandchild_authority)
             .expect("grandchild reborrow");
-        state
-            .loan_parents
-            .insert("grandchild".into(), BTreeSet::from(["child".into()]));
+        state.loan_parents.insert("grandchild".into(), BTreeSet::from(["child".into()]));
 
-        let projected_slot = OwnershipPlace::root("holder")
-            .project(OwnershipProjection::Field("slot".into()));
+        let projected_slot =
+            OwnershipPlace::root("holder").project(OwnershipProjection::Field("slot".into()));
         state
             .reference_slot_loans
             .insert(projected_slot, BTreeSet::from(["grandchild".to_string()]));
 
         end_tracked_loan_if_unreferenced(&mut state, "child")
             .expect("the child and its parent must remain live through a projected grandchild");
-        let live_regions = state
-            .ownership
-            .loans()
-            .map(|loan| loan.region.as_str())
-            .collect::<BTreeSet<_>>();
+        let live_regions =
+            state.ownership.loans().map(|loan| loan.region.as_str()).collect::<BTreeSet<_>>();
         assert!(
             live_regions.contains("parent")
                 && live_regions.contains("child")
