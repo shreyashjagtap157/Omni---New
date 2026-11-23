@@ -1153,14 +1153,17 @@ mod tests {
                 &[request(object, CaptureMode::Move)],
             )
             .expect("move capture after previous reservations end");
+        // Use a distinct source-place alias so this assertion exercises the
+        // object-level capture access reservation rather than same-place move ownership.
         assert_eq!(
             model.create_capture_environment(
                 CaptureKind::Closure,
                 CaptureLifetime::Escaping,
-                &[request(object, CaptureMode::SharedBorrow)],
+                &[request_at(SourcePlaceId(9002), object, CaptureMode::SharedBorrow)],
             ),
             Err(ModelError::BorrowConflict(object))
         );
+        assert_eq!(model.source_places.get(&SourcePlaceId(9002)), None);
         model.release_capture_environment(moved).expect("release move reservation");
     }
 
@@ -1182,12 +1185,13 @@ mod tests {
             model.create_capture_environment(
                 CaptureKind::DetachedTask,
                 CaptureLifetime::Escaping,
-                &[request(object, CaptureMode::SharedBorrow)],
+                &[request_at(SourcePlaceId(9003), object, CaptureMode::SharedBorrow)],
             ),
             Err(ModelError::BorrowConflict(object))
         );
         assert_eq!(model.next_capture, next_before);
         assert_eq!(model.capture_access, access_before);
+        assert_eq!(model.source_places.get(&SourcePlaceId(9003)), None);
         assert_eq!(model.captures.len(), 1);
 
         model.release_capture_environment(active).expect("release active capture");
