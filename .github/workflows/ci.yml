@@ -273,11 +273,11 @@ jobs:
                           f"missing detail rows={missing_rows}; "
                           f"unlisted detail rows={unlisted_rows}."
                       )
-                  if len(summary_ids) + accepted + blocked != total:
+                  if len(summary_ids) + partial + accepted + blocked != total:
                       blockers.append(
-                          "Verified ID listing + Accepted + Blocked does not equal "
-                          f"the declared total ({len(summary_ids)} + {accepted} + "
-                          f"{blocked} != {total})."
+                          "Verified ID listing + Partial + Accepted + Blocked does not equal "
+                          f"the declared total ({len(summary_ids)} + {partial} + "
+                          f"{accepted} + {blocked} != {total})."
                       )
           else:
               blockers.append("IMPLEMENTATION_INVENTORY.md is absent.")
