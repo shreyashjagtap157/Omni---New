@@ -1195,13 +1195,18 @@ mod tests {
         assert_eq!(model.captures.len(), 1);
 
         model.release_capture_environment(active).expect("release active capture");
+        assert_eq!(
+            model.source_places.get(&SourcePlaceId(object.0)),
+            Some(&(object, SourcePlaceState::Moved)),
+            "finishing a move capture must not resurrect its original source place"
+        );
         let next = model
             .create_capture_environment(
                 CaptureKind::DetachedTask,
                 CaptureLifetime::Escaping,
-                &[request(object, CaptureMode::SharedBorrow)],
+                &[request_at(SourcePlaceId(9003), object, CaptureMode::SharedBorrow)],
             )
-            .expect("create after release");
+            .expect("the rejected alias remains caller-owned after the conflict ends");
         assert_eq!(next.0, next_before + 1);
     }
 
