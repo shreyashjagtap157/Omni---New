@@ -3,7 +3,6 @@
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_codegen::ir::{types, AbiParam, Signature, StackSlot, StackSlotData, StackSlotKind};
 use cranelift_codegen::settings::{self, Configurable};
-use cranelift_entity::EntityRef;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
@@ -722,9 +721,9 @@ fn compile_mir_program(
                             mir_func.name
                         ));
                     }
-                    let fn_name = match func {
+                    let fn_name_opt = match func {
                         omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::FnRef(name)) => {
-                            name.clone()
+                            Some(name.clone())
                         }
                         omni_mir::ir::Operand::Copy(place) | omni_mir::ir::Operand::Move(place) => {
                             // Indirect call: function pointer loaded from a place.
@@ -931,7 +930,7 @@ fn compile_mir_program(
                                     builder.ins().jump(target_cl, &[]);
                                 }
                             }
-                            return Ok(vec![]);
+                            None
                         }
                         _ => {
                             return Err(
@@ -939,6 +938,10 @@ fn compile_mir_program(
                                     .into(),
                             )
                         }
+                    };
+                    let fn_name = match fn_name_opt {
+                        Some(name) => name,
+                        None => continue,
                     };
                     let source_callee =
                         prog.functions.iter().find(|f| f.name == *fn_name).ok_or_else(|| {
@@ -3064,12 +3067,8 @@ mod tests {
             .expect("typed FnPtr call must pass verification and native emission");
 
         use object::{Object, ObjectSymbol};
-        let object_prefix = object
-            .iter()
-            .take(16)
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let object_prefix =
+            object.iter().take(16).map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(" ");
         let object_file = object::File::parse(object.as_slice()).unwrap_or_else(|error| {
             panic!(
                 "native object must be parseable ({} bytes, prefix [{object_prefix}]): {error}",
