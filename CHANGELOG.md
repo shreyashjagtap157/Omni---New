@@ -4,6 +4,10 @@ All notable project changes are documented here. Entries describe repository sta
 
 ## [Unreleased]
 
+### Documentation and project governance
+- Added a curated project requirements index, an extensive reconstructed owner-requirements baseline and a source/authority reconciliation record. Preserved the October 2026 conversation-integrated compendium in a clearly non-normative archive; no Edition 1 grammar, semantic rule, specification digest, product version or implementation status was changed.
+- Reconciled the public README with the live 23 November main HEAD and CI evidence, including the outstanding macOS indirect-call text-relocation failure.
+
 ### Research — managed memory and affine ownership
 - Extended the isolated domain model with object pinning and object-owned external resources. Attaching an FFI/DMA-style resource transfers ownership to the object and pins it; resource closure is exact-once but does not automatically unpin; promotion and region teardown reject pinned/resource-bearing objects. Added four regressions. Exact Rust 1.95.0 CI result on `3902f6d`: domain model 22/22 passed; this remains a research model, not production FFI, DMA, allocator, or ABI support.
 - Corrected the research-test setup to create the capture environment before passing an immutable model reference into the resource-transfer check; this avoids overlapping mutable/immutable borrows without weakening the assertion.

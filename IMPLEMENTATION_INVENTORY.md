@@ -1,7 +1,7 @@
 # Omni Implementation Inventory
 
 
-> **Gate inventory reconciliation — 2026-11-23:** The fixed first-stage denominator is 26 unique requirements. The current evidence-backed inventory is **23 Verified / 1 Partial / 1 Accepted / 1 Blocked**. COMP-017 is excluded as a duplicate of COMP-011's full indirect-call emission scope; COMP-018 is excluded because no such requirement is registered. Neither exclusion is counted toward the 26 mandatory requirements.
+> **Gate inventory reconciliation — 2026-11-23:** The fixed first-stage denominator is 26 unique requirements. The current evidence-backed inventory is **22 Verified / 2 Partial / 1 Accepted / 1 Blocked**. COMP-017 is excluded as a duplicate of COMP-011's full indirect-call emission scope; COMP-018 is excluded because no such requirement is registered. Neither exclusion is counted toward the 26 mandatory requirements.
 >
 > **COMP-019 is Partial:** `compiler/omni-pkg/src/main.rs` and `compiler/omni-build/src/main.rs` remain placeholder entry points. Their successful compilation only proves that the placeholder crates compile; it does not prove package management, dependency resolution, build orchestration or artifact management. The inventory therefore does not claim COMP-019 as Verified.
 
@@ -11,8 +11,8 @@
 
 | Category   | Count | Items |
 |------------|-------|-------|
-| Verified   | 23    | COMP-001–016, COMP-020–024, INST-003, PLAT-001 |
-| Partial    | 1     | COMP-019 (package/build tools remain placeholder entry points) |
+| Verified   | 22    | COMP-001–016, COMP-021–024, INST-003, PLAT-001 |
+| Partial    | 2     | COMP-019 (package/build tools remain placeholder entry points); COMP-020 (macOS indirect-call E2E linker regression) |
 | Accepted   | 1     | ADR-0002 (Alternative C approved; formal qualification record pending) |
 | Blocked    | 1     | INST-002 (production code signing certificates required) |
 | **Total**  | **26**| Mandatory items |
@@ -37,7 +37,7 @@
 | COMP-014 | Conformance test suite | compiler/omni-driver/tests/ | 70 tests passing (65 original + 5 new) | Verified |
 | COMP-015 | Driver CLI --run flag | compiler/omni-driver/src/main.rs | --run flag supported, links and runs | Verified |
 | COMP-016 | Installer qualification docs | tools/omni-installer/ | INSTALLER_QUALIFICATION.md created | Verified |
-| COMP-020 | Linux/macOS compatibility | GitHub Actions run 44746310922 | validate-linux pass, validate-macos pass | Verified |
+| COMP-020 | Linux/macOS compatibility | Historical run 44746310922 passed its then-current coverage; current push run 45142790701 on 8f4878e failed macOS indirect-call E2E with Apple ld text relocation (`_omni_main` → `_inc`); Linux and Windows passed | Partial — previous coverage remains valid for that revision, but the current declared macOS target matrix is not green |
 | INST-003 | Checksums/SBOM generation | tools/omni-installer/ | Compute-FileChecksum() (SHA256) and Write-SBOM() functions implemented; SBOM structure defined | Verified |
 | COMP-021 | Release-candidate stabilization | BLD-006 | RC cycle completed: clean build, full test matrix (fmt, clippy, test), checksums/SBOM generated, installer qualification passed | Verified |
 | COMP-022 | Windows installer qualification (clean Windows) | INST-001/003 | Windows CI job (windows-latest) runs installer-qualify.ps1. Local qualification passed: per-user install, paths with spaces, upgrade, repair, uninstall, reinstall, driver --help, driver --run | Verified |
@@ -99,7 +99,7 @@
 | COMP-017 | N/A (duplicate of COMP-011; not a separate mandatory requirement) |
 | COMP-018 | N/A (identifier does not exist) |
 | COMP-019 | Partial |
-| COMP-020 | Verified |
+| COMP-020 | Partial |
 | COMP-021 | Verified |
 | COMP-022 | Verified |
 | COMP-023 | Verified |
@@ -127,7 +127,8 @@
 | D-003 | rust-toolchain.toml targets omit Windows | Windows target added to rust-toolchain.toml |
 | D-004 | IMPLEMENTATION_INVENTORY.md contains known overclaims | 4 overclaims identified and corrected |
 | D-005 | All 567 registry rules are Candidate; zero Ratified | Evidence gap, not contradiction; rule ratification is future milestone |
+| CI-OSX-2026-11-23 | Current `main` push CI (HEAD `8f4878e3f90cae7adda9ec95e4778aad2703e056`) fails macOS `test_indirect_function_pointer_call_verifies_emits_and_executes`: Apple `ld` reports an illegal text relocation from `_omni_main` to `_inc` (29 passed, 1 failed). Linux and Windows jobs pass; strict Clippy, Security Audit and CodeQL pass separately. | COMP-020 is Partial until the target object/relocation behavior is corrected and the native macOS end-to-end test passes on a fresh commit. |
 
 ## Last Updated
 
-2026-11-23: Reconciled all 26 mandatory IDs and corrected source-backed status: 23 Verified, COMP-019 Partial, ADR-0002 Accepted, and INST-002 Blocked. COMP-017 is a duplicate of COMP-011 and COMP-018 is unregistered; both are excluded from the denominator.
+2026-11-23: Reconciled all 26 mandatory IDs and corrected source-backed status: 22 Verified, COMP-019 and COMP-020 Partial, ADR-0002 Accepted, and INST-002 Blocked. COMP-017 is a duplicate of COMP-011 and COMP-018 is unregistered; both are excluded from the denominator.

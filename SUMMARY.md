@@ -1,3 +1,7 @@
+> **Historical session summary — 21 November 2026.** This document records one bounded mandate session and its then-current assumptions. It is not the current implementation status. As of 23 November 2026, consult [the project index](docs/project/README.md), [requirements baseline](docs/project/USER_REQUIREMENTS_BASELINE.md), [current implementation inventory](IMPLEMENTATION_INVENTORY.md) and live GitHub Actions before resuming. The current public `main` head is `8f4878e3f90cae7adda9ec95e4778aad2703e056`; current macOS indirect-call validation fails and must not be described as green.
+
+---
+
 # Mandate Q3+Q6 Session Summary - 2026-11-21
 
 ## Overview

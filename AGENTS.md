@@ -4,6 +4,26 @@ This repository contains the Rust implementation of the **Omni Edition 1 program
 
 ---
 
+## Project requirements, owner preferences and provenance index
+
+Before a non-trivial task, read [the curated project index](docs/project/README.md), [the reconstructed owner requirements baseline](docs/project/USER_REQUIREMENTS_BASELINE.md), [source reconciliation](docs/project/SOURCE_RECONCILIATION.md), and [owner working preferences and repository expectations](docs/project/OWNER_WORKING_PREFERENCES_AND_REPOSITORY_EXPECTATIONS.md).
+
+The requirements and preferences documents express project intent and operating expectations. The active, hash-bound Edition 1 specification, accepted ADRs and release gates remain the authority for language semantics and qualification. Historical prompts, conversation compendia and independent research may not silently override them.
+
+## Owner working preferences — mandatory execution guidance
+
+- Inspect and synchronize canonical remote `main` first; inspect complete relevant source, history, workspace metadata, existing local changes and live CI before acting. Omni work is `main`-only; do not create feature branches.
+- Preserve every existing local/remote change and all history. Never force-push, rewrite history, hard-reset, clean, overwrite or silently stash.
+- When authorized, implement the actual work end to end: research, architecture, code, integration, tests, debugging, documentation and evidence. Do not stop at a plan or audit.
+- Continue through dependency-ready tasks without repeatedly asking the owner to say “continue”; escalate only genuine owner decisions, normative ambiguity, production credentials, external cost, destructive operations or authorization blockers.
+- Research with current authoritative sources, falsify alternatives and evaluate maturity, compatibility, licensing, security and performance.
+- Fix root causes; never weaken tests, lints, specification authority or release gates to manufacture a passing result.
+- Distinguish proposed, scaffolded, implemented, integrated, tested, proven, reviewed, qualified and released states. Bind claims to exact commits and reproducible evidence.
+- Keep requirements, specifications, ADRs, plans, inventories, changelog, test maps and handoffs aligned. Use specialists with bounded ownership and an independent acceptance verifier.
+- Build the repository into the full Omni language and developer platform described by the owner baseline; a parser, partial compiler or self-hosting demo is not the final product.
+
+---
+
 ## 1. Project Mission & Foundational Product Vision
 
 Omni is not merely a conventional systems programming language with a Rust-implemented compiler. It is an expressive, general-purpose, multi-paradigm programming language and computational platform designed for:

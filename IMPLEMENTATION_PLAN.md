@@ -1,6 +1,10 @@
 # Omni Implementation Plan - Edition 1
 
-## Current Status (as of 2026-10-12)
+> **Historical planning snapshot — 12 October 2026.** The compiler-crate status, candidate label, repository commit and task ordering below describe the implementation plan at that date; they are not current repository status and must not override live source, `IMPLEMENTATION_INVENTORY.md`, the active Edition 1 manifest or the project requirements baseline. The recorded phrase “1.0.0.0 architecture baseline (Candidate 3)” is historical wording, not a declaration that Candidate 3 is normative. For current owner goals and authority, read [the project documentation index](docs/project/README.md), [user requirements](docs/project/USER_REQUIREMENTS_BASELINE.md) and [source reconciliation](docs/project/SOURCE_RECONCILIATION.md). The current observed `main` HEAD is `8f4878e3f90cae7adda9ec95e4778aad2703e056`; the inventory and current README report its exact CI/qualification state.
+
+---
+
+## Historical Status Snapshot (as of 2026-10-12)
 
 ### Implementation State
 - **Bootstrap language**: Rust (pinned toolchain)
