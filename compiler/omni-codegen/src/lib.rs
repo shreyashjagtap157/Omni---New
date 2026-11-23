@@ -2987,14 +2987,10 @@ mod tests {
         let fn_ptr = tcx.intern(omni_mir::TyKind::FnPtr(vec![int], int));
 
         let mut callee_locals = index_vec::IndexVec::new();
-        let callee_return = callee_locals.push(omni_mir::ir::LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
-        let callee_arg = callee_locals.push(omni_mir::ir::LocalDecl {
-            name: Some("value".to_string()),
-            ty: Some(int),
-        });
+        let callee_return = callee_locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
+        let callee_arg = callee_locals
+            .push(omni_mir::ir::LocalDecl { name: Some("value".to_string()), ty: Some(int) });
         let mut callee_blocks = index_vec::IndexVec::new();
         callee_blocks.push(omni_mir::ir::BlockData {
             statements: vec![omni_mir::ir::Statement::Assign(
@@ -3009,10 +3005,8 @@ mod tests {
         });
 
         let mut caller_locals = index_vec::IndexVec::new();
-        let caller_return = caller_locals.push(omni_mir::ir::LocalDecl {
-            name: Some("_return".to_string()),
-            ty: Some(int),
-        });
+        let caller_return = caller_locals
+            .push(omni_mir::ir::LocalDecl { name: Some("_return".to_string()), ty: Some(int) });
         let function_pointer = caller_locals.push(omni_mir::ir::LocalDecl {
             name: Some("inc_pointer".to_string()),
             ty: Some(fn_ptr),
@@ -3025,9 +3019,9 @@ mod tests {
             )],
             terminator: Some(omni_mir::ir::Terminator::Call {
                 func: omni_mir::ir::Operand::Copy(omni_mir::ir::Place::local(function_pointer)),
-                args: vec![omni_mir::ir::Operand::Constant(
-                    omni_mir::ir::Constant::Lit(ast::Lit::Int(41)),
-                )],
+                args: vec![omni_mir::ir::Operand::Constant(omni_mir::ir::Constant::Lit(
+                    ast::Lit::Int(41),
+                ))],
                 destination: Some(omni_mir::ir::Place::local(caller_return)),
                 target: omni_mir::ir::BasicBlock::from_usize(1),
                 cleanup: None,

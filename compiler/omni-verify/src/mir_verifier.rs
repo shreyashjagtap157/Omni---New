@@ -2151,13 +2151,11 @@ impl MirVerifier {
                         .iter()
                         .map(|param| Self::local_ty(target, *param, &target.name))
                         .collect::<Result<Vec<_>, _>>()?;
-                    let return_ty =
-                        Self::local_ty(target, target.return_place, &target.name)?;
+                    let return_ty = Self::local_ty(target, target.return_place, &target.name)?;
                     (name.clone(), params, return_ty)
                 }
                 Operand::Copy(place) | Operand::Move(place) => {
-                    let callee_ty =
-                        Self::operand_type(&mut tcx, &prog.struct_defs, func, callee)?;
+                    let callee_ty = Self::operand_type(&mut tcx, &prog.struct_defs, func, callee)?;
                     let TyKind::FnPtr(params, return_ty) = tcx.get(callee_ty) else {
                         return Err(MirVerificationError::InvalidCallCallee {
                             func: func.name.clone(),
