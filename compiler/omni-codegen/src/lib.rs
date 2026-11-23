@@ -1,9 +1,7 @@
 //! Native Code Generation via Cranelift for Omni.
 
 use cranelift_codegen::ir::InstBuilder;
-use cranelift_codegen::ir::{
-    types, AbiParam, Signature, StackSlot, StackSlotData, StackSlotKind,
-};
+use cranelift_codegen::ir::{types, AbiParam, Signature, StackSlot, StackSlotData, StackSlotKind};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_entity::EntityRef;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
