@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -68,7 +68,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -119,6 +119,14 @@ jobs:
           cargo run -j 1 -p omni-topology --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test external C API consumers
+        shell: pwsh
+        run: ./ci/test-c-api.ps1
+
+      - name: Qualify Windows installer payload
+        shell: pwsh
+        run: ./tools/omni-installer/installer-qualify.ps1
+
   gate-readiness:
     name: First-stage gate readiness (informational; does not grant qualification)
     if: always()
@@ -127,7 +135,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Report exact gate blockers
         env:

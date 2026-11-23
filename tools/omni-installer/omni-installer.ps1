@@ -291,6 +291,70 @@ function Remove-OmniPathEntry {
 #-------------------------------------------------------------------------------
 $MANIFEST_NAME = "install-manifest.json"
 
+function Resolve-InstallOwnedPath {
+    param([string] $Root, [string] $RelativePath)
+
+    if ([string]::IsNullOrWhiteSpace($RelativePath) -or [IO.Path]::IsPathRooted($RelativePath)) {
+        throw "Install manifest contains an invalid relative path: '$RelativePath'."
+    }
+
+    $rootFull = [IO.Path]::GetFullPath($Root)
+    $candidate = [IO.Path]::GetFullPath([IO.Path]::Combine($rootFull, $RelativePath))
+    $rootPrefix = $rootFull
+    if (-not $rootPrefix.EndsWith([IO.Path]::DirectorySeparatorChar)) {
+        $rootPrefix += [IO.Path]::DirectorySeparatorChar
+    }
+
+    if (-not $candidate.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Install manifest path escapes the installation root: '$RelativePath'."
+    }
+    return $candidate
+}
+
+function Get-EnvironmentScope {
+    param([string] $InstallScope)
+    if ($InstallScope -eq "PerUser") { return "User" }
+    return "Machine"
+}
+
+function Assert-OmniSpecRootAvailable {
+    param([string] $Root, [string] $InstallScope)
+
+    $scopeName = Get-EnvironmentScope -InstallScope $InstallScope
+    $existing = [Environment]::GetEnvironmentVariable("OMNI_SPEC_ROOT", $scopeName)
+    if (-not $existing) { return }
+
+    $existingFull = [IO.Path]::GetFullPath($existing)
+    $desiredFull = [IO.Path]::GetFullPath((Join-Path $Root "share\spec"))
+    if (-not $existingFull.Equals($desiredFull, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "OMNI_SPEC_ROOT already points to '$existingFull'. Uninstall that Omni installation before installing to '$desiredFull'."
+    }
+}
+
+function Set-OmniSpecRoot {
+    param([string] $Root, [string] $InstallScope)
+
+    $scopeName = Get-EnvironmentScope -InstallScope $InstallScope
+    $specRoot = [IO.Path]::GetFullPath((Join-Path $Root "share\spec"))
+    [Environment]::SetEnvironmentVariable("OMNI_SPEC_ROOT", $specRoot, $scopeName)
+    Write-Info "Set OMNI_SPEC_ROOT for $scopeName to '$specRoot'. Open a new terminal to use it."
+}
+
+function Remove-OmniSpecRoot {
+    param([string] $Root, [string] $InstallScope)
+
+    $scopeName = Get-EnvironmentScope -InstallScope $InstallScope
+    $existing = [Environment]::GetEnvironmentVariable("OMNI_SPEC_ROOT", $scopeName)
+    if (-not $existing) { return }
+
+    $expected = [IO.Path]::GetFullPath((Join-Path $Root "share\spec"))
+    $actual = [IO.Path]::GetFullPath($existing)
+    if ($actual.Equals($expected, [StringComparison]::OrdinalIgnoreCase)) {
+        [Environment]::SetEnvironmentVariable("OMNI_SPEC_ROOT", $null, $scopeName)
+        Write-Info "Removed the OMNI_SPEC_ROOT value owned by this installation."
+    }
+}
+
 function Get-ManifestPath {
     param([string] $Root)
     return Join-Path $Root $MANIFEST_NAME
@@ -379,13 +443,14 @@ function Install-Omni {
 
     Write-ProgressStep -Message "Validating installation scope" -Percent 5
 
-    # Check elevation for machine-wide
-    if ($Scope -eq "MachineWide" -and -(Test-IsAdmin)) {
+    # A MachineWide install must fail for non-administrators, not administrators.
+    if ($Scope -eq "MachineWide" -and -not (Test-IsAdmin)) {
         Write-ErrorStep "Machine-wide installation requires administrator privileges."
         Write-Host "Re-run with elevated rights, or use -Scope PerUser (no elevation needed)." -ForegroundColor Yellow
         exit 1
     }
 
+    Assert-OmniSpecRootAvailable -Root $Root -InstallScope $Scope
     $pathScope = if ($Scope -eq "PerUser") { "User" } else { "Machine" }
 
     # Check for existing install
@@ -403,7 +468,7 @@ function Install-Omni {
         }
         # Remove old files
         foreach ($oldFile in $manifest.files) {
-            $oldPath = Join-Path $Root $oldFile
+            $oldPath = Resolve-InstallOwnedPath -Root $Root -RelativePath $oldFile
             if (Test-Path $oldPath) {
                 Remove-Item $oldPath -Force | Out-Null
             }
@@ -413,7 +478,7 @@ function Install-Omni {
     # License
     if (-not (Show-License)) {
         Write-Host "Installation cancelled (license not accepted)." -ForegroundColor Yellow
-        exit 0
+        exit 2
     }
 
     # Create root directory
@@ -442,16 +507,14 @@ function Install-Omni {
         exit 1
     }
 
-    # Executables to install
+    # Product-facing tools that can operate from the installed payload.
+    # Repository-analysis tools are intentionally not shipped as standalone
+    # product commands because their source workspace is not installed.
     $executables = @(
         "omni-driver.exe",
         "omni-fmt.exe",
         "omni-canon.exe",
-        "omni-conform.exe",
-        "omni-audit.exe",
-        "omni-registry.exe",
-        "omni-topology.exe",
-        "omni-bindgen.exe"
+        "omni-registry.exe"
     )
 
     $manifestObj = [pscustomobject]@{
@@ -469,47 +532,78 @@ function Install-Omni {
     $binDir = Join-Path $Root "bin"
     foreach ($exe in $executables) {
         $src = Join-Path $buildDir $exe
-        if (Test-Path $src) {
-            if (-not (Test-Path $binDir)) {
-                New-Item -ItemType Directory -Path $binDir -Force | Out-Null
-            }
-            Copy-Item $src (Join-Path $binDir $exe) -Force
-            $manifestObj.files += @("bin\$exe")
+        if (-not (Test-Path $src -PathType Leaf)) {
+            throw "Required product executable is missing from the build output: $src"
         }
+        if (-not (Test-Path $binDir)) {
+            New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+        }
+        Copy-Item $src (Join-Path $binDir $exe) -Force
+        $manifestObj.files += @("bin\$exe")
     }
 
-    # Install runtime and stdlib (placeholders for now; actual content from build)
-    Write-ProgressStep -Message "Installing runtime and standard library" -Percent 50
+    # Install the real Rust-backed C ABI DLL. A marker file is never an ABI.
+    Write-ProgressStep -Message "Installing compiled runtime and SDK" -Percent 50
     $libDir = Join-Path $Root "lib"
-    $stdDir = Join-Path $libDir "std"
-    New-Item -ItemType Directory -Path $stdDir -Force | Out-Null
-
-    # Create a minimal runtime marker
-    $rtMarker = Join-Path $libDir "omni-rt.dll"
-    if (-not (Test-Path $rtMarker)) {
-        Set-Content -Path $rtMarker -Value "Omni Runtime v$SETUP_VERSION" -Encoding UTF8
+    New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+    $runtimeDllSource = Join-Path $buildDir "omni_runtime_ffi.dll"
+    if (-not (Test-Path $runtimeDllSource -PathType Leaf)) {
+        throw "Compiled runtime DLL is missing: $runtimeDllSource"
     }
-    $manifestObj.files += @("lib\omni-rt.dll")
+    Copy-Item -LiteralPath $runtimeDllSource -Destination (Join-Path $libDir "omni_runtime_ffi.dll") -Force
+    $manifestObj.files += @("lib\omni_runtime_ffi.dll")
 
-    $stdMarker = Join-Path $stdDir "omni-std.oml"
-    Set-Content -Path $stdMarker -Value "Omni Standard Library v$SETUP_VERSION" -Encoding UTF8
-    $manifestObj.files += @("lib\std\omni-std.oml")
+    # Prefer the cdylib import library; use the static library only when the
+    # selected Windows linker does not emit a separate DLL import library.
+    $importLibCandidates = @(Get-ChildItem -LiteralPath $buildDir -File -Filter "omni_runtime_ffi*.lib")
+    $importLibSource = $importLibCandidates |
+        Where-Object { $_.Name.EndsWith(".dll.lib", [StringComparison]::OrdinalIgnoreCase) } |
+        Select-Object -First 1
+    if (-not $importLibSource) {
+        $importLibSource = $importLibCandidates | Select-Object -First 1
+    }
+    if (-not $importLibSource) {
+        throw "Compiled runtime import/static library is missing from $buildDir."
+    }
 
-    # Install SDK
-    Write-ProgressStep -Message "Installing SDK assets" -Percent 65
+    Write-ProgressStep -Message "Installing actual C API header and library" -Percent 65
     $sdkDir = Join-Path $Root "sdk"
     $incDir = Join-Path $sdkDir "include"
     $libSdkDir = Join-Path $sdkDir "lib"
     New-Item -ItemType Directory -Path $incDir -Force | Out-Null
     New-Item -ItemType Directory -Path $libSdkDir -Force | Out-Null
+    $headerSource = Join-Path $repoRoot "compiler\omni-runtime\include\omni-rt.h"
+    if (-not (Test-Path $headerSource -PathType Leaf)) {
+        throw "Runtime C API header is missing: $headerSource"
+    }
+    Copy-Item -LiteralPath $headerSource -Destination (Join-Path $incDir "omni-rt.h") -Force
+    Copy-Item -LiteralPath $importLibSource.FullName -Destination (Join-Path $libSdkDir "omni-rt.lib") -Force
+    $manifestObj.files += @("sdk\include\omni-rt.h", "sdk\lib\omni-rt.lib")
 
-    $rtHeader = Join-Path $incDir "omni-rt.h"
-    Set-Content -Path $rtHeader -Value "// Omni Runtime C ABI header v$SETUP_VERSION" -Encoding UTF8
-    $manifestObj.files += @("sdk\include\omni-rt.h")
+    # The Rust standard-library crate is currently a support crate, not a
+    # distributable .oml source library. Do not fabricate one.
 
-    $rtLib = Join-Path $libSdkDir "omni-rt.lib"
-    Set-Content -Path $rtLib -Value "Omni Runtime import library v$SETUP_VERSION" -Encoding UTF8
-    $manifestObj.files += @("sdk\lib\omni-rt.lib")
+    # Copy the exact manifest-bound normative specification required at runtime.
+    $specSource = Join-Path $repoRoot "spec"
+    if (-not (Test-Path (Join-Path $specSource "manifest\omni-edition1.manifest.json") -PathType Leaf)) {
+        throw "Normative specification payload is incomplete: $specSource"
+    }
+    $shareDir = Join-Path $Root "share"
+    $specDest = Join-Path $shareDir "spec"
+    New-Item -ItemType Directory -Path $specDest -Force | Out-Null
+    foreach ($entry in (Get-ChildItem -LiteralPath $specSource -Force)) {
+        Copy-Item -LiteralPath $entry.FullName -Destination $specDest -Recurse -Force
+    }
+    $toolchainSource = Join-Path $repoRoot "rust-toolchain.toml"
+    if (-not (Test-Path $toolchainSource -PathType Leaf)) {
+        throw "Pinned toolchain declaration is missing: $toolchainSource"
+    }
+    Copy-Item -LiteralPath $toolchainSource -Destination (Join-Path $shareDir "rust-toolchain.toml") -Force
+    $manifestObj.files += @("share\rust-toolchain.toml")
+    foreach ($specFile in (Get-ChildItem -LiteralPath $specDest -Recurse -File)) {
+        $relative = $specFile.FullName.Substring($Root.TrimEnd('\').Length).TrimStart('\')
+        $manifestObj.files += @($relative)
+    }
 
     # Install docs and examples
     Write-ProgressStep -Message "Installing documentation and examples" -Percent 75
@@ -542,6 +636,7 @@ function Install-Omni {
     Write-ProgressStep -Message "Configuring PATH" -Percent 90
     $binDirForPath = Join-Path $Root "bin"
     Add-OmniPathEntry -BinDir $binDirForPath -Scope $pathScope
+    Set-OmniSpecRoot -Root $Root -InstallScope $Scope
 
     Write-ProgressStep -Message "Installation complete" -Percent 100
 
@@ -583,7 +678,7 @@ function Uninstall-Omni {
 
     Write-ProgressStep -Message "Removing installed files" -Percent 30
     foreach ($relFile in $files) {
-        $fullPath = Join-Path $Root $relFile
+        $fullPath = Resolve-InstallOwnedPath -Root $Root -RelativePath $relFile
         if (Test-Path $fullPath) {
             Remove-Item $fullPath -Force | Out-Null
             Write-Info "Removed: $relFile"
@@ -594,6 +689,7 @@ function Uninstall-Omni {
     Write-ProgressStep -Message "Cleaning up PATH" -Percent 60
     $binDir = Join-Path $Root "bin"
     Remove-OmniPathEntry -BinDir $binDir -Scope $pathScope
+    Remove-OmniSpecRoot -Root $Root -InstallScope $Scope
 
     # Remove install-manifest.json
     $manifestPath = Get-ManifestPath -Root $Root
@@ -639,40 +735,9 @@ function Repair-Omni {
         exit 1
     }
 
-    Write-ProgressStep -Message "Verifying installation" -Percent 50
-    $missing = @()
-    foreach ($relFile in $manifest.files) {
-        $fullPath = Join-Path $Root $relFile
-        if (-not (Test-Path $fullPath)) {
-            $missing += $relFile
-        }
-    }
-
-    if ($missing.Count -gt 0) {
-        Write-Host "Missing files detected. Re-installing missing files..." -ForegroundColor Yellow
-        # Re-install missing files (simplified: copy from build output)
-        $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-        $repoRoot = Resolve-Path (Join-Path $scriptDir "..\..") -ErrorAction SilentlyContinue
-        $buildDir = Join-Path $repoRoot "target\debug"
-        foreach ($relFile in $missing) {
-            $dest = Join-Path $Root $relFile
-            $src = Join-Path $buildDir (Split-Path -Leaf $relFile)
-            if (Test-Path $src) {
-                $destDir = Split-Path -Parent $dest
-                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-                Copy-Item $src $dest -Force
-                Write-Info "Restored: $relFile"
-            }
-        }
-    }
-
-    # Re-ensure PATH
-    $pathScope = if ($Scope -eq "PerUser") { "User" } else { "Machine" }
-    $binDir = Join-Path $Root "bin"
-    Add-OmniPathEntry -BinDir $binDir -Scope $pathScope
-
-    Write-ProgressStep -Message "Repair complete" -Percent 100
-    Write-Success "Omni installation repaired."
+    # Reinstall the complete manifest-bound payload from the current locked
+    # build, restoring binaries, native runtime, SDK assets and spec data.
+    Install-Omni -Root $Root -Scope $Scope
 }
 
 #-------------------------------------------------------------------------------
@@ -690,30 +755,40 @@ function Compute-FileChecksum {
 function Write-SBOM {
     param([string] $Root, [pscustomobject] $Manifest)
 
-    $sboomPath = Join-Path $env:TEMP "omni-sboom-$($Manifest.scope).json"
-    $sboom = @{
-        version       = $Manifest.version
-        scope         = $Manifest.scope
-        root          = $Manifest.root
-        installedOn   = $Manifest.installedOn
-        files         = @()
-        checksums     = @{}
-    }
-
+    $components = @()
     foreach ($file in $Manifest.files) {
-        $fullPath = Join-Path $Root $file
-        if (Test-Path $fullPath) {
+        $fullPath = Resolve-InstallOwnedPath -Root $Root -RelativePath $file
+        if (Test-Path $fullPath -PathType Leaf) {
             $checksum = Compute-FileChecksum -Path $fullPath
-            $sboom.files += @($file)
             if ($checksum) {
-                $sboom.checksums[$file] = $checksum
+                $components += @{
+                    type = "file"
+                    name = $file
+                    version = $Manifest.version
+                    hashes = @(@{ alg = "SHA-256"; content = $checksum })
+                }
             }
         }
     }
 
-    $sboomJSON = $sboom | ConvertTo-Json -Depth 10
-    $sboomPath | Set-Content -Encoding UTF8
-    Write-Info "SBOM written to $sboomPath"
+    # CycloneDX 1.5 JSON with hashes of files that actually exist.
+    $sbom = @{
+        bomFormat = "CycloneDX"
+        specVersion = "1.5"
+        version = 1
+        metadata = @{
+            timestamp = (Get-Date).ToUniversalTime().ToString("o")
+            component = @{
+                type = "application"
+                name = "Omni Windows distribution"
+                version = $Manifest.version
+            }
+        }
+        components = $components
+    }
+    $sbomPath = Join-Path $env:TEMP "omni-sbom-$($Manifest.scope)-$([guid]::NewGuid().ToString('N')).json"
+    $sbom | ConvertTo-Json -Depth 20 | Set-Content -Path $sbomPath -Encoding UTF8
+    Write-Info "CycloneDX SBOM written to $sbomPath"
 }
 
 try {
