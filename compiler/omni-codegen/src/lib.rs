@@ -1,10 +1,8 @@
 //! Native Code Generation via Cranelift for Omni.
 
-use cranelift_codegen::ir::immediates::Imm64;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_codegen::ir::{
-    types, AbiParam, ExternalName, GlobalValueData, Signature, StackSlot, StackSlotData,
-    StackSlotKind, UserExternalNameRef,
+    types, AbiParam, Signature, StackSlot, StackSlotData, StackSlotKind,
 };
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_entity::EntityRef;
@@ -2397,18 +2395,11 @@ fn lower_operand_to_cl(
                     format!("Codegen error: indirect call target '{}' not found", name)
                 })?;
                 let sig = signature_for_native_abi(module, callee_abi);
-                let _sig_id = builder.func.dfg.signatures.push(sig.clone());
                 let func_id = module
                     .declare_function(name, Linkage::Export, &sig)
                     .map_err(|e| format!("Codegen error: failed to declare '{}': {}", name, e))?;
-                let func_ref = UserExternalNameRef::from_u32(func_id.index() as u32);
-                let gv = builder.func.create_global_value(GlobalValueData::Symbol {
-                    name: ExternalName::user(func_ref),
-                    offset: Imm64::from(0),
-                    colocated: false,
-                    tls: false,
-                });
-                Ok(builder.ins().symbol_value(emitter.pointer_type, gv))
+                let func_ref = module.declare_func_in_func(func_id, builder.func);
+                Ok(builder.ins().func_addr(emitter.pointer_type, func_ref))
             }
             omni_mir::ir::Constant::Lit(lit) => match lit {
                 omni_mir::ast::Lit::Int(n) => Ok(builder.ins().iconst(types::I64, *n)),
@@ -2559,18 +2550,11 @@ fn lower_rvalue_to_cl(
                 format!("Codegen error: indirect call target '{}' not found", name)
             })?;
             let sig = signature_for_native_abi(module, callee_abi);
-            let _sig_id = builder.func.dfg.signatures.push(sig.clone());
             let func_id = module
                 .declare_function(name, Linkage::Export, &sig)
                 .map_err(|e| format!("Codegen error: failed to declare '{}': {}", name, e))?;
-            let func_ref = UserExternalNameRef::from_u32(func_id.index() as u32);
-            let gv = builder.func.create_global_value(GlobalValueData::Symbol {
-                name: ExternalName::user(func_ref),
-                offset: Imm64::from(0),
-                colocated: false,
-                tls: false,
-            });
-            Ok(builder.ins().symbol_value(emitter.pointer_type, gv))
+            let func_ref = module.declare_func_in_func(func_id, builder.func);
+            Ok(builder.ins().func_addr(emitter.pointer_type, func_ref))
         }
         omni_mir::ir::Rvalue::Range { .. } => Err(
             "Codegen error: range value representation requires target layout metadata".into(),
