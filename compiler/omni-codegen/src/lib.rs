@@ -772,6 +772,23 @@ fn compile_mir_program(
                             let return_abi =
                                     match emitter.tcx.get(return_type) {
                                         omni_mir::TyKind::Unit => NativeReturnAbi::Unit,
+                                        omni_mir::TyKind::Int
+                                        | omni_mir::TyKind::Bool
+                                        | omni_mir::TyKind::Byte
+                                        | omni_mir::TyKind::Char
+                                        | omni_mir::TyKind::Float => NativeReturnAbi::Direct(
+                                            native_abi_type_from_ty(
+                                                &mir_prog.tcx,
+                                                return_type,
+                                                pointer_type,
+                                            )?
+                                            .ok_or_else(|| {
+                                                format!(
+                                                    "Codegen error: indirect call scalar return type {:?} has no ABI type",
+                                                    return_type
+                                                )
+                                            })?,
+                                        ),
                                         omni_mir::TyKind::Reference { .. } => {
                                             NativeReturnAbi::Direct(
                                                 native_abi_type_from_ty(&mir_prog.tcx, return_type, pointer_type)?
