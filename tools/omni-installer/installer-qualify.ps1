@@ -84,7 +84,7 @@ function Test-InstalledCApi {
     param([string] $Root)
 
     $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
-    $scriptPath = (Resolve-Path (Join-Path $PSScriptRoot "....ci	est-c-api.ps1")).Path
+    $scriptPath = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..\ci\test-c-api.ps1") -ErrorAction Stop).Path
     $output = & $pwsh -NoProfile -File $scriptPath -InstallRoot $Root 2>&1
     $exitCode = $LASTEXITCODE
     foreach ($line in $output) { Write-Host $line }
