@@ -1,20 +1,33 @@
 #!/usr/bin/env pwsh
 # Compile and execute external C API consumers against the real MSVC library.
 [CmdletBinding()]
-param()
+param(
+    [string] $InstallRoot
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$buildDir = Join-Path $repoRoot "target\debug"
-$includeDir = Join-Path $repoRoot "compiler\omni-runtime\include"
 $sourceDir = Join-Path $repoRoot "compiler\omni-runtime\tests"
-$dll = Join-Path $buildDir "omni_runtime_ffi.dll"
-$header = Join-Path $includeDir "omni-rt.h"
-$importLibs = @(Get-ChildItem -LiteralPath $buildDir -File -Filter "omni_runtime_ffi*.lib" -ErrorAction SilentlyContinue)
-$importLib = $importLibs | Where-Object { $_.Name.EndsWith(".dll.lib", [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
-if (-not $importLib) { $importLib = $importLibs | Select-Object -First 1 }
+
+if ($InstallRoot) {
+    $resolvedInstallRoot = (Resolve-Path -LiteralPath $InstallRoot).Path
+    $buildDir = Join-Path $resolvedInstallRoot "bin"
+    $includeDir = Join-Path $resolvedInstallRoot "sdk\include"
+    $libDir = Join-Path $resolvedInstallRoot "sdk\lib"
+    $dll = Join-Path $buildDir "omni_runtime_ffi.dll"
+    $header = Join-Path $includeDir "omni-rt.h"
+    $importLib = Get-Item -LiteralPath (Join-Path $libDir "omni-rt.lib") -ErrorAction SilentlyContinue
+} else {
+    $buildDir = Join-Path $repoRoot "target\debug"
+    $includeDir = Join-Path $repoRoot "compiler\omni-runtime\include"
+    $dll = Join-Path $buildDir "omni_runtime_ffi.dll"
+    $header = Join-Path $includeDir "omni-rt.h"
+    $importLibs = @(Get-ChildItem -LiteralPath $buildDir -File -Filter "omni_runtime_ffi*.lib" -ErrorAction SilentlyContinue)
+    $importLib = $importLibs | Where-Object { $_.Name.EndsWith(".dll.lib", [StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+    if (-not $importLib) { $importLib = $importLibs | Select-Object -First 1 }
+}
 
 foreach ($required in @($dll, $header)) {
     if (-not (Test-Path $required -PathType Leaf)) { throw "Required C API artifact is missing: $required" }

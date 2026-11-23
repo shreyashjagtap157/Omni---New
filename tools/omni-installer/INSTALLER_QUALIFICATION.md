@@ -2,41 +2,28 @@
 
 ## Scope
 
-The qualification script is \`tools/omni-installer/installer-qualify.ps1\`.
-It builds the locked release workspace and exercises the installer in child
-PowerShell processes on a clean GitHub-hosted Windows runner.
+The qualification script is `tools/omni-installer/installer-qualify.ps1`. It builds the locked release workspace and runs the installer in child PowerShell processes on a clean GitHub-hosted Windows runner.
 
 ## Automated scenarios
 
-The qualification must pass all of the following, with every assertion included
-in the final process exit code:
+Every assertion contributes to the final exit code:
 
-- Locked release build and required product-artifact presence.
-- Per-user installation without elevation.
-- Preservation and single insertion of the existing user PATH entries.
-- Installation of the actual runtime DLL, C ABI header, import library,
-  Edition 1 specification tree and pinned toolchain declaration.
-- \`omni-driver --help\`, explicit \`omni-driver --run\` against the installed
-  specification, formatter \`--check\`, and native object emission with a
-  valid provenance sidecar.
-- Repair after deleting an installed executable.
-- Upgrade over an existing installation.
-- Uninstall, including removal of only the owned PATH and \`OMNI_SPEC_ROOT\`
-  entries.
-- Reinstallation and installation under a path containing spaces.
-- Cleanup and restoration of the GitHub runner's original per-user
-  environment, including on test failure.
+- Locked release build and all mandatory product-artifact checks.
+- Per-user install without elevation.
+- Preservation of all prior PATH entries and exactly one owned `bin` entry.
+- Install manifest coverage for every file in the normative specification.
+- Actual runtime DLL, C ABI header and import library installation.
+- Valid CycloneDX 1.5 SBOM with SHA-256 hashes for installed files.
+- `omni-driver --help`, `--run` against the installed specification, formatter write plus idempotent `--check`, and native object emission with a provenance sidecar.
+- External C programs compiled, linked and executed using the installed SDK header/import library and installed runtime DLL.
+- Repair after deleting an installed executable and successful launch afterward.
+- Upgrade, uninstall, reinstallation and a path containing spaces.
+- Cleanup and restoration of runner PATH and `OMNI_SPEC_ROOT`, including on failure.
 
-The companion \`ci/test-c-api.ps1\` compiles and executes both C programs under
-\`compiler/omni-runtime/tests/\` using MSVC and the actual \`omni-runtime-ffi\`
-library. Rust FFI unit tests alone do not qualify external C linkage.
+The separate `ci/test-c-api.ps1` workspace mode also validates the same C programs against the build-tree runtime. The installer qualification calls its installed-SDK mode so the actual distributed DLL and SDK are exercised.
 
 ## Qualification status
 
-This document defines the acceptance procedure. The installer is not qualified
-until the Windows CI job \`Qualify Windows installer payload\` and the external C
-API step complete successfully on the exact candidate commit. A local or
-historical test result is not evidence for a newer commit.
+This document defines the acceptance procedure. The installer is not qualified until the Windows CI job `Qualify Windows installer payload` passes on the exact candidate commit. A local or historical result is not evidence for a newer commit.
 
-Production Authenticode signing remains a separate owner-provisioned gate
-(INST-002). No self-signed test certificate can satisfy production trust.
+Production Authenticode signing remains a separate owner-provisioned gate (INST-002). No self-signed test certificate satisfies production trust.

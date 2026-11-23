@@ -299,6 +299,11 @@ function Resolve-InstallOwnedPath {
     }
 
     $rootFull = [IO.Path]::GetFullPath($Root)
+    $rootItem = Get-Item -LiteralPath $rootFull -Force -ErrorAction SilentlyContinue
+    if ($rootItem -and (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw "Installation root must not be a reparse point: '$rootFull'."
+    }
+
     $candidate = [IO.Path]::GetFullPath([IO.Path]::Combine($rootFull, $RelativePath))
     $rootPrefix = $rootFull
     if (-not $rootPrefix.EndsWith([IO.Path]::DirectorySeparatorChar)) {
@@ -307,6 +312,17 @@ function Resolve-InstallOwnedPath {
 
     if (-not $candidate.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Install manifest path escapes the installation root: '$RelativePath'."
+    }
+
+    $current = $candidate
+    while ($current -and $current.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Install manifest path traverses a reparse point: '$RelativePath'."
+            }
+        }
+        $current = [IO.Path]::GetDirectoryName($current)
     }
     return $candidate
 }
@@ -443,118 +459,47 @@ function Install-Omni {
 
     Write-ProgressStep -Message "Validating installation scope" -Percent 5
 
-    # A MachineWide install must fail for non-administrators, not administrators.
     if ($Scope -eq "MachineWide" -and -not (Test-IsAdmin)) {
         Write-ErrorStep "Machine-wide installation requires administrator privileges."
         Write-Host "Re-run with elevated rights, or use -Scope PerUser (no elevation needed)." -ForegroundColor Yellow
         exit 1
     }
 
-    Assert-OmniSpecRootAvailable -Root $Root -InstallScope $Scope
-    $pathScope = if ($Scope -eq "PerUser") { "User" } else { "Machine" }
-
-    # Check for existing install
-    $manifest = Read-Manifest -Root $Root
-    $existing = $manifest.PSObject.Properties.Name -contains "files"
-
-    if ($existing) {
-        Write-Info "Existing Omni installation detected at '$Root'."
-        if (-not $Quiet) {
-            $choice = Read-Host "Upgrade existing installation? (y/n)"
-            if ($choice -ne "y" -and $choice -ne "Y") {
-                Write-Host "Installation cancelled." -ForegroundColor Yellow
-                exit 0
-            }
-        }
-        # Remove old files
-        foreach ($oldFile in $manifest.files) {
-            $oldPath = Resolve-InstallOwnedPath -Root $Root -RelativePath $oldFile
-            if (Test-Path $oldPath) {
-                Remove-Item $oldPath -Force | Out-Null
-            }
-        }
-    }
-
-    # License
+    # Do not disturb a previous installation before license acceptance and
+    # preflight validation of every mandatory source artifact.
     if (-not (Show-License)) {
         Write-Host "Installation cancelled (license not accepted)." -ForegroundColor Yellow
         exit 2
     }
 
-    # Create root directory
-    if (-not (Test-Path $Root)) {
-        New-Item -ItemType Directory -Path $Root -Force | Out-Null
-    }
+    Assert-OmniSpecRootAvailable -Root $Root -InstallScope $Scope
+    $pathScope = if ($Scope -eq "PerUser") { "User" } else { "Machine" }
 
-    # Determine source directory (build output adjacent to this script)
     $scriptDir = $PSScriptRoot
     if (-not $scriptDir) {
         $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
     }
-    $repoRoot = Resolve-Path (Join-Path $scriptDir "..\..") -ErrorAction SilentlyContinue
-    if (-not $repoRoot) {
-        $repoRoot = Resolve-Path (Join-Path $scriptDir "..") -ErrorAction SilentlyContinue
-    }
-    # Check release build first, then debug
+    $repoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptDir "..\..") -ErrorAction Stop).Path
+
     $buildDir = Join-Path $repoRoot "target\release"
-    if (-not (Test-Path $buildDir)) {
+    if (-not (Test-Path -LiteralPath $buildDir -PathType Container)) {
         $buildDir = Join-Path $repoRoot "target\debug"
     }
-
-    if (-not (Test-Path $buildDir)) {
-        Write-ErrorStep "Build output directory not found: $buildDir"
-        Write-Host "Build Omni first (cargo build --workspace --locked)." -ForegroundColor Yellow
-        exit 1
+    if (-not (Test-Path -LiteralPath $buildDir -PathType Container)) {
+        throw "Build output directory not found: $buildDir. Build Omni first with cargo build --workspace --locked."
     }
 
-    # Product-facing tools that can operate from the installed payload.
-    # Repository-analysis tools are intentionally not shipped as standalone
-    # product commands because their source workspace is not installed.
-    $executables = @(
-        "omni-driver.exe",
-        "omni-fmt.exe",
-        "omni-canon.exe",
-        "omni-registry.exe"
-    )
-
-    $manifestObj = [pscustomobject]@{
-        version    = $SETUP_VERSION
-        scope      = $Scope
-        root       = $Root
-        installedOn = (Get-Date).ToString("o")
-        files      = @()
+    $executables = @("omni-driver.exe", "omni-fmt.exe", "omni-canon.exe", "omni-registry.exe")
+    $missingExecutables = @($executables | Where-Object { -not (Test-Path -LiteralPath (Join-Path $buildDir $_) -PathType Leaf) })
+    if ($missingExecutables.Count -gt 0) {
+        throw "Required product executables are missing from '$buildDir': $($missingExecutables -join ', ')"
     }
 
-    $manifestRef = [ref] $manifestObj
-
-    # Install binaries
-    Write-ProgressStep -Message "Installing executables" -Percent 20
-    $binDir = Join-Path $Root "bin"
-    foreach ($exe in $executables) {
-        $src = Join-Path $buildDir $exe
-        if (-not (Test-Path $src -PathType Leaf)) {
-            throw "Required product executable is missing from the build output: $src"
-        }
-        if (-not (Test-Path $binDir)) {
-            New-Item -ItemType Directory -Path $binDir -Force | Out-Null
-        }
-        Copy-Item $src (Join-Path $binDir $exe) -Force
-        $manifestObj.files += @("bin\$exe")
-    }
-
-    # Install the real Rust-backed C ABI DLL. A marker file is never an ABI.
-    Write-ProgressStep -Message "Installing compiled runtime and SDK" -Percent 50
-    $libDir = Join-Path $Root "lib"
-    New-Item -ItemType Directory -Path $libDir -Force | Out-Null
     $runtimeDllSource = Join-Path $buildDir "omni_runtime_ffi.dll"
-    if (-not (Test-Path $runtimeDllSource -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $runtimeDllSource -PathType Leaf)) {
         throw "Compiled runtime DLL is missing: $runtimeDllSource"
     }
-    Copy-Item -LiteralPath $runtimeDllSource -Destination (Join-Path $libDir "omni_runtime_ffi.dll") -Force
-    $manifestObj.files += @("lib\omni_runtime_ffi.dll")
 
-    # Prefer the cdylib import library; use the static library only when the
-    # selected Windows linker does not emit a separate DLL import library.
     $importLibCandidates = @(Get-ChildItem -LiteralPath $buildDir -File -Filter "omni_runtime_ffi*.lib")
     $importLibSource = $importLibCandidates |
         Where-Object { $_.Name.EndsWith(".dll.lib", [StringComparison]::OrdinalIgnoreCase) } |
@@ -566,48 +511,95 @@ function Install-Omni {
         throw "Compiled runtime import/static library is missing from $buildDir."
     }
 
-    Write-ProgressStep -Message "Installing actual C API header and library" -Percent 65
+    $headerSource = Join-Path $repoRoot "compiler\omni-runtime\include\omni-rt.h"
+    if (-not (Test-Path -LiteralPath $headerSource -PathType Leaf)) {
+        throw "Runtime C API header is missing: $headerSource"
+    }
+
+    $specSource = Join-Path $repoRoot "spec"
+    if (-not (Test-Path -LiteralPath (Join-Path $specSource "manifest\omni-edition1.manifest.json") -PathType Leaf)) {
+        throw "Normative specification payload is incomplete: $specSource"
+    }
+    $toolchainSource = Join-Path $repoRoot "rust-toolchain.toml"
+    if (-not (Test-Path -LiteralPath $toolchainSource -PathType Leaf)) {
+        throw "Pinned toolchain declaration is missing: $toolchainSource"
+    }
+
+    # All mandatory source artifacts are available. Now an old installation
+    # can be replaced safely with respect to missing build inputs.
+    $manifest = Read-Manifest -Root $Root
+    $existing = $manifest.PSObject.Properties.Name -contains "files"
+    if ($existing) {
+        Write-Info "Existing Omni installation detected at '$Root'."
+        if (-not $Quiet) {
+            $choice = Read-Host "Upgrade existing installation? (y/n)"
+            if ($choice -ne "y" -and $choice -ne "Y") {
+                Write-Host "Installation cancelled." -ForegroundColor Yellow
+                exit 0
+            }
+        }
+        foreach ($oldFile in $manifest.files) {
+            $oldPath = Resolve-InstallOwnedPath -Root $Root -RelativePath $oldFile
+            if (Test-Path -LiteralPath $oldPath -PathType Leaf) {
+                Remove-Item -LiteralPath $oldPath -Force
+            }
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        New-Item -ItemType Directory -Path $Root -Force | Out-Null
+    }
+
+    $manifestObj = [pscustomobject]@{
+        version     = $SETUP_VERSION
+        scope       = $Scope
+        root        = $Root
+        installedOn = (Get-Date).ToString("o")
+        files       = @()
+    }
+
+    Write-ProgressStep -Message "Installing executables" -Percent 20
+    $binDir = Join-Path $Root "bin"
+    New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+    foreach ($exe in $executables) {
+        Copy-Item -LiteralPath (Join-Path $buildDir $exe) -Destination (Join-Path $binDir $exe) -Force
+        $manifestObj.files += @("bin\$exe")
+    }
+
+    # Put the runtime DLL beside the tools so Windows can locate it for external
+    # C clients when the installed bin directory is on PATH.
+    Copy-Item -LiteralPath $runtimeDllSource -Destination (Join-Path $binDir "omni_runtime_ffi.dll") -Force
+    $manifestObj.files += @("bin\omni_runtime_ffi.dll")
+
+    Write-ProgressStep -Message "Installing C API SDK" -Percent 50
     $sdkDir = Join-Path $Root "sdk"
     $incDir = Join-Path $sdkDir "include"
     $libSdkDir = Join-Path $sdkDir "lib"
     New-Item -ItemType Directory -Path $incDir -Force | Out-Null
     New-Item -ItemType Directory -Path $libSdkDir -Force | Out-Null
-    $headerSource = Join-Path $repoRoot "compiler\omni-runtime\include\omni-rt.h"
-    if (-not (Test-Path $headerSource -PathType Leaf)) {
-        throw "Runtime C API header is missing: $headerSource"
-    }
     Copy-Item -LiteralPath $headerSource -Destination (Join-Path $incDir "omni-rt.h") -Force
     Copy-Item -LiteralPath $importLibSource.FullName -Destination (Join-Path $libSdkDir "omni-rt.lib") -Force
     $manifestObj.files += @("sdk\include\omni-rt.h", "sdk\lib\omni-rt.lib")
 
-    # The Rust standard-library crate is currently a support crate, not a
-    # distributable .oml source library. Do not fabricate one.
-
-    # Copy the exact manifest-bound normative specification required at runtime.
-    $specSource = Join-Path $repoRoot "spec"
-    if (-not (Test-Path (Join-Path $specSource "manifest\omni-edition1.manifest.json") -PathType Leaf)) {
-        throw "Normative specification payload is incomplete: $specSource"
-    }
+    Write-ProgressStep -Message "Installing Edition 1 specification" -Percent 65
     $shareDir = Join-Path $Root "share"
     $specDest = Join-Path $shareDir "spec"
     New-Item -ItemType Directory -Path $specDest -Force | Out-Null
     foreach ($entry in (Get-ChildItem -LiteralPath $specSource -Force)) {
         Copy-Item -LiteralPath $entry.FullName -Destination $specDest -Recurse -Force
     }
-    $toolchainSource = Join-Path $repoRoot "rust-toolchain.toml"
-    if (-not (Test-Path $toolchainSource -PathType Leaf)) {
-        throw "Pinned toolchain declaration is missing: $toolchainSource"
-    }
     Copy-Item -LiteralPath $toolchainSource -Destination (Join-Path $shareDir "rust-toolchain.toml") -Force
     $manifestObj.files += @("share\rust-toolchain.toml")
-    foreach ($specFile in (Get-ChildItem -LiteralPath $specDest -Recurse -File)) {
-        $relative = $specFile.FullName.Substring($Root.TrimEnd('\').Length).TrimStart('\')
-        $manifestObj.files += @($relative)
+
+    # Derive each path relative to the same enumeration root. A substring of a
+    # differently-spelled install root breaks when Windows uses 8.3 aliases.
+    foreach ($specFile in (Get-ChildItem -LiteralPath $specDest -Recurse -File -Force)) {
+        $relativeSpecFile = [IO.Path]::GetRelativePath($specDest, $specFile.FullName)
+        $manifestObj.files += @((Join-Path "share\spec" $relativeSpecFile))
     }
 
-    # Install docs and examples
+    # omni-std is a Rust support crate, not a distributable .oml source tree.
     Write-ProgressStep -Message "Installing documentation and examples" -Percent 75
-    $shareDir = Join-Path $Root "share"
     $docDir = Join-Path $shareDir "doc"
     $examplesDir = Join-Path $shareDir "examples"
     $templatesDir = Join-Path $shareDir "templates"
@@ -616,30 +608,34 @@ function Install-Omni {
     New-Item -ItemType Directory -Path $templatesDir -Force | Out-Null
 
     $readme = Join-Path $docDir "README.md"
-    Set-Content -Path $readme -Value "# Omni v$SETUP_VERSION`n`nInstalled at: $Root" -Encoding UTF8
+    $readmeContent = "# Omni v$SETUP_VERSION" + [Environment]::NewLine + [Environment]::NewLine + "Installed at: $Root"
+    Set-Content -LiteralPath $readme -Value $readmeContent -Encoding UTF8
     $manifestObj.files += @("share\doc\README.md")
 
     $hello = Join-Path $examplesDir "hello.omni"
-    Set-Content -Path $hello -Value "fn main() -> i64 {`n    return 42;`n}" -Encoding UTF8
+    $helloContent = "fn main() -> i64 {" + [Environment]::NewLine + "    return 42;" + [Environment]::NewLine + "}"
+    Set-Content -LiteralPath $hello -Value $helloContent -Encoding UTF8
     $manifestObj.files += @("share\examples\hello.omni")
 
     $tmpl = Join-Path $templatesDir "app\main.omni"
     $tmplDir = Split-Path -Parent $tmpl
     New-Item -ItemType Directory -Path $tmplDir -Force | Out-Null
-    Set-Content -Path $tmpl -Value "fn main() -> i64 {`n    return 0;`n}" -Encoding UTF8
+    $templateContent = "fn main() -> i64 {" + [Environment]::NewLine + "    return 0;" + [Environment]::NewLine + "}"
+    Set-Content -LiteralPath $tmpl -Value $templateContent -Encoding UTF8
     $manifestObj.files += @("share\templates\app\main.omni")
 
-    # Write manifest
+    $sbomPath = Join-Path $docDir "sbom.cdx.json"
+    $null = Write-SBOM -Root $Root -Manifest $manifestObj -OutputPath $sbomPath
+    $manifestObj.files += @("share\doc\sbom.cdx.json")
+
     Write-Manifest -Root $Root -Manifest $manifestObj
 
-    # PATH management
     Write-ProgressStep -Message "Configuring PATH" -Percent 90
     $binDirForPath = Join-Path $Root "bin"
-    Add-OmniPathEntry -BinDir $binDirForPath -Scope $pathScope
+    $null = Add-OmniPathEntry -BinDir $binDirForPath -Scope $pathScope
     Set-OmniSpecRoot -Root $Root -InstallScope $Scope
 
     Write-ProgressStep -Message "Installation complete" -Percent 100
-
     Write-Host @"
 ================================================================================
                     Omni v$SETUP_VERSION installed successfully
@@ -649,7 +645,7 @@ Scope:        $Scope
 Bin directory: $binDirForPath
 
 The Omni executable directory has been added to the $pathScope PATH.
-Please open a new terminal to use the `omni` command.
+Open a new terminal to use omni-driver and omni-fmt.
 
 Quick start:
   omni-driver --help
@@ -699,7 +695,7 @@ function Uninstall-Omni {
 
     # Remove empty directories (bottom-up)
     Write-ProgressStep -Message "Removing empty directories" -Percent 80
-    $dirs = Get-ChildItem $Root -Directory -Recurse | Sort-Object -Property FullName -Descending
+    $dirs = Get-ChildItem -LiteralPath $Root -Directory -Recurse -Force | Sort-Object -Property FullName -Descending
     foreach ($dir in $dirs) {
         $childItems = Get-ChildItem $dir.FullName -Force -ErrorAction SilentlyContinue
         if (-not $childItems) {
@@ -753,25 +749,29 @@ function Compute-FileChecksum {
 }
 
 function Write-SBOM {
-    param([string] $Root, [pscustomobject] $Manifest)
+    param(
+        [string] $Root,
+        [pscustomobject] $Manifest,
+        [string] $OutputPath
+    )
 
     $components = @()
     foreach ($file in $Manifest.files) {
         $fullPath = Resolve-InstallOwnedPath -Root $Root -RelativePath $file
-        if (Test-Path $fullPath -PathType Leaf) {
+        if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
             $checksum = Compute-FileChecksum -Path $fullPath
-            if ($checksum) {
-                $components += @{
-                    type = "file"
-                    name = $file
-                    version = $Manifest.version
-                    hashes = @(@{ alg = "SHA-256"; content = $checksum })
-                }
+            if (-not $checksum) {
+                throw "Unable to calculate SHA-256 for installed file '$file'."
+            }
+            $components += @{
+                type = "file"
+                name = $file.Replace("\", "/")
+                version = $Manifest.version
+                hashes = @(@{ alg = "SHA-256"; content = $checksum.ToLowerInvariant() })
             }
         }
     }
 
-    # CycloneDX 1.5 JSON with hashes of files that actually exist.
     $sbom = @{
         bomFormat = "CycloneDX"
         specVersion = "1.5"
@@ -786,9 +786,12 @@ function Write-SBOM {
         }
         components = $components
     }
-    $sbomPath = Join-Path $env:TEMP "omni-sbom-$($Manifest.scope)-$([guid]::NewGuid().ToString('N')).json"
-    $sbom | ConvertTo-Json -Depth 20 | Set-Content -Path $sbomPath -Encoding UTF8
-    Write-Info "CycloneDX SBOM written to $sbomPath"
+
+    $parent = Split-Path -Parent $OutputPath
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    $sbom | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
+    Write-Info "CycloneDX SBOM written to $OutputPath ($($components.Count) file components)."
+    return $OutputPath
 }
 
 try {

@@ -53,20 +53,43 @@ function Get-PathEntries {
 function Test-PathPreservation {
     param([string] $Root, [string] $BaselineUserPath)
 
-    $binDir = [IO.Path]::GetFullPath((Join-Path $Root "bin"))
+    # Use the same raw path construction as Add-OmniPathEntry. Windows may
+    # preserve an 8.3 alias in PATH; GetFullPath can render the same location
+    # with a different spelling and create a false-negative assertion.
+    $binDir = (Join-Path $Root "bin").TrimEnd('\')
     $before = @(Get-PathEntries $BaselineUserPath)
     $after = @(Get-PathEntries ([Environment]::GetEnvironmentVariable("PATH", "User")))
-    $owned = @($after | Where-Object { $_.TrimEnd('\') -ieq $binDir.TrimEnd('\') })
-    $withoutOwned = @($after | Where-Object { $_.TrimEnd('\') -ine $binDir.TrimEnd('\') })
-    $unchanged = ($before.Count -eq $withoutOwned.Count)
-    if ($unchanged) {
-        for ($i = 0; $i -lt $before.Count; $i++) {
-            if ($before[$i] -ine $withoutOwned[$i]) { $unchanged = $false; break }
+    $owned = @($after | Where-Object { $_.TrimEnd('\') -ieq $binDir })
+    $withoutOwned = @($after | Where-Object { $_.TrimEnd('\') -ine $binDir })
+
+    # Every prior entry must still occur once and in the same order.
+    $beforeIndex = 0
+    $unexpected = @()
+    foreach ($entry in $withoutOwned) {
+        if ($beforeIndex -lt $before.Count -and
+            [string]::Equals($entry.TrimEnd('\'), $before[$beforeIndex].TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+            $beforeIndex++
+        } else {
+            $unexpected += $entry
         }
     }
+    $unchanged = ($beforeIndex -eq $before.Count -and $unexpected.Count -eq 0)
     $passed = ($owned.Count -eq 1 -and $unchanged)
-    Write-TestResult "PATH preservation and single owned entry" $passed
+    $notes = "expected bin='$binDir'; owned=$($owned -join ','); baseline=$($before -join ';'); actual=$($after -join ';'); unexpected=$($unexpected -join ';')"
+    Write-TestResult "PATH preservation and single owned entry" $passed $notes
     return $passed
+}
+
+function Test-InstalledCApi {
+    param([string] $Root)
+
+    $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
+    $scriptPath = (Resolve-Path (Join-Path $PSScriptRoot "....ci	est-c-api.ps1")).Path
+    $output = & $pwsh -NoProfile -File $scriptPath -InstallRoot $Root 2>&1
+    $exitCode = $LASTEXITCODE
+    foreach ($line in $output) { Write-Host $line }
+    Write-TestResult "External C clients compile, link and run against installed SDK" ($exitCode -eq 0) "exit=$exitCode"
+    return ($exitCode -eq 0)
 }
 
 function Test-InstalledPayload {
@@ -77,18 +100,42 @@ function Test-InstalledPayload {
         "bin\omni-fmt.exe",
         "bin\omni-canon.exe",
         "bin\omni-registry.exe",
-        "lib\omni_runtime_ffi.dll",
+        "bin\omni_runtime_ffi.dll",
         "sdk\include\omni-rt.h",
         "sdk\lib\omni-rt.lib",
         "share\rust-toolchain.toml",
         "share\spec\manifest\omni-edition1.manifest.json",
         "share\spec\grammar\omni-edition1.ebnf",
         "share\spec\registry\rules.json",
+        "share\doc\sbom.cdx.json",
         "install-manifest.json"
     )
     $missing = @($required | Where-Object { -not (Test-Path (Join-Path $Root $_) -PathType Leaf) })
     Write-TestResult "Installed runtime, SDK and normative specification payload" ($missing.Count -eq 0) ($missing -join ", ")
-    return ($missing.Count -eq 0)
+    if ($missing.Count -gt 0) { return $false }
+
+    $manifest = Get-Content -LiteralPath (Join-Path $Root "install-manifest.json") -Raw | ConvertFrom-Json
+    $specRoot = Join-Path $Root "share\spec"
+    $specFiles = @(Get-ChildItem -LiteralPath $specRoot -Recurse -File -Force)
+    $trackedSpecFiles = @($manifest.files | Where-Object { $_ -like "share\spec\*" })
+    $specPathsMatch = ($specFiles.Count -eq $trackedSpecFiles.Count)
+    if ($specPathsMatch) {
+        foreach ($specFile in $specFiles) {
+            $relative = [IO.Path]::GetRelativePath($specRoot, $specFile.FullName)
+            $manifestPath = Join-Path "share\spec" $relative
+            if ($manifestPath -notin $trackedSpecFiles) { $specPathsMatch = $false; break }
+        }
+    }
+    Write-TestResult "Install manifest covers every specification file" $specPathsMatch "spec files=$($specFiles.Count); tracked=$($trackedSpecFiles.Count)"
+
+    $sbom = Get-Content -LiteralPath (Join-Path $Root "share\doc\sbom.cdx.json") -Raw | ConvertFrom-Json
+    $sbomNames = @($sbom.components | ForEach-Object { $_.name.Replace("/", "\") })
+    $sbomValid = ($sbom.bomFormat -eq "CycloneDX" -and $sbom.specVersion -eq "1.5" -and
+        $sbom.version -eq 1 -and $sbomNames -contains "bin\omni-driver.exe" -and
+        $sbomNames -contains "bin\omni_runtime_ffi.dll" -and $sbomNames -contains "sdk\include\omni-rt.h")
+    Write-TestResult "CycloneDX SBOM binds installed payload hashes" $sbomValid
+
+    return ($specPathsMatch -and $sbomValid)
 }
 
 function Test-LaunchAndRun {
@@ -111,9 +158,13 @@ function Test-LaunchAndRun {
         $runText = ($runOutput | Out-String)
         Write-TestResult "Installed driver --run using installed spec" ($runCode -eq 0 -and $runText.Contains("Exit code: 0")) $runText.Trim()
 
+        $formatOutput = & $fmt $source 2>&1
+        $formatCode = $LASTEXITCODE
+        Write-TestResult "Installed formatter formats valid source" ($formatCode -eq 0) (($formatOutput | Out-String).Trim())
+
         $formatted = & $fmt --check $source 2>&1
         $fmtCode = $LASTEXITCODE
-        Write-TestResult "Installed formatter --check" ($fmtCode -eq 0)
+        Write-TestResult "Installed formatter --check after formatting" ($fmtCode -eq 0)
 
         $objectPath = Join-Path $script:TEST_ROOT "hello.o"
         $nativeOutput = & $driver --native -o $objectPath $source 2>&1
@@ -121,7 +172,7 @@ function Test-LaunchAndRun {
         $sidecar = [IO.Path]::ChangeExtension($objectPath, "provenance.json")
         $nativePassed = ($nativeCode -eq 0 -and (Test-Path $objectPath -PathType Leaf) -and (Test-Path $sidecar -PathType Leaf))
         Write-TestResult "Installed native emission and provenance sidecar" $nativePassed (($nativeOutput | Out-String).Trim())
-        return ($helpCode -eq 0 -and $runCode -eq 0 -and $fmtCode -eq 0 -and $nativePassed)
+        return ($helpCode -eq 0 -and $runCode -eq 0 -and $formatCode -eq 0 -and $fmtCode -eq 0 -and $nativePassed)
     } finally {
         $env:OMNI_SPEC_ROOT = $oldProcessSpec
     }
@@ -150,6 +201,7 @@ try {
     if (Invoke-Installer -Mode Install -Root $rootOne) {
         $overall = (Test-PathPreservation -Root $rootOne -BaselineUserPath $baselinePath) -and $overall
         $overall = (Test-InstalledPayload -Root $rootOne) -and $overall
+        $overall = (Test-InstalledCApi -Root $rootOne) -and $overall
         $overall = (Test-LaunchAndRun -Root $rootOne) -and $overall
 
         $driverPath = Join-Path $rootOne "bin\omni-driver.exe"
