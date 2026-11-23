@@ -19,10 +19,8 @@ struct TempTestDir {
 impl TempTestDir {
     fn new(label: &str) -> Self {
         let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "omni-edition1-conformance-{}-{id}-{label}",
-            std::process::id()
-        ));
+        let path = std::env::temp_dir()
+            .join(format!("omni-edition1-conformance-{}-{id}-{label}", std::process::id()));
         std::fs::create_dir(&path).expect("create unique conformance test directory");
         Self { path }
     }
@@ -89,9 +87,7 @@ fn compile_native_object(source: &str) -> (u64, u64) {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let object_size = std::fs::metadata(&object_path)
-        .expect("native object must be created")
-        .len();
+    let object_size = std::fs::metadata(&object_path).expect("native object must be created").len();
     assert!(object_size > 0, "native object must not be empty");
 
     let sidecar = object_path.with_extension("provenance.json");
