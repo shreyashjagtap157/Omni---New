@@ -4,6 +4,8 @@
 > **Gate inventory reconciliation — 2026-11-23:** The fixed first-stage denominator is 26 unique requirements. The current evidence-backed inventory is **22 Verified / 2 Partial / 1 Accepted / 1 Blocked**. COMP-017 is excluded as a duplicate of COMP-011's full indirect-call emission scope; COMP-018 is excluded because no such requirement is registered. Neither exclusion is counted toward the 26 mandatory requirements.
 >
 > **COMP-019 is Partial:** `compiler/omni-pkg/src/main.rs` and `compiler/omni-build/src/main.rs` remain placeholder entry points. Their successful compilation only proves that the placeholder crates compile; it does not prove package management, dependency resolution, build orchestration or artifact management. The inventory therefore does not claim COMP-019 as Verified.
+>
+> **COMP-020 is Partial:** the current macOS indirect-function-pointer end-to-end test fails at Apple link time with an illegal text relocation from `_omni_main` to `_inc`. Linux and Windows passed on the same CI revision. The earlier successful macOS workflow covered a different commit and does not prove the current matrix.
 
 ## Status Tracking for Mandatory Inventory Items
 
@@ -17,7 +19,7 @@
 | Blocked    | 1     | INST-002 (production code signing certificates required) |
 | **Total**  | **26**| Mandatory items |
 
-## Verified Items (23)
+## Verified Items (22)
 
 | ID | Item | Crate/Module | Tests/Evidence | Status |
 |----|------|-------------|----------------|--------|
@@ -37,7 +39,7 @@
 | COMP-014 | Conformance test suite | compiler/omni-driver/tests/ | 70 tests passing (65 original + 5 new) | Verified |
 | COMP-015 | Driver CLI --run flag | compiler/omni-driver/src/main.rs | --run flag supported, links and runs | Verified |
 | COMP-016 | Installer qualification docs | tools/omni-installer/ | INSTALLER_QUALIFICATION.md created | Verified |
-| COMP-020 | Linux/macOS compatibility | Historical run 44746310922 passed its then-current coverage; current push run 45142790701 on 8f4878e failed macOS indirect-call E2E with Apple ld text relocation (`_omni_main` → `_inc`); Linux and Windows passed | Partial — previous coverage remains valid for that revision, but the current declared macOS target matrix is not green |
+
 | INST-003 | Checksums/SBOM generation | tools/omni-installer/ | Compute-FileChecksum() (SHA256) and Write-SBOM() functions implemented; SBOM structure defined | Verified |
 | COMP-021 | Release-candidate stabilization | BLD-006 | RC cycle completed: clean build, full test matrix (fmt, clippy, test), checksums/SBOM generated, installer qualification passed | Verified |
 | COMP-022 | Windows installer qualification (clean Windows) | INST-001/003 | Windows CI job (windows-latest) runs installer-qualify.ps1. Local qualification passed: per-user install, paths with spaces, upgrade, repair, uninstall, reinstall, driver --help, driver --run | Verified |
@@ -45,11 +47,12 @@
 | COMP-023 | Reference provenance for projected places | compiler/omni-verify/src/ownership.rs | reference_slot_loans map; dereference through projected place resolves slot provenance; 74 ownership tests pass | Verified |
 | COMP-024 | Aggregate-contained reference provenance | compiler/omni-verify/src/ownership.rs | track_aggregate_reference_provenance() records provenance for references stored in struct fields, tuple elements, array elements; move ends source slot loan; 74 ownership tests pass | Verified |
 
-## Partial Items (1)
+## Partial Items (2)
 
 | ID | Item | Crate/Module | Tests/Evidence | Status |
 |----|------|-------------|----------------|--------|
 | COMP-019 | Package/build tools | compiler/omni-pkg/, compiler/omni-build/ | Both entry points remain TODO-only placeholders; workspace compilation is not behavioral evidence | Partial |
+| COMP-020 | Linux/macOS compatibility | CI run 45142790701 on `8f4878e` passed Linux and Windows; macOS `test_indirect_function_pointer_call_verifies_emits_and_executes` failed because Apple `ld` rejected an illegal text relocation (`_omni_main` → `_inc`, 29 passed / 1 failed in omni-codegen) | Partial — current three-platform matrix is not green; fix native target relocation and rerun CI |
 
 ## Accepted Items (1)
 
