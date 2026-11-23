@@ -20,6 +20,10 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & ./ci/test-memory-models.ps1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+Write-Host "[Step] Test strict inventory validator"
+& python ./ci/tests/test_validate_inventory_strict.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # Umask equivalent (Windows ACLs are not POSIX; skip the 0022 check).
 
 # Formatting check.

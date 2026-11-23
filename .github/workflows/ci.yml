@@ -85,6 +85,10 @@ jobs:
         shell: pwsh
         run: ./ci/test-memory-models.ps1
 
+      - name: Test strict inventory validator
+        shell: pwsh
+        run: python ./ci/tests/test_validate_inventory_strict.py
+
       - name: Check formatting
         shell: pwsh
         run: cargo fmt --all -- --check
@@ -140,6 +144,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Report strict inventory and source evidence
+        run: python3 ./ci/validate-inventory-strict.py --informational --json | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Report exact gate blockers
         env:
@@ -270,11 +277,6 @@ jobs:
                           f"the declared total ({len(summary_ids)} + {accepted} + "
                           f"{blocked} != {total})."
                       )
-                  if re.search(r"^\|\s*COMP-018\s*\|\s*N/A", inventory, re.M):
-                      blockers.append(
-                          "COMP-018 is listed as N/A while the mandatory inventory is "
-                          "declared as 26; reconcile the canonical requirement set."
-                      )
           else:
               blockers.append("IMPLEMENTATION_INVENTORY.md is absent.")
 
@@ -287,6 +289,24 @@ jobs:
           codegen_sources = list(codegen_dir.rglob("*.rs")) if codegen_dir.is_dir() else []
           if not any("call_indirect" in path.read_text(encoding="utf-8") for path in codegen_sources):
               blockers.append("COMP-011/COMP-017 claim is not verified: no call_indirect emission found in codegen sources.")
+
+          for relative in (
+              "compiler/omni-pkg/src/main.rs",
+              "compiler/omni-build/src/main.rs",
+          ):
+              source = root / relative
+              if not source.is_file():
+                  blockers.append(f"COMP-019 evidence source is absent: {relative}.")
+              else:
+                  content = source.read_text(encoding="utf-8")
+                  if "TODO: Implement" in content or (
+                      relative.endswith("omni-pkg/src/main.rs") and "omni-pkg package manager" in content
+                  ) or (
+                      relative.endswith("omni-build/src/main.rs") and "omni-build build tool" in content
+                  ):
+                      blockers.append(
+                          f"COMP-019 is not substantiated: {relative} remains a placeholder entry point."
+                      )
 
           ffi_dir = root / "compiler/omni-runtime-ffi/src"
           ffi_sources = list(ffi_dir.rglob("*.rs")) if ffi_dir.is_dir() else []

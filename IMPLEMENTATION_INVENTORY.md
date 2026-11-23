@@ -1,7 +1,9 @@
 # Omni Implementation Inventory
 
 
-> **Remote-main evidence warning — 2026-11-21:** The status table below preserves the owner-reported local-workspace snapshot from 2026-11-20. It is **not** an independently verified status count for the public `main` branch. The remote-main audit at commit `0daf201d1e5148e38302c33b5f433c9d2e74737a` found missing implementation paths and inconsistencies between the summary ID list and the detailed item table. Preserve this historical snapshot, but do not use its 24/26 count as current release evidence until the local source is restored, reconciled and requalified. See [Remote-main gate reconciliation](docs/implementation/remote-main-gate-reconciliation-2026-11-21.md).
+> **Gate inventory reconciliation — 2026-11-23:** The agreed first-stage denominator remains 26: 24 owner-baseline Verified items, ADR-0002 Accepted, and INST-002 Blocked. COMP-017 is excluded as a duplicate of COMP-011's full indirect-call emission scope; COMP-018 remains excluded because no such requirement is registered. Neither exclusion is counted toward the 26 mandatory items. This inventory is not a gate pass.
+>
+> **Live evidence discrepancy — COMP-019:** The current `omni-pkg` and `omni-build` executable entry points are TODO-only scaffolds. A successful Cargo build does not demonstrate package management or build orchestration. The owner-baseline 24/1/1 classification is retained for reconciliation, but COMP-019's source-backed verification claim is not substantiated by the current main tree and must be resolved before qualification.
 
 ## Status Tracking for Mandatory Inventory Items
 
@@ -9,13 +11,13 @@
 
 | Category   | Count | Items |
 |------------|-------|-------|
-| Verified   | 25    | COMP-001–017, COMP-019, COMP-020, INST-003, COMP-021, COMP-022, PLAT-001, COMP-023, COMP-024 |
+| Verified   | 24    | COMP-001–016, COMP-019–024, INST-003, PLAT-001 |
 | Partial    | 0     | (all mandatory items verified or externally blocked) |
 | Accepted   | 1     | ADR-0002 (Alternative C approved; formal qualification record pending) |
 | Blocked    | 1     | INST-002 (production code signing certificates required) |
 | **Total**  | **26**| Mandatory items |
 
-## Verified Items (25)
+## Verified Items (24)
 
 | ID | Item | Crate/Module | Tests/Evidence | Status |
 |----|------|-------------|----------------|--------|
@@ -30,7 +32,6 @@
 | COMP-009 | Effects system | compiler/omni-effects/ | 18 passing tests | Verified |
 | COMP-010 | Trait system | compiler/omni-traits/ | 10 passing tests | Verified |
 | COMP-011 | Codegen indirect calls (full emission) | compiler/omni-codegen/ | FnPtr codegen with call_indirect, ABI computation | Verified |
-| COMP-017 | Codegen full indirect calls (beyond detection) | compiler/omni-codegen/ | Full emission implemented - FnPtr + call_indirect + ABI | Verified |
 | COMP-012 | Shell completions (PowerShell) | tools/omni-driver/completion.ps1 | --help, --native, --output, --opt-level | Verified |
 | COMP-013 | Shell completions (CMD) | tools/omni-driver/completion.cmd | All PowerShell options + value completion | Verified |
 | COMP-014 | Conformance test suite | compiler/omni-driver/tests/ | 70 tests passing (65 original + 5 new) | Verified |
@@ -57,6 +58,19 @@
 |----|------|-------------|------------|
 | INST-002 | Installer code signing | tools/omni-installer/ | Invoke-FileSigning() implemented; test-certificate signing VERIFIED (ephemeral self-signed cert: cert discovery, file signing, tampered-file rejection, missing/invalid cert handling all verified). Production-trusted publisher identity UNQUALIFIED - requires genuine trusted production certificate per owner authorization G. | Production code signing certificates required |
 
+## Excluded Identifiers (2)
+
+| ID | Item | Reason |
+|----|------|--------|
+| COMP-017 | Codegen full indirect calls | Duplicate acceptance scope already covered by COMP-011 full indirect-call emission; COMP-011 remains the single counted requirement. |
+| COMP-018 | Reserved/unknown identifier | No COMP-018 requirement is registered; it is not a mandatory inventory item. |
+
+## Live Evidence Discrepancies
+
+| ID | Evidence conflict | Gate treatment |
+|----|-------------------|----------------|
+| COMP-019 | `compiler/omni-pkg/src/main.rs` and `compiler/omni-build/src/main.rs` contain TODO-only placeholder entry points. Cargo build/test success with no meaningful subsystem tests does not substantiate package management or build orchestration. | Preserve the owner-baseline count while recording the discrepancy; do not claim first-stage gate passage until the requirement is implemented and evidence is complete. |
+
 ## Requirement Identifier Status Summary
 
 | ID | Status |
@@ -77,7 +91,7 @@
 | COMP-014 | Verified |
 | COMP-015 | Verified |
 | COMP-016 | Verified |
-| COMP-017 | Verified |
+| COMP-017 | N/A (duplicate of COMP-011; not a separate mandatory requirement) |
 | COMP-018 | N/A (identifier does not exist) |
 | COMP-019 | Verified |
 | COMP-020 | Verified |
@@ -111,4 +125,4 @@
 
 ## Last Updated
 
-2026-11-21: Inventory reconciled: COMP-020 added to verified items table with GitHub Actions run 44746310922 evidence; summary count corrected from 24 to 25 Verified; total mandatory items clarified to 26 (25 Verified + 1 Blocked). COMP-018 marked N/A and excluded from mandatory count. ADR-0002 Accepted status preserved. All workspace checks pass (fmt=0, clippy=0, build=0, test=0). INST-002 remains Blocked - production code signing certificates required.
+2026-11-23: Reconciled the mandatory denominator to the owner-supplied 26-item gate: 24 Verified / ADR-0002 Accepted / INST-002 Blocked. COMP-017 is an exclusion duplicating COMP-011; COMP-018 is unregistered and excluded. COMP-019 has a live source evidence discrepancy because the package/build entry points are TODO-only scaffolds.
