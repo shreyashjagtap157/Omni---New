@@ -104,7 +104,7 @@ def expand_identifier_listing(listing: str) -> tuple[set[str], list[str]]:
     for raw in listing.split(","):
         token = raw.strip()
         range_match = re.fullmatch(r"([A-Z]+)-(\d{3})[–-](\d{3})", token)
-        single_match = re.fullmatch(r"([A-Z]+)-(\d{3})", token)
+        single_match = re.fullmatch(r"([A-Z]+)-(\d{3,4})", token)
         if range_match:
             prefix, first, last = range_match.groups()
             start, stop = int(first), int(last)
@@ -113,8 +113,8 @@ def expand_identifier_listing(listing: str) -> tuple[set[str], list[str]]:
                 continue
             expanded.update(f"{prefix}-{number:03d}" for number in range(start, stop + 1))
         elif single_match:
-            prefix, number = single_match.groups()
-            expanded.add(f"{prefix}-{int(number):03d}")
+            prefix, digits = single_match.groups()
+            expanded.add(f"{prefix}-{int(digits):0{len(digits)}d}")
         else:
             errors.append(f"Unparseable Verified listing token: {token!r}.")
     return expanded, errors
